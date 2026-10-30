@@ -11,3 +11,4 @@ mozilla-django-oidc==4.0.1
 django-modeltranslation==0.19.11
 # ASGI server (dev + prod).
 uvicorn[standard]==0.34.0
+httpx==0.28.1
