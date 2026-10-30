@@ -10,7 +10,8 @@ import "./i18n";
 import { ThemeProvider } from "@basicbar/ui";
 import App from "./App";
 import { Overview } from "./pages/Overview";
-import { InvitationsAdmin, RecordersAdmin, RoomView, SettingsAdmin } from "./pages/Placeholders";
+import { InvitationsAdmin, RecordersAdmin, SettingsAdmin } from "./pages/Placeholders";
+import { RoomView } from "./pages/RoomView";
 
 const router = createBrowserRouter([
   {

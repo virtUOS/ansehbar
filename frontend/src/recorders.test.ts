@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { Recorder } from "./api";
-import { filterOverview, formatDuration, mergeRecorders, sortForOverview } from "./recorders";
+import { filterOverview, formatDuration, stateTransition, mergeRecorders, sortForOverview } from "./recorders";
 
 function rec(id: number, room: string, state: Recorder["status"]["state"] = "offline"): Recorder {
   return {
@@ -83,5 +83,16 @@ describe("filterOverview", () => {
   it("matches stream names and empty query matches everything", () => {
     expect(filterOverview(list, "all", "E34").map((r) => r.id)).toEqual([2]);
     expect(filterOverview(list, "now", "  ").map((r) => r.id)).toEqual([1, 3]);
+  });
+});
+
+describe("stateTransition", () => {
+  it("announces only live<->offline changes after the first load", () => {
+    expect(stateTransition(undefined, "live")).toBeNull();
+    expect(stateTransition("live", "live")).toBeNull();
+    expect(stateTransition("offline", "live")).toBe("started");
+    expect(stateTransition("unknown", "live")).toBe("started");
+    expect(stateTransition("live", "offline")).toBe("ended");
+    expect(stateTransition("live", "unknown")).toBeNull();
   });
 });

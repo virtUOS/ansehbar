@@ -62,3 +62,15 @@ export function filterOverview(list: Recorder[], mode: "now" | "all", query: str
     return r.room_name.toLowerCase().includes(q) || r.stream_name.toLowerCase().includes(q);
   });
 }
+
+/** Announcement for a live<->offline change; null for first load, "unknown"
+ *  or no change. */
+export function stateTransition(
+  prev: Recorder["status"]["state"] | undefined,
+  next: Recorder["status"]["state"],
+): "started" | "ended" | null {
+  if (prev === undefined || prev === next) return null;
+  if (next === "live") return "started";
+  if (prev === "live" && next === "offline") return "ended";
+  return null;
+}

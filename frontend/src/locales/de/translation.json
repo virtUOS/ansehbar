@@ -44,5 +44,15 @@
   "LIVE": "LIVE",
   "No rooms found.": "Keine Räume gefunden.",
   "Loading…": "Lädt …",
-  "Status not available yet": "Status noch nicht verfügbar"
+  "Status not available yet": "Status noch nicht verfügbar",
+  "Back": "Zurück",
+  "Switch room": "Raum wechseln",
+  "Sound on": "Ton an",
+  "Sound off": "Ton aus",
+  "Fullscreen": "Vollbild",
+  "Last checked {{time}}": "Zuletzt geprüft {{time}}",
+  "Room not found": "Raum nicht gefunden",
+  "Back to overview": "Zurück zur Übersicht",
+  "Stream in {{room}} started": "Stream in {{room}} gestartet",
+  "Stream in {{room}} ended": "Stream in {{room}} beendet"
 }
