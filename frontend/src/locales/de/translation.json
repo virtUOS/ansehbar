@@ -36,8 +36,6 @@
   "No stream – the recorder is not sending right now": "Kein Stream – der Rekorder sendet gerade nicht",
   "No recording room is streaming right now.": "Gerade streamt kein Aufzeichnungsraum.",
   "Status could not be updated – last update {{time}}": "Status konnte nicht aktualisiert werden – letzte Aktualisierung {{time}}",
-  "Turn on sound for {{room}}": "Ton für {{room}} einschalten",
-  "Turn off sound for {{room}}": "Ton für {{room}} ausschalten",
   "Search room": "Raum suchen",
   "Status unknown": "Status unbekannt",
   "No stream": "Kein Stream",
@@ -47,8 +45,6 @@
   "Status not available yet": "Status noch nicht verfügbar",
   "Back": "Zurück",
   "Switch room": "Raum wechseln",
-  "Sound on": "Ton an",
-  "Sound off": "Ton aus",
   "Fullscreen": "Vollbild",
   "Last checked {{time}}": "Zuletzt geprüft {{time}}",
   "Room not found": "Raum nicht gefunden",
@@ -102,5 +98,7 @@
   "Monitor has delivered no data since {{time}} – status may be outdated": "Monitor liefert keine Daten seit {{time}} – Status kann veraltet sein",
   "Playback disrupted – retrying …": "Wiedergabe gestört – neuer Versuch …",
   "Playback failed": "Wiedergabe fehlgeschlagen",
-  "Reload": "Neu laden"
+  "Reload": "Neu laden",
+  "Sound": "Ton",
+  "Sound for {{room}}": "Ton für {{room}}"
 }

@@ -81,17 +81,16 @@ function RecorderTileInner({ recorder }: { recorder: Recorder }) {
           <button
             type="button"
             aria-pressed={audible}
-            aria-label={t(audible ? "Turn off sound for {{room}}" : "Turn on sound for {{room}}", {
-              room: recorder.room_name,
-            })}
+            aria-label={t("Sound for {{room}}", { room: recorder.room_name })}
             onClick={() => void toggleSound()}
-            className={`rounded-full p-2.5 transition-colors ${
+            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-2.5 text-sm font-semibold transition-colors ${
               audible
                 ? "bg-brand-400 text-slate-900 hover:bg-brand-500"
                 : "bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
             }`}
           >
             {audible ? <Volume2 aria-hidden className="h-5 w-5" /> : <VolumeX aria-hidden className="h-5 w-5" />}
+            {t("Sound")}
           </button>
         ) : null}
       </div>

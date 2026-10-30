@@ -228,11 +228,12 @@ export function RoomView() {
           <button
             type="button"
             aria-pressed={audible}
+            aria-label={t("Sound for {{room}}", { room: recorder.room_name })}
             onClick={() => void toggleSound()}
             className={`${btn} ${audible ? "bg-brand-400 text-slate-900 hover:bg-brand-500" : btnIdle}`}
           >
             {audible ? <Volume2 aria-hidden className="h-5 w-5" /> : <VolumeX aria-hidden className="h-5 w-5" />}
-            {t(audible ? "Sound on" : "Sound off")}
+            {t("Sound")}
           </button>
           {canFullscreen ? (
             <button type="button" onClick={goFullscreen} className={`${btn} ${btnIdle}`}>
