@@ -26,6 +26,11 @@ describe("mergeRecorders", () => {
     expect(merged[1]).toBe(prev[1]);
   });
 
+  it("returns the previous array when nothing changed", () => {
+    const prev = [rec(1, "40/R22"), rec(2, "40/R05")];
+    expect(mergeRecorders(prev, [rec(1, "40/R22"), rec(2, "40/R05")])).toBe(prev);
+  });
+
   it("replaces changed status", () => {
     const prev = [rec(1, "40/R22"), rec(2, "40/R05")];
     const next = [rec(1, "40/R22", "live"), rec(2, "40/R05")];

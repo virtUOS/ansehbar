@@ -21,10 +21,12 @@ function same(a: Recorder, b: Recorder): boolean {
 /** Returns the old object for every unchanged entry (stable identity). */
 export function mergeRecorders(prev: Recorder[], next: Recorder[]): Recorder[] {
   const byId = new Map(prev.map((r) => [r.id, r]));
-  return next.map((r) => {
+  const merged = next.map((r) => {
     const old = byId.get(r.id);
     return old && same(old, r) ? old : r;
   });
+  const unchanged = merged.length === prev.length && merged.every((r, i) => r === prev[i]);
+  return unchanged ? prev : merged;
 }
 
 export function sortForOverview(list: Recorder[]): Recorder[] {
