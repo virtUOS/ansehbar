@@ -5,6 +5,7 @@
  *  trap, inert background), Escape cancels, initial focus on Cancel, focus
  *  returns to the trigger. Render it only while a question is pending. */
 import { useEffect, useId, useRef, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 
 interface Props {
@@ -33,7 +34,8 @@ export function ConfirmDialog({ title, children, confirmLabel, onConfirm, onCanc
     };
   }, []);
 
-  return (
+  // Portal to body: parent spacing utilities (space-y-*) must not touch the dialog margins.
+  return createPortal(
     <dialog
       ref={ref}
       aria-labelledby={titleId}
@@ -55,6 +57,7 @@ export function ConfirmDialog({ title, children, confirmLabel, onConfirm, onCanc
           {confirmLabel}
         </button>
       </div>
-    </dialog>
+    </dialog>,
+    document.body,
   );
 }
