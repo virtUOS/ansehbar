@@ -9,7 +9,7 @@ export default function NoAccess({ contact }: { contact?: string }) {
   return (
     <div className="mx-auto max-w-xl rounded-2xl border border-slate-200 p-8 text-center dark:border-slate-800">
       <h1 className="text-2xl font-bold">{t("No access")}</h1>
-      <p className="mt-3 text-slate-500 dark:text-slate-400">
+      <p className="mt-3 text-slate-500 dark:text-slate-300">
         {t("Your account has not been granted access to ansehBAR yet.")}
       </p>
       {contact ? (

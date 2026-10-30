@@ -113,7 +113,7 @@ export function InvitationsAdmin() {
               ))}
               {!items.length ? (
                 <tr>
-                  <td colSpan={5} className="px-3 py-4 text-slate-600 dark:text-slate-400">{t("No invitations yet.")}</td>
+                  <td colSpan={5} className="px-3 py-4 text-slate-600 dark:text-slate-300">{t("No invitations yet.")}</td>
                 </tr>
               ) : null}
             </tbody>
@@ -216,14 +216,14 @@ function InviteForm({ onInvited }: { onInvited: (identifier: string) => Promise<
         )}
       </Field>
       <div aria-live="polite" className="text-sm">
-        {searching ? <span className="text-slate-600 dark:text-slate-400">{t("Searching…")}</span> : null}
+        {searching ? <span className="text-slate-600 dark:text-slate-300">{t("Searching…")}</span> : null}
         {!searching && hits.length ? (
           <ul aria-label={t("Matching users")} className="divide-y divide-slate-200 rounded-lg border border-slate-200 dark:divide-slate-800 dark:border-slate-800">
             {hits.map((h) => (
               <li key={h.id}>
                 <button type="button" onClick={() => pick(h)} className="block w-full px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800">
                   <span className="font-medium">{h.display_name || h.username}</span>{" "}
-                  <span className="text-slate-600 dark:text-slate-400">
+                  <span className="text-slate-600 dark:text-slate-300">
                     {h.username}
                     {h.email ? ` · ${h.email}` : ""}
                   </span>

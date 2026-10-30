@@ -39,6 +39,41 @@ wird auf dem Server per `up -d --build` aus dem Checkout gebaut.
 Die Settings verweigern den Start mit dem Entwicklungs-`SECRET_KEY`, sobald
 `DJANGO_DEBUG=0` ist.
 
+## Betrieb
+
+Die App läuft als zwei Prozesse aus demselben Image: `backend` (Web/API) und
+`monitor` (`python manage.py run_monitor`). Der Monitor prüft alle aktiven
+Rekorder im Intervall und schreibt den Status in die Datenbank; ohne ihn
+zeigt die Übersicht dauerhaft „Status unbekannt“. Beide Dienste brauchen
+dieselben Umgebungsvariablen (siehe `.env.prod.example`).
+
+| Variable | Bedeutung | Standard |
+| --- | --- | --- |
+| `ANSEHBAR_ACCESS_GROUP` | IdP-Gruppe (Keycloak), deren Mitglieder die App nutzen dürfen | `ansehbar-users` |
+| `ANSEHBAR_BOOTSTRAP_USERS` | Kommagetrennte Benutzernamen/E-Mails mit Zugang ohne Gruppe (erste Einrichtung); weitere Personen lädt die Verwaltung unter „Einladungen“ ein | leer |
+| `ANSEHBAR_ACCESS_CONTACT` | Kontakt (z. B. Mailadresse), der Personen ohne Zugang angezeigt wird | leer |
+| `MONITOR_INTERVAL_SECONDS` | Sekunden zwischen zwei Prüfläufen des Monitors | `10` |
+
+Hinweise:
+
+- **Gruppenentzug wirkt erst beim nächsten Login.** Der Zugang wird beim
+  Login aus den OIDC-Claims übernommen; wer die Gruppe verliert, behält die
+  laufende Sitzung, bis er sich neu anmeldet. Soll der Zugang sofort enden,
+  die Sitzung beenden bzw. den Benutzer in Keycloak abmelden.
+- **Der Streaming-Server muss CORS erlauben.** Der Browser lädt die
+  HLS-Playlists direkt vom Streaming-Server
+  (`streaming.example.org` antwortet mit `Access-Control-Allow-Origin: *`).
+  Ohne CORS-Header bleibt die Vorschau leer, auch wenn der Monitor „live“ meldet.
+- **„seit“ in Stufe 1:** Die Uhrzeit zeigt, wann der Monitor den Stream
+  erstmals als live gesehen hat, nicht den tatsächlichen Aufzeichnungsbeginn.
+  Nach einem Neustart des Monitors beginnt sie für laufende Streams neu.
+- Die Stream-URL-Vorlage und der Frische-Faktor stehen im Frontend unter
+  „Verwaltung → Einstellungen“.
+- Backend-Texte sind englische gettext-Schlüssel, die deutschen Übersetzungen
+  liegen in `backend/locale/de/LC_MESSAGES/` (`.po` und `.mo` sind
+  eingecheckt). Nach Änderungen: `makemessages -l de`, übersetzen,
+  `compilemessages`.
+
 ## Basis aktualisieren
 
 Die gemeinsamen Bausteine kommen aus dem basicbar-Repo (Changelog dort ist
@@ -55,7 +90,8 @@ die Upgrade-Anleitung):
 
 Apache-2.0 mit SPDX-Headern; jede App hält Tests neben dem Code
 (`docker compose exec backend python manage.py test`); Frontend-Typecheck
-mit `docker compose exec frontend npx tsc -b`; Lint mit ruff
+mit `docker compose exec frontend npx tsc -b`; Übersetzungs-Check mit
+`docker compose exec frontend npm run check:i18n`; Lint mit ruff
 (`backend/pyproject.toml`, inkl. Import-Sortierung). CI
 (Uni-GitLab):
 Lint, Backend-Tests gegen PostgreSQL, Frontend-Build.

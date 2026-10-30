@@ -13,6 +13,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db.models import Q
 from django.http import JsonResponse
+from django.utils.translation import gettext as _
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.response import Response
 
@@ -53,9 +54,9 @@ class InvitationSerializer(serializers.ModelSerializer):
     def validate_identifier(self, value):
         value = normalize_identifier(value)
         if not value:
-            raise serializers.ValidationError("This field may not be blank.")
+            raise serializers.ValidationError(_("This field may not be blank."))
         if Invitation.objects.filter(identifier=value).exists():
-            raise serializers.ValidationError("Already invited.")
+            raise serializers.ValidationError(_("Already invited."))
         return value
 
 

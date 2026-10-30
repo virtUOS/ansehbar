@@ -9,7 +9,7 @@ export default function Landing() {
   return (
     <div className="mx-auto max-w-xl rounded-2xl border border-slate-200 p-8 text-center dark:border-slate-800">
       <h1 className="text-3xl font-bold">ansehBAR</h1>
-      <p className="mt-3 text-slate-500 dark:text-slate-400">
+      <p className="mt-3 text-slate-500 dark:text-slate-300">
         {t("Monitoring the live streams from the recording rooms")}
       </p>
       <a

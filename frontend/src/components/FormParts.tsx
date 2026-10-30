@@ -31,7 +31,7 @@ export function Field({
       </label>
       {children({ id, "aria-describedby": described, "aria-invalid": has || undefined })}
       {hint ? (
-        <p id={hintId} className="mt-1 text-xs text-slate-600 dark:text-slate-400">
+        <p id={hintId} className="mt-1 text-xs text-slate-600 dark:text-slate-300">
           {hint}
         </p>
       ) : null}

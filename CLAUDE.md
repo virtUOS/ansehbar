@@ -1,18 +1,41 @@
 # ansehBAR — Hinweise für Claude
 
-Kontrolle der Live-Streams aus den Aufzeichnungsräumen Django-Backend (`backend/`, Apps `config`/`accounts`/
-`common`) + React/Vite-SPA (`frontend/`). Gemeinsame Basis der virtUOS
+Kontrolle der Live-Streams aus den Aufzeichnungsräumen der Universität
+Osnabrück: Django-Backend (`backend/`) + React/Vite-SPA (`frontend/`). Gemeinsame Basis der virtUOS
 "-bar"-Tools aus dem basicbar-Repo: `basicbar-auth` (OIDC), `basicbar-integrations`
 (LibreTranslate/LiteLLM) und `@basicbar/ui`
 (Tailwind-Preset, base.css, Theme, i18n, TranslatableField, Preferences). Paketcode
 nie lokal patchen — Änderungen gehören ins basicbar-Repo, Upgrade per
 Versions-Bump (Changelog dort = Migrationsanleitung).
 
+## Ports (Entwicklung)
+
+Frontend 5179, Backend 8007, Keycloak 8086, Postgres 5438.
+
+## Aufbau
+
+- Backend-Apps: `config` (Settings/URLs), `accounts` (User, Zugangsprüfung
+  über IdP-Gruppe/Bootstrap/Einladungen, Einladungs- und Benutzersuche-API),
+  `recorders` (Rekorder, Status, Monitor-Einstellungen, API, Monitor-Zyklus),
+  `streams` (HLS-Probe: Master-/Chunklist, Frische der Media-Sequence),
+  `common` (Basis).
+- Monitor: eigener Compose-Dienst `monitor`, `python manage.py run_monitor`
+  (`--once` für einen Lauf); Intervall `MONITOR_INTERVAL_SECONDS`.
+- Frontend (`frontend/src/`): `media/` (hls.js-Player, Web-Audio, Pegel),
+  `pages/` (Übersicht, Raumansicht, Landing/NoAccess, `admin/`),
+  `components/` (Kachel, Raumliste, StatusBadge, Formularteile, Dialog),
+  `api.ts` (Client), `locales/` (Übersetzungen).
+- Spec: `docs/superpowers/specs/2026-10-30-ansehbar-design.md`,
+  Plan: `docs/superpowers/plans/2026-10-30-ansehbar-stufe-1.md`.
+
 ## Befehle
 
 ```bash
 docker compose exec backend python manage.py test      # Backend-Tests
 docker compose exec frontend npx tsc -b                # Frontend-Typecheck
+docker compose exec frontend npm test                  # Frontend-Tests (vitest)
+docker compose exec frontend npm run check:i18n        # jeder t("…")-Key hat eine deutsche Übersetzung
+docker compose exec backend python manage.py run_monitor --once  # ein Prüflauf
 docker compose exec backend sh -c "pip install -q ruff && ruff check ."  # Lint (wie CI, Config in backend/pyproject.toml)
 ```
 
@@ -31,3 +54,15 @@ docker compose exec backend sh -c "pip install -q ruff && ruff check ."  # Lint 
 - UI-Texte: Englisch als i18n-Key, Deutsch in `src/locales/de/translation.json`.
 - Design: Ramps in `tailwind.config.js` sind die Identität dieses Tools;
   Struktur kommt aus dem @basicbar/ui-Preset.
+- Backend-Texte: englische msgids mit gettext (`gettext`/`gettext_lazy`),
+  Deutsch in `backend/locale/de/LC_MESSAGES/django.po`; `.po` und `.mo`
+  einchecken (`makemessages -l de`, `compilemessages`). Die SPA sendet
+  `Accept-Language` (aus `<html lang>`), `LocaleMiddleware` wählt die Sprache.
+- Kein Django-Admin für Fachdaten; jede Pflegemaske gehört ins Frontend.
+- Nie Browser-Dialoge (`window.confirm/alert/prompt`), stattdessen `ConfirmDialog`.
+- Status immer mit Text **und** Symbol, nie nur Farbe; Akzentfarbe (brand) ist nie
+  Statusfarbe. Dark-Mode-Text mindestens `slate-300` (`slate-400` verfehlt 4,5:1).
+- Stream-Namen sind case-sensitiv (`cap-90-R12`), nie kleinschreiben.
+- „Live“ = Chunklist existiert und ihre Media-Sequence hat sich innerhalb von
+  `3 × TARGETDURATION` geändert; HTTP 200 auf die Master-Playlist allein reicht nicht.
+- ansehBAR schreibt nie nach Keycloak.

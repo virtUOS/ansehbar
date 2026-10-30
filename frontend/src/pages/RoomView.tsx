@@ -180,6 +180,7 @@ export function RoomView() {
             <HlsPlayer
               key={recorder.id}
               id={recorder.id}
+              label={recorder.room_name}
               src={recorder.playback_url}
               className="h-full min-w-0 flex-1 bg-black object-contain"
             />
@@ -210,7 +211,7 @@ export function RoomView() {
         </div>
       </div>
 
-      <p className="truncate text-sm text-slate-600 dark:text-slate-400">{recorder.stream_name}</p>
+      <p className="truncate text-sm text-slate-600 dark:text-slate-300">{recorder.stream_name}</p>
 
       {live ? (
         <div className="flex gap-3">

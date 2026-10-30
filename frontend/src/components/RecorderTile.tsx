@@ -38,6 +38,7 @@ function RecorderTileInner({ recorder }: { recorder: Recorder }) {
           <div className="absolute inset-0 flex">
             <HlsPlayer
               id={recorder.id}
+              label={recorder.room_name}
               src={recorder.playback_url}
               className="h-full min-w-0 flex-1 bg-black object-contain"
             />
@@ -74,7 +75,7 @@ function RecorderTileInner({ recorder }: { recorder: Recorder }) {
               {t("since")} {formatClock(recorder.status.live_since, i18n.language)}
             </p>
           ) : null}
-          <p className="truncate text-xs text-slate-600 dark:text-slate-400">{recorder.stream_name}</p>
+          <p className="truncate text-xs text-slate-600 dark:text-slate-300">{recorder.stream_name}</p>
         </div>
         {live ? (
           <button

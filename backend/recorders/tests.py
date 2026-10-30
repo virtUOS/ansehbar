@@ -43,6 +43,18 @@ class RecorderApiTests(TestCase):
                 )
                 self.assertEqual(response.status_code, 400)
 
+    def test_validation_message_follows_accept_language(self):
+        def post(lang):
+            return self.client.post(
+                "/api/recorders/",
+                {"room_name": "X", "stream_name": "a/b"},
+                content_type="application/json",
+                headers={"Accept-Language": lang},
+            ).json()["stream_name"][0]
+
+        self.assertTrue(post("de").startswith("Erlaubt sind nur"))
+        self.assertTrue(post("en").startswith("Only letters"))
+
     def test_list_includes_status_and_playback_url(self):
         Recorder.objects.create(room_name="A", stream_name="rec-a")
         rows = self.client.get("/api/recorders/").json()

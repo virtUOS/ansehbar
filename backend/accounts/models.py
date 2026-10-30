@@ -11,6 +11,7 @@ from basicbar_auth.models import AbstractBasicUser
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.utils.translation import gettext as _
 
 from accounts.access import normalize_identifier
 
@@ -44,7 +45,7 @@ class Invitation(models.Model):
     def save(self, *args, **kwargs):
         self.identifier = normalize_identifier(self.identifier)
         if not self.identifier:
-            raise ValidationError({"identifier": "Identifier must not be empty."})
+            raise ValidationError({"identifier": _("Identifier must not be empty.")})
         super().save(*args, **kwargs)
 
     def __str__(self):

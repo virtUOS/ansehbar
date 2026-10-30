@@ -70,7 +70,7 @@ export function Overview() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t("Search room")}
-            className="w-full rounded-full border border-slate-300 bg-white py-1.5 pl-9 pr-3 text-sm dark:border-slate-700 dark:bg-slate-900"
+            className="w-full rounded-full border border-slate-300 bg-white py-1.5 pl-9 pr-3 text-sm placeholder:text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:placeholder:text-slate-300"
           />
         </label>
         {wide ? (
@@ -89,7 +89,7 @@ export function Overview() {
       ) : null}
 
       {loading && recorders.length === 0 ? (
-        <p className="text-slate-600 dark:text-slate-400">{t("Loading…")}</p>
+        <p className="text-slate-600 dark:text-slate-300">{t("Loading…")}</p>
       ) : error && recorders.length === 0 ? (
         <p className="py-8 text-center text-lg text-slate-700 dark:text-slate-300">
           {t("Status not available yet")}

@@ -141,7 +141,7 @@ export function RecordersAdmin() {
               ))}
               {!recorders.length ? (
                 <tr>
-                  <td colSpan={6} className="px-3 py-4 text-slate-600 dark:text-slate-400">{t("No recorders yet.")}</td>
+                  <td colSpan={6} className="px-3 py-4 text-slate-600 dark:text-slate-300">{t("No recorders yet.")}</td>
                 </tr>
               ) : null}
             </tbody>

@@ -83,6 +83,9 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     headers: {
       // FormData bodies get their multipart boundary from the browser.
       ...(init.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
+      // Django's LocaleMiddleware picks the language for server-side messages;
+      // @basicbar/ui keeps <html lang> in sync with the UI language.
+      "Accept-Language": (typeof document !== "undefined" && document.documentElement.lang) || "en",
       ...(csrfToken ? { "X-CSRFToken": csrfToken } : {}),
       ...init.headers,
     },

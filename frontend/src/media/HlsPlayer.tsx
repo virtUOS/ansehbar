@@ -13,10 +13,12 @@ interface Props {
   id: number;
   src: string;
   className?: string;
+  /** Accessible name of the video (the room name). */
+  label?: string;
   onError?: (message: string) => void;
 }
 
-export function HlsPlayer({ id, src, className, onError }: Props) {
+export function HlsPlayer({ id, src, className, label, onError }: Props) {
   const ref = useRef<HTMLVideoElement>(null);
   const { attach, markForceMuted, audibleId, setAudible } = useAudio();
   const audibleRef = useRef(audibleId);
@@ -109,5 +111,5 @@ export function HlsPlayer({ id, src, className, onError }: Props) {
     };
   }, [src, useHlsJs, id, markForceMuted]);
 
-  return <video ref={ref} className={className} autoPlay playsInline muted />;
+  return <video ref={ref} aria-label={label} className={className} autoPlay playsInline muted />;
 }
