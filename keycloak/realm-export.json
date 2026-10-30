@@ -1,0 +1,109 @@
+{
+  "realm": "ansehbar",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "clients": [
+    {
+      "clientId": "ansehbar-backend",
+      "name": "ansehBAR Backend",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "ansehbar-dev-secret",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "redirectUris": [
+        "http://localhost:8007/*"
+      ],
+      "webOrigins": [
+        "http://localhost:8007",
+        "http://localhost:5179"
+      ],
+      "attributes": {
+        "post.logout.redirect.uris": "http://localhost:5179/*##http://localhost:8007/*"
+      },
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "consentRequired": false,
+          "config": {
+            "full.path": "false",
+            "claim.name": "groups",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "groups": [
+    {
+      "name": "ansehbar-admins"
+    },
+    {
+      "name": "ansehbar-users"
+    }
+  ],
+  "users": [
+    {
+      "id": "67ee5332-a5cb-4d6a-8d09-c72ebfb70903",
+      "username": "demo",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "demo@example.org",
+      "firstName": "Frank",
+      "lastName": "Lehrender",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "demo",
+          "temporary": false
+        }
+      ],
+      "groups": [
+        "/ansehbar-users"
+      ]
+    },
+    {
+      "id": "e5b3fc48-3b03-470e-b840-30784abecb0e",
+      "username": "admin-demo",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "admin-demo@example.org",
+      "firstName": "Admin",
+      "lastName": "Demo",
+      "groups": [
+        "/ansehbar-admins",
+        "/ansehbar-users"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "demo",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "id": "2f6c1a3e-8b7d-4c52-9a41-5d0e7b9c3f18",
+      "username": "outsider",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "outsider@example.org",
+      "firstName": "Olaf",
+      "lastName": "Outsider",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "demo",
+          "temporary": false
+        }
+      ]
+    }
+  ]
+}

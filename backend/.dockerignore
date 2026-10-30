@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+media/
+*.sqlite3
+staticfiles/

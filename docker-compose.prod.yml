@@ -1,0 +1,140 @@
+# Production stack: PostgreSQL + Django (uvicorn/ASGI) + Caddy (TLS proxy).
+# The app image (root Dockerfile) bakes in the built SPA; on start it copies
+# the build into the frontend_data volume, which Caddy serves directly. OIDC
+# points at the institutional IdP, so there is no Keycloak service here.
+#
+#   docker compose -f docker-compose.prod.yml up -d --build   # build from source
+#   docker compose -f docker-compose.prod.yml pull            # or run a released image, then
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# Required env (in .env): PUBLIC_BASE_URL, DJANGO_SECRET_KEY, POSTGRES_PASSWORD,
+# DJANGO_ALLOWED_HOSTS, CSRF_TRUSTED_ORIGINS and the OIDC_* vars — see
+# .env.prod.example. Variables marked `:?` make compose refuse to start when
+# they are missing, so a forgotten secret never silently falls back.
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: ansehbar_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ansehbar}
+      POSTGRES_USER: ${POSTGRES_USER:-ansehbar}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set a strong POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ansehbar} -d ${POSTGRES_DB:-ansehbar}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Django/uvicorn plus the baked-in SPA build (see Dockerfile). `image:` lets
+  # `pull` fetch a released tag directly; `build:` still works via
+  # `up -d --build`. Override ANSEHBAR_VERSION to pin/roll back.
+  app:
+    image: ghcr.io/virtuos/ansehbar:${ANSEHBAR_VERSION:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ansehbar_app
+    restart: unless-stopped
+    # Keep every continuation line at this indentation — YAML's folded (">")
+    # scalar only joins same-indented lines with spaces.
+    command: >
+      sh -c "mkdir -p /shared_frontend &&
+      cp -a /app/frontend_dist/. /shared_frontend/ &&
+      python manage.py migrate --noinput &&
+      python manage.py collectstatic --noinput &&
+      uvicorn config.asgi:application --host 0.0.0.0 --port 8000
+      --proxy-headers --forwarded-allow-ips '*'"
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?set DJANGO_SECRET_KEY}
+      DJANGO_DEBUG: "0"
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:?set DJANGO_ALLOWED_HOSTS}
+      CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:?set CSRF_TRUSTED_ORIGINS}
+      # SPA and API share one origin in production — no CORS needed.
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+      POSTGRES_DB: ${POSTGRES_DB:-ansehbar}
+      POSTGRES_USER: ${POSTGRES_USER:-ansehbar}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set a strong POSTGRES_PASSWORD}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      # Public URL of the instance (absolute links, OIDC redirects).
+      FRONTEND_BASE_URL: ${PUBLIC_BASE_URL:?set PUBLIC_BASE_URL}
+      OIDC_LOGIN_REDIRECT_URL: ${PUBLIC_BASE_URL:?set PUBLIC_BASE_URL}/
+      OIDC_LOGOUT_REDIRECT_URL: ${PUBLIC_BASE_URL:?set PUBLIC_BASE_URL}/
+      OIDC_RP_CLIENT_ID: ${OIDC_RP_CLIENT_ID:?set OIDC_RP_CLIENT_ID}
+      OIDC_RP_CLIENT_SECRET: ${OIDC_RP_CLIENT_SECRET:?set OIDC_RP_CLIENT_SECRET}
+      # Either set the issuer (endpoints via OIDC discovery) …
+      OIDC_OP_ISSUER: ${OIDC_OP_ISSUER:-}
+      # … or the endpoints explicitly (explicit values win).
+      OIDC_OP_AUTHORIZATION_ENDPOINT: ${OIDC_OP_AUTHORIZATION_ENDPOINT:-}
+      OIDC_OP_TOKEN_ENDPOINT: ${OIDC_OP_TOKEN_ENDPOINT:-}
+      OIDC_OP_USER_ENDPOINT: ${OIDC_OP_USER_ENDPOINT:-}
+      OIDC_OP_JWKS_ENDPOINT: ${OIDC_OP_JWKS_ENDPOINT:-}
+      OIDC_OP_LOGOUT_ENDPOINT: ${OIDC_OP_LOGOUT_ENDPOINT:-}
+      OIDC_GROUPS_CLAIM: ${OIDC_GROUPS_CLAIM:-groups}
+      OIDC_ADMIN_GROUP: ${OIDC_ADMIN_GROUP:-}
+      ANSEHBAR_ACCESS_GROUP: ${ANSEHBAR_ACCESS_GROUP:-ansehbar-users}
+      ANSEHBAR_BOOTSTRAP_USERS: ${ANSEHBAR_BOOTSTRAP_USERS:-}
+      ANSEHBAR_ACCESS_CONTACT: ${ANSEHBAR_ACCESS_CONTACT:-}
+      MONITOR_INTERVAL_SECONDS: ${MONITOR_INTERVAL_SECONDS:-10}
+      # Claim names — override only if the IdP uses non-standard ones.
+      OIDC_CLAIM_USERNAME: ${OIDC_CLAIM_USERNAME:-preferred_username}
+      OIDC_CLAIM_EMAIL: ${OIDC_CLAIM_EMAIL:-email}
+      OIDC_CLAIM_FIRST_NAME: ${OIDC_CLAIM_FIRST_NAME:-given_name}
+      OIDC_CLAIM_LAST_NAME: ${OIDC_CLAIM_LAST_NAME:-family_name}
+      # Heal re-issued IdP subjects by username — only where the IdP never
+      # re-assigns usernames (see basicbar-auth's operator notes). Default off.
+      OIDC_MATCH_BY_USERNAME_FALLBACK: ${OIDC_MATCH_BY_USERNAME_FALLBACK:-0}
+      # Optional AI features (LiteLLM). Off unless all four are set.
+      AI_PROVIDER: ${AI_PROVIDER:-none}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-}
+      AI_TIMEOUT: ${AI_TIMEOUT:-30}
+      AI_MAX_TOKENS: ${AI_MAX_TOKENS:-2000}
+      AI_DISABLE_THINKING: ${AI_DISABLE_THINKING:-1}
+      # Canonical language of authored content; optional LibreTranslate pre-fill.
+      CONTENT_DEFAULT_LANGUAGE: ${CONTENT_DEFAULT_LANGUAGE:-de}
+      CONTENT_TRANSLATION_PROVIDER: ${CONTENT_TRANSLATION_PROVIDER:-none}
+      LIBRETRANSLATE_URL: ${LIBRETRANSLATE_URL:-}
+      LIBRETRANSLATE_API_KEY: ${LIBRETRANSLATE_API_KEY:-}
+    volumes:
+      - static_data:/app/staticfiles
+      - media_data:/app/media
+      - frontend_data:/shared_frontend
+    depends_on:
+      db:
+        condition: service_healthy
+    expose:
+      - "8000"
+
+  caddy:
+    image: caddy:2
+    container_name: ansehbar_caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Optional: mount institutional TLS certificates when not using Caddy's
+      # automatic Let's Encrypt; see the note in the Caddyfile.
+      # - /etc/ansehbar/certs:/etc/caddy/certs:ro
+      - frontend_data:/srv/www:ro
+      - static_data:/srv/static:ro
+      - media_data:/srv/media:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
+volumes:
+  postgres_data:
+  static_data:
+  media_data:
+  frontend_data:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,113 @@
+# Local development stack. Host ports are shifted against the other -bar
+# tools so several projects can run side by side:
+#   PostgreSQL 5438, Keycloak 8086, Backend 8007, Frontend 5179.
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: ansehbar_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ansehbar}
+      POSTGRES_USER: ${POSTGRES_USER:-ansehbar}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ansehbar}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5438}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ansehbar} -d ${POSTGRES_DB:-ansehbar}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+    container_name: ansehbar_backend
+    restart: unless-stopped
+    command: uvicorn config.asgi:application --host 0.0.0.0 --port 8000 --reload --timeout-graceful-shutdown 5
+    volumes:
+      - ./backend:/app
+    ports:
+      - "${BACKEND_PORT:-8007}:8000"
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-dev-insecure-secret-key-change-me}
+      DJANGO_DEBUG: ${DJANGO_DEBUG:-1}
+      POSTGRES_DB: ${POSTGRES_DB:-ansehbar}
+      POSTGRES_USER: ${POSTGRES_USER:-ansehbar}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ansehbar}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      # OIDC (local Keycloak). The browser uses localhost:8086 for the login
+      # redirect; the backend reaches Keycloak via host.docker.internal:8086.
+      OIDC_RP_CLIENT_ID: ${OIDC_RP_CLIENT_ID:-ansehbar-backend}
+      OIDC_RP_CLIENT_SECRET: ${OIDC_RP_CLIENT_SECRET:-ansehbar-dev-secret}
+      OIDC_OP_AUTHORIZATION_ENDPOINT: ${OIDC_OP_AUTHORIZATION_ENDPOINT:-http://localhost:8086/realms/ansehbar/protocol/openid-connect/auth}
+      OIDC_OP_TOKEN_ENDPOINT: ${OIDC_OP_TOKEN_ENDPOINT:-http://host.docker.internal:8086/realms/ansehbar/protocol/openid-connect/token}
+      OIDC_OP_USER_ENDPOINT: ${OIDC_OP_USER_ENDPOINT:-http://host.docker.internal:8086/realms/ansehbar/protocol/openid-connect/userinfo}
+      OIDC_OP_JWKS_ENDPOINT: ${OIDC_OP_JWKS_ENDPOINT:-http://host.docker.internal:8086/realms/ansehbar/protocol/openid-connect/certs}
+      OIDC_OP_LOGOUT_ENDPOINT: ${OIDC_OP_LOGOUT_ENDPOINT:-http://localhost:8086/realms/ansehbar/protocol/openid-connect/logout}
+      # Members of this IdP group are granted Django admin on login.
+      OIDC_ADMIN_GROUP: ${OIDC_ADMIN_GROUP:-ansehbar-admins}
+      ANSEHBAR_ACCESS_GROUP: ${ANSEHBAR_ACCESS_GROUP:-ansehbar-users}
+      ANSEHBAR_BOOTSTRAP_USERS: ${ANSEHBAR_BOOTSTRAP_USERS:-}
+      ANSEHBAR_ACCESS_CONTACT: ${ANSEHBAR_ACCESS_CONTACT:-}
+      MONITOR_INTERVAL_SECONDS: ${MONITOR_INTERVAL_SECONDS:-10}
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost:5179}
+      # virtiofs (colima) swallows inotify events — poll for code changes.
+      WATCHFILES_FORCE_POLLING: "true"
+      OIDC_LOGIN_REDIRECT_URL: ${OIDC_LOGIN_REDIRECT_URL:-http://localhost:5179/}
+      OIDC_LOGOUT_REDIRECT_URL: ${OIDC_LOGOUT_REDIRECT_URL:-http://localhost:5179/}
+      # Optional AI features (LiteLLM). Off unless all four are set.
+      AI_PROVIDER: ${AI_PROVIDER:-none}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-}
+      # Content translation: canonical language + optional LibreTranslate
+      # pre-fill in editors (off unless CONTENT_TRANSLATION_PROVIDER is set).
+      CONTENT_DEFAULT_LANGUAGE: ${CONTENT_DEFAULT_LANGUAGE:-de}
+      CONTENT_TRANSLATION_PROVIDER: ${CONTENT_TRANSLATION_PROVIDER:-none}
+      LIBRETRANSLATE_URL: ${LIBRETRANSLATE_URL:-}
+      LIBRETRANSLATE_API_KEY: ${LIBRETRANSLATE_API_KEY:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      db:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0.7
+    container_name: ansehbar_keycloak
+    restart: unless-stopped
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_HOSTNAME: http://localhost:8086
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_HTTP_ENABLED: "true"
+    ports:
+      - "${KEYCLOAK_PORT:-8086}:8080"
+    volumes:
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: ansehbar_frontend
+    restart: unless-stopped
+    command: npm run dev -- --host 0.0.0.0 --port 5179
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "${FRONTEND_PORT:-5179}:5179"
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8007}
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:

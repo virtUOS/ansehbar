@@ -1,0 +1,15 @@
+# Von Copier gepflegt — nicht von Hand editieren. Grundlage für
+# `copier update` (spielt spätere Template-Änderungen als Diff ein).
+_commit: auth/v0.2.2
+_src_path: https://github.com/virtUOS/basicbar.git
+backend_port: 8007
+brand_hue: 335
+ci_host: gitlab
+frontend_port: 5179
+keycloak_port: 8086
+neutral_hue: 220
+postgres_port: 5438
+project_description: Kontrolle der Live-Streams aus den Aufzeichnungsräumen
+project_slug: ansehbar
+project_title: ansehBAR
+use_lti: false

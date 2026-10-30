@@ -1,0 +1,44 @@
+# Caddyfile — ansehBAR production reverse proxy with automatic HTTPS.
+#
+# Replace ansehbar.example.org with your domain and set a real ACME
+# contact email. Caddy obtains and renews a Let's Encrypt certificate
+# automatically as long as ports 80 and 443 are reachable and the domain's DNS
+# points here. For institutional certificates (e.g. HARICA) mount them into the
+# container and use `tls /etc/caddy/certs/<name>.crt /etc/caddy/certs/<name>.key`.
+
+{
+	# Contact address for Let's Encrypt (expiry notices). Replace it.
+	email admin@example.org
+}
+
+ansehbar.example.org {
+	encode zstd gzip
+
+	# API, Django admin and OIDC endpoints → Django (uvicorn).
+	handle /api/* {
+		reverse_proxy backend:8000
+	}
+	handle /admin/* {
+		reverse_proxy backend:8000
+	}
+	handle /oidc/* {
+		reverse_proxy backend:8000
+	}
+
+	# Uploaded media and collected static files → served directly from volumes.
+	handle_path /media/* {
+		root * /srv/media
+		file_server
+	}
+	handle_path /static/* {
+		root * /srv/static
+		file_server
+	}
+
+	# Everything else → the built SPA, with client-side routing fallback.
+	handle {
+		root * /srv/www
+		try_files {path} /index.html
+		file_server
+	}
+}
