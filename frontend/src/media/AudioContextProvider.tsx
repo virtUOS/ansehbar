@@ -3,7 +3,7 @@
 
 /** One shared audio engine for the whole app (survives route changes). */
 import { createContext, useCallback, useContext, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
-import { AudioEngine } from "./audio";
+import { AudioEngine, type PlaybackState } from "./audio";
 
 export interface AudioApi {
   unlocked: boolean;
@@ -18,6 +18,9 @@ export interface AudioApi {
   analyserUnavailable(id: number): boolean;
   isForceMuted(id: number): boolean;
   markForceMuted(id: number, value: boolean): void;
+  setPlaybackState(id: number, state: PlaybackState | null): void;
+  /** Live check: reported "playing" and the element really plays. */
+  isPlaying(id: number): boolean;
 }
 
 const AudioCtx = createContext<AudioApi | undefined>(undefined);
@@ -51,11 +54,23 @@ export function AudioContextProvider({ children }: { children: ReactNode }) {
     [engine],
   );
 
+  const setPlaybackState = useCallback(
+    (id: number, state: PlaybackState | null) => engine.setPlaybackState(id, state),
+    [engine],
+  );
+  const isPlaying = useCallback((id: number) => engine.isPlaying(id), [engine]);
+
   const value = useMemo<AudioApi>(
-    () => ({ unlocked, needsUnlock, unlock, audibleId, setAudible, attach, analyser, analyserUnavailable, isForceMuted, markForceMuted }),
+    () => ({
+      unlocked, needsUnlock, unlock, audibleId, setAudible, attach, analyser, analyserUnavailable,
+      isForceMuted, markForceMuted, setPlaybackState, isPlaying,
+    }),
     // version: chains/context state changed, consumers must re-resolve.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [unlocked, needsUnlock, version, unlock, audibleId, setAudible, attach, analyser, analyserUnavailable, isForceMuted, markForceMuted],
+    [
+      unlocked, needsUnlock, version, unlock, audibleId, setAudible, attach, analyser, analyserUnavailable,
+      isForceMuted, markForceMuted, setPlaybackState, isPlaying,
+    ],
   );
   return <AudioCtx.Provider value={value}>{children}</AudioCtx.Provider>;
 }

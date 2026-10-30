@@ -12,6 +12,7 @@ import { LevelMeter } from "../media/LevelMeter";
 import { useAudio } from "../media/AudioContextProvider";
 import { StatusBadge } from "./StatusBadge";
 import { StreamPlaceholder } from "./StreamPlaceholder";
+import { PlaybackOverlay, usePlayback } from "./PlaybackOverlay";
 
 function RecorderTileInner({ recorder }: { recorder: Recorder }) {
   const { t, i18n } = useTranslation();
@@ -20,6 +21,7 @@ function RecorderTileInner({ recorder }: { recorder: Recorder }) {
   // Unknown but last seen live: keep the player (and its controls) on.
   const live = shown === "live" || shown === "live-unknown";
   const audible = audibleId === recorder.id;
+  const playback = usePlayback(live);
 
   const toggleSound = async () => {
     if (audible) return setAudible(null);
@@ -39,12 +41,17 @@ function RecorderTileInner({ recorder }: { recorder: Recorder }) {
       <div className="relative aspect-video bg-slate-900">
         {live ? (
           <div className="absolute inset-0 flex">
-            <HlsPlayer
-              id={recorder.id}
-              label={recorder.room_name}
-              src={recorder.playback_url}
-              className="h-full min-w-0 flex-1 bg-black object-contain"
-            />
+            <div className="relative h-full min-w-0 flex-1">
+              <HlsPlayer
+                key={playback.reloadKey}
+                id={recorder.id}
+                label={recorder.room_name}
+                src={recorder.playback_url}
+                onPlaybackState={playback.onState}
+                className="h-full w-full bg-black object-contain"
+              />
+              <PlaybackOverlay state={playback.state} onReload={playback.reload} />
+            </div>
             <div className="flex shrink-0 items-stretch bg-white/90 p-1.5 dark:bg-slate-900/90">
               <LevelMeter id={recorder.id} />
             </div>
@@ -52,7 +59,7 @@ function RecorderTileInner({ recorder }: { recorder: Recorder }) {
         ) : (
           <StreamPlaceholder kind={shown} />
         )}
-        <div className="absolute left-2 top-2">
+        <div className="absolute left-2 top-2 z-10">
           <StatusBadge state={shown === "inactive" ? "inactive" : recorder.status.state} />
         </div>
       </div>

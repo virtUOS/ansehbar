@@ -2,7 +2,7 @@
 // Copyright 2026 Universität Osnabrück (virtUOS)
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AudioEngine } from "./audio";
+import { AudioEngine, isActuallyPlaying } from "./audio";
 
 function node() {
   return { connect: vi.fn(), disconnect: vi.fn(), gain: { value: 0 }, fftSize: 0 };
@@ -66,5 +66,58 @@ describe("AudioEngine", () => {
     expect(el.muted).toBe(false);
     expect(e.analyser(1)).not.toBeNull();
     return p;
+  });
+});
+
+function mediaEl(over: Partial<{ paused: boolean; ended: boolean; readyState: number }> = {}) {
+  return {
+    muted: true,
+    paused: false,
+    ended: false,
+    readyState: 4, // HAVE_ENOUGH_DATA
+    play: vi.fn(() => Promise.resolve()),
+    ...over,
+  } as unknown as HTMLVideoElement;
+}
+
+describe("playback state for the level meter", () => {
+  it("only a reported-playing element with data counts as playing", () => {
+    expect(isActuallyPlaying(mediaEl(), "playing")).toBe(true);
+    expect(isActuallyPlaying(mediaEl(), "waiting")).toBe(false);
+    expect(isActuallyPlaying(mediaEl(), "retrying")).toBe(false);
+    expect(isActuallyPlaying(mediaEl(), "failed")).toBe(false);
+    expect(isActuallyPlaying(mediaEl(), undefined)).toBe(false);
+    expect(isActuallyPlaying(mediaEl({ paused: true }), "playing")).toBe(false);
+    expect(isActuallyPlaying(mediaEl({ ended: true }), "playing")).toBe(false);
+    expect(isActuallyPlaying(mediaEl({ readyState: 2 }), "playing")).toBe(false); // HAVE_CURRENT_DATA
+    expect(isActuallyPlaying(undefined, "playing")).toBe(false);
+  });
+
+  it("engine tracks the reported state per id, notifies, and forgets on detach", () => {
+    const e = new AudioEngine();
+    const el = mediaEl();
+    const detach = e.attach(1, el);
+    const fn = vi.fn();
+    e.subscribe(fn);
+    expect(e.isPlaying(1)).toBe(false); // nothing reported yet
+
+    e.setPlaybackState(1, "playing");
+    expect(fn).toHaveBeenCalledTimes(1);
+    expect(e.isPlaying(1)).toBe(true);
+    e.setPlaybackState(1, "playing"); // unchanged: no notify
+    expect(fn).toHaveBeenCalledTimes(1);
+
+    // The element stalls without a new report: checked live.
+    (el as unknown as { readyState: number }).readyState = 1;
+    expect(e.isPlaying(1)).toBe(false);
+    (el as unknown as { readyState: number }).readyState = 4;
+
+    e.setPlaybackState(1, "waiting");
+    expect(e.isPlaying(1)).toBe(false);
+    expect(e.playbackState(1)).toBe("waiting");
+
+    detach();
+    expect(e.playbackState(1)).toBeUndefined();
+    expect(e.isPlaying(1)).toBe(false);
   });
 });

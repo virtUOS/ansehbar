@@ -13,6 +13,21 @@ export function markNative(el: HTMLMediaElement): void {
   nativeElements.add(el);
 }
 
+/** What the player reports about its element. */
+export type PlaybackState = "playing" | "waiting" | "retrying" | "failed";
+
+const HAVE_FUTURE_DATA = 3;
+
+/** Pure decision for the level meter: only an element that is really playing
+ *  yields a meaningful level. Anything else (paused, waiting, ended, failed,
+ *  too little data, no report yet) means "unavailable", never "silent". */
+export function isActuallyPlaying(
+  el: Pick<HTMLMediaElement, "paused" | "ended" | "readyState"> | undefined,
+  state: PlaybackState | undefined,
+): boolean {
+  return !!el && state === "playing" && !el.paused && !el.ended && el.readyState >= HAVE_FUTURE_DATA;
+}
+
 interface Chain {
   source: MediaElementAudioSourceNode;
   analyser: AnalyserNode;
@@ -27,6 +42,7 @@ export class AudioEngine {
   private sources = new WeakMap<HTMLMediaElement, MediaElementAudioSourceNode>();
   private audibleId: number | null = null;
   private forceMuted = new Set<number>();
+  private playback = new Map<number, PlaybackState>();
   private version = 0;
   private listeners = new Set<() => void>();
 
@@ -60,6 +76,21 @@ export class AudioEngine {
   isForceMuted(id: number): boolean {
     return this.forceMuted.has(id);
   }
+  /** Reported by the player; null clears it (new source). */
+  setPlaybackState(id: number, state: PlaybackState | null): void {
+    if ((this.playback.get(id) ?? null) === state) return;
+    if (state) this.playback.set(id, state);
+    else this.playback.delete(id);
+    this.notify();
+  }
+  playbackState(id: number): PlaybackState | undefined {
+    return this.playback.get(id);
+  }
+  /** Checked live (every meter frame): the element state can change without a report. */
+  isPlaying(id: number): boolean {
+    return isActuallyPlaying(this.elements.get(id), this.playback.get(id));
+  }
+
   /** True when a click is needed: context not running or any element force-muted. */
   needsUnlock(): boolean {
     return !this.isRunning() || this.forceMuted.size > 0;
@@ -106,6 +137,7 @@ export class AudioEngine {
       if (this.elements.get(id) !== el) return;
       this.elements.delete(id);
       this.forceMuted.delete(id);
+      this.playback.delete(id);
       this.unwire(id);
       el.muted = true;
       this.notify();

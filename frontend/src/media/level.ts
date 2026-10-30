@@ -25,3 +25,11 @@ export function describeLevel(db: number): LevelDescription {
   if (db < -30) return "low";
   return "normal";
 }
+
+export type MeterReading = LevelDescription | "unavailable";
+
+/** A level is only reported for an element that is really playing; a stalled
+ *  or failed player reads "unavailable", never "silent". */
+export function meterReading(playing: boolean, db: number): MeterReading {
+  return playing ? describeLevel(db) : "unavailable";
+}

@@ -99,5 +99,8 @@
   "Status unknown – check not possible": "Status unbekannt – Prüfung nicht möglich",
   "Status currently unclear": "Status derzeit unklar",
   "Recorder inactive": "Rekorder inaktiv",
-  "Monitor has delivered no data since {{time}} – status may be outdated": "Monitor liefert keine Daten seit {{time}} – Status kann veraltet sein"
+  "Monitor has delivered no data since {{time}} – status may be outdated": "Monitor liefert keine Daten seit {{time}} – Status kann veraltet sein",
+  "Playback disrupted – retrying …": "Wiedergabe gestört – neuer Versuch …",
+  "Playback failed": "Wiedergabe fehlgeschlagen",
+  "Reload": "Neu laden"
 }

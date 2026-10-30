@@ -3,20 +3,21 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { dbfsToMeter, describeLevel, rmsToDbfs, type LevelDescription } from "./level";
+import { dbfsToMeter, meterReading, rmsToDbfs, type MeterReading } from "./level";
 import { useAudio } from "./AudioContextProvider";
 
 const REDUCED_MOTION_INTERVAL_MS = 250;
 
 export function LevelMeter({ id }: { id: number }) {
   const { t } = useTranslation();
-  const { unlocked, analyser, analyserUnavailable, isForceMuted } = useAudio();
+  const { unlocked, analyser, analyserUnavailable, isForceMuted, isPlaying } = useAudio();
   // A force-muted element only feeds silence: never show "silent" for it.
   const forced = isForceMuted(id);
   const node = unlocked && !forced ? analyser(id) : null;
   const fill = useRef<HTMLDivElement>(null);
   const meter = useRef<HTMLDivElement>(null);
-  const [level, setLevel] = useState<LevelDescription>("silent");
+  // Starts "unavailable": nothing is known before the first frame.
+  const [level, setLevel] = useState<MeterReading>("unavailable");
 
   useEffect(() => {
     if (!node) return;
@@ -24,17 +25,22 @@ export function LevelMeter({ id }: { id: number }) {
     const buf = new Float32Array(node.fftSize);
     let raf = 0;
     let last = 0;
-    let lastDesc: LevelDescription | null = null;
+    let lastDesc: MeterReading | null = null;
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
       if (reduced && now - last < REDUCED_MOTION_INTERVAL_MS) return;
       last = now;
-      node.getFloatTimeDomainData(buf);
-      const db = rmsToDbfs(buf);
-      const value = dbfsToMeter(db);
+      // A stalled element feeds the analyser silence: that is not "silent".
+      const playing = isPlaying(id);
+      let db = -Infinity;
+      if (playing) {
+        node.getFloatTimeDomainData(buf);
+        db = rmsToDbfs(buf);
+      }
+      const value = playing ? dbfsToMeter(db) : 0;
       if (fill.current) fill.current.style.height = `${Math.round(value * 100)}%`;
       meter.current?.setAttribute("aria-valuenow", value.toFixed(2));
-      const desc = describeLevel(db);
+      const desc = meterReading(playing, db);
       if (desc !== lastDesc) {
         lastDesc = desc;
         setLevel(desc);
@@ -42,13 +48,16 @@ export function LevelMeter({ id }: { id: number }) {
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [node]);
+  }, [node, id, isPlaying]);
 
-  // "unavailable" only for native playback; "not yet wired" shows no text.
+  // "unavailable": native playback, or the element is not really playing;
+  // "not yet wired" shows no text.
   const label = !unlocked || forced
     ? t("Level after click")
     : node
-      ? t(level)
+      ? level === "unavailable"
+        ? t("Level unavailable")
+        : t(level)
       : analyserUnavailable(id)
         ? t("Level unavailable")
         : "";

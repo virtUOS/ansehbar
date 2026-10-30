@@ -10,6 +10,7 @@ import { formatClock, formatDuration, presentation, stateTransition } from "../r
 import { StatusBadge } from "../components/StatusBadge";
 import { StreamPlaceholder } from "../components/StreamPlaceholder";
 import { MonitorBanner } from "../components/MonitorBanner";
+import { PlaybackOverlay, usePlayback } from "../components/PlaybackOverlay";
 import { HlsPlayer } from "../media/HlsPlayer";
 import { LevelMeter } from "../media/LevelMeter";
 import { useAudio } from "../media/AudioContextProvider";
@@ -80,6 +81,7 @@ export function RoomView() {
   // Unknown but last seen live: keep the player (and its controls) on.
   const live = shown === "live" || shown === "live-unknown";
   const audible = audibleId === id;
+  const playback = usePlayback(`${id}-${live}`);
 
   const toggleSound = async () => {
     if (audible) return setAudible(null);
@@ -186,13 +188,17 @@ export function RoomView() {
       <div ref={container} className="relative aspect-video overflow-hidden rounded-2xl bg-slate-900">
         {live ? (
           <div className="absolute inset-0 flex">
-            <HlsPlayer
-              key={recorder.id}
-              id={recorder.id}
-              label={recorder.room_name}
-              src={recorder.playback_url}
-              className="h-full min-w-0 flex-1 bg-black object-contain"
-            />
+            <div className="relative h-full min-w-0 flex-1">
+              <HlsPlayer
+                key={`${recorder.id}-${playback.reloadKey}`}
+                id={recorder.id}
+                label={recorder.room_name}
+                src={recorder.playback_url}
+                onPlaybackState={playback.onState}
+                className="h-full w-full bg-black object-contain"
+              />
+              <PlaybackOverlay state={playback.state} onReload={playback.reload} />
+            </div>
             <div className="flex shrink-0 items-stretch bg-white/90 p-1.5 dark:bg-slate-900/90">
               <LevelMeter key={recorder.id} id={recorder.id} />
             </div>
@@ -206,7 +212,7 @@ export function RoomView() {
             ) : null}
           </StreamPlaceholder>
         )}
-        <div className="absolute left-2 top-2">
+        <div className="absolute left-2 top-2 z-10">
           {shown === "live" ? (
             <LiveBadge since={recorder.status.live_since} />
           ) : (

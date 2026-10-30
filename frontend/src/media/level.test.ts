@@ -2,7 +2,7 @@
 // Copyright 2026 Universität Osnabrück (virtUOS)
 
 import { describe, expect, it } from "vitest";
-import { dbfsToMeter, describeLevel, rmsToDbfs } from "./level";
+import { dbfsToMeter, describeLevel, meterReading, rmsToDbfs } from "./level";
 
 describe("level", () => {
   it("rmsToDbfs of full-scale sine is about -3.01", () => {
@@ -24,5 +24,16 @@ describe("level", () => {
     expect(describeLevel(-Infinity)).toBe("silent");
     expect(describeLevel(-40)).toBe("low");
     expect(describeLevel(-20)).toBe("normal");
+  });
+});
+
+describe("meterReading", () => {
+  it("not playing is unavailable, never silent", () => {
+    expect(meterReading(false, -Infinity)).toBe("unavailable");
+    expect(meterReading(false, -10)).toBe("unavailable");
+  });
+  it("playing describes the level", () => {
+    expect(meterReading(true, -Infinity)).toBe("silent");
+    expect(meterReading(true, -10)).toBe("normal");
   });
 });
