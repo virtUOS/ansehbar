@@ -112,9 +112,18 @@ export function RoomView() {
     }
   };
 
+  const notice = error ? (
+    <p role="status" className="rounded-lg bg-amber-100 px-3 py-2 text-sm text-amber-950">
+      {t("Status could not be updated – last update {{time}}", {
+        time: lastUpdated ? formatClock(lastUpdated.toISOString(), i18n.language) : "–",
+      })}
+    </p>
+  ) : null;
+
   if (!recorder) {
     return (
-      <div className="mx-auto w-full max-w-4xl">
+      <div className="mx-auto w-full max-w-4xl space-y-3">
+        {notice}
         {error && !lastUpdated ? (
           <p className="py-8 text-center text-lg text-slate-700 dark:text-slate-300">
             {t("Status not available yet")}
@@ -136,13 +145,7 @@ export function RoomView() {
 
   return (
     <div className="mx-auto w-full min-w-0 max-w-4xl space-y-3">
-      {error ? (
-        <p role="status" className="rounded-lg bg-amber-100 px-3 py-2 text-sm text-amber-950">
-          {t("Status could not be updated – last update {{time}}", {
-            time: lastUpdated ? formatClock(lastUpdated.toISOString(), i18n.language) : "–",
-          })}
-        </p>
-      ) : null}
+      {notice}
       <div aria-live="polite" className="sr-only">
         {announcement}
       </div>
