@@ -42,9 +42,7 @@
   "Status unknown": "Status unbekannt",
   "No stream": "Kein Stream",
   "LIVE": "LIVE",
-  "Sound": "Ton",
-  "Rooms": "Räume",
   "No rooms found.": "Keine Räume gefunden.",
   "Loading…": "Lädt …",
-  "Video could not be played": "Video kann nicht abgespielt werden"
+  "Status not available yet": "Status noch nicht verfügbar"
 }

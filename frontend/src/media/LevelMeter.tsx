@@ -54,7 +54,7 @@ export function LevelMeter({ id }: { id: number }) {
         : "";
 
   return (
-    <div className="flex items-end gap-1.5" title={label}>
+    <div className="flex items-end" title={label}>
       <div
         ref={meter}
         role="meter"
@@ -63,7 +63,7 @@ export function LevelMeter({ id }: { id: number }) {
         aria-valuemax={1}
         aria-valuenow={0}
         aria-valuetext={label || t("Level")}
-        className="relative h-12 w-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700"
+        className="relative h-full min-h-12 w-2.5 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700"
       >
         {node ? (
           <div
@@ -73,7 +73,7 @@ export function LevelMeter({ id }: { id: number }) {
           />
         ) : null}
       </div>
-      <span className="text-xs text-slate-500 dark:text-slate-400">{label}</span>
+      <span className="sr-only">{label}</span>
     </div>
   );
 }

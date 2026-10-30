@@ -73,9 +73,11 @@ export function Overview() {
             className="w-full rounded-full border border-slate-300 bg-white py-1.5 pl-9 pr-3 text-sm dark:border-slate-700 dark:bg-slate-900"
           />
         </label>
-        <div className="ml-auto">
-          <AudioUnlockButton />
-        </div>
+        {wide ? (
+          <div className="ml-auto">
+            <AudioUnlockButton />
+          </div>
+        ) : null}
       </div>
 
       {error ? (
@@ -88,6 +90,10 @@ export function Overview() {
 
       {loading && recorders.length === 0 ? (
         <p className="text-slate-600 dark:text-slate-400">{t("Loading…")}</p>
+      ) : error && recorders.length === 0 ? (
+        <p className="py-8 text-center text-lg text-slate-700 dark:text-slate-300">
+          {t("Status not available yet")}
+        </p>
       ) : shown.length === 0 ? (
         <p className="py-8 text-center text-lg text-slate-700 dark:text-slate-300">
           {mode === "now" && !query.trim() ? t("No recording room is streaming right now.") : t("No rooms found.")}

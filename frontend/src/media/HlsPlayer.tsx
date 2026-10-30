@@ -18,7 +18,11 @@ interface Props {
 
 export function HlsPlayer({ id, src, className, onError }: Props) {
   const ref = useRef<HTMLVideoElement>(null);
-  const { attach, markForceMuted } = useAudio();
+  const { attach, markForceMuted, audibleId, setAudible } = useAudio();
+  const audibleRef = useRef(audibleId);
+  audibleRef.current = audibleId;
+  const setAudibleRef = useRef(setAudible);
+  setAudibleRef.current = setAudible;
   // Keep the latest callback without restarting playback when it changes.
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
@@ -31,7 +35,11 @@ export function HlsPlayer({ id, src, className, onError }: Props) {
     if (!el) return;
     if (!useHlsJs) markNative(el);
     const detach = attach(id, el);
-    return () => detach?.();
+    return () => {
+      detach?.();
+      // A vanished tile must not leave its room audible for later.
+      if (audibleRef.current === id) setAudibleRef.current(null);
+    };
   }, [id, attach, useHlsJs]);
 
   // Playback; depends on src only.

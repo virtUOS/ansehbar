@@ -39,7 +39,7 @@ export default function App() {
   useEffect(load, [load]);
 
   const navClass = ({ isActive }: { isActive: boolean }) =>
-    `rounded-full px-3 py-1 text-sm font-medium transition-colors hover:bg-slate-100 dark:hover:bg-slate-800 ${
+    `rounded-full px-2 py-1 text-sm sm:px-3 font-medium transition-colors hover:bg-slate-100 dark:hover:bg-slate-800 ${
       isActive ? "bg-slate-100 dark:bg-slate-800" : ""
     }`;
 
@@ -49,8 +49,8 @@ export default function App() {
         {t("Skip to content")}
       </a>
       <header className="border-b border-slate-100 dark:border-slate-900">
-        <div className="flex items-center justify-between px-4 py-3">
-          <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-x-2 px-2 py-2 sm:px-4 sm:py-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 sm:gap-x-4">
             <span className="text-lg font-bold">ansehBAR</span>
             {whoami?.authenticated && whoami.has_access ? (
               <nav aria-label={t("Main")} className="flex items-center gap-1">

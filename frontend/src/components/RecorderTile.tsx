@@ -41,7 +41,7 @@ function RecorderTileInner({ recorder }: { recorder: Recorder }) {
               src={recorder.playback_url}
               className="h-full min-w-0 flex-1 bg-black object-contain"
             />
-            <div className="flex items-end bg-white/90 p-2 dark:bg-slate-900/90">
+            <div className="flex shrink-0 items-stretch bg-white/90 p-1.5 dark:bg-slate-900/90">
               <LevelMeter id={recorder.id} />
             </div>
           </div>
