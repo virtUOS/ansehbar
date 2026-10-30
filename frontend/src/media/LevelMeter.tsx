@@ -10,7 +10,7 @@ const REDUCED_MOTION_INTERVAL_MS = 250;
 
 export function LevelMeter({ id }: { id: number }) {
   const { t } = useTranslation();
-  const { unlocked, analyser } = useAudio();
+  const { unlocked, analyser, analyserUnavailable } = useAudio();
   const node = unlocked ? analyser(id) : null;
   const fill = useRef<HTMLDivElement>(null);
   const meter = useRef<HTMLDivElement>(null);
@@ -42,11 +42,14 @@ export function LevelMeter({ id }: { id: number }) {
     return () => cancelAnimationFrame(raf);
   }, [node]);
 
+  // "unavailable" only for native playback; "not yet wired" shows no text.
   const label = !unlocked
     ? t("Level after click")
-    : !node
-      ? t("Level unavailable")
-      : t(level);
+    : node
+      ? t(level)
+      : analyserUnavailable(id)
+        ? t("Level unavailable")
+        : "";
 
   return (
     <div className="flex items-end gap-1.5" title={label}>
@@ -57,7 +60,7 @@ export function LevelMeter({ id }: { id: number }) {
         aria-valuemin={0}
         aria-valuemax={1}
         aria-valuenow={0}
-        aria-valuetext={label}
+        aria-valuetext={label || t("Level")}
         className="relative h-12 w-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700"
       >
         {node ? (

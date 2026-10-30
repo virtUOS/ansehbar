@@ -26,29 +26,45 @@ export class AudioEngine {
   /** createMediaElementSource may only be called once per element. */
   private sources = new WeakMap<HTMLMediaElement, MediaElementAudioSourceNode>();
   private audibleId: number | null = null;
-  private unlocked = false;
-  private unlocking: Promise<void> | null = null;
+  private version = 0;
+  private listeners = new Set<() => void>();
 
-  isUnlocked(): boolean {
-    return this.unlocked;
+  /** useSyncExternalStore plumbing: the version changes whenever chains are
+   *  created/removed or the context state changes. */
+  subscribe = (fn: () => void): (() => void) => {
+    this.listeners.add(fn);
+    return () => {
+      this.listeners.delete(fn);
+    };
+  };
+  getVersion = (): number => this.version;
+  private notify(): void {
+    this.version++;
+    for (const fn of this.listeners) fn();
   }
 
+  /** True while the AudioContext is running (not suspended/interrupted). */
+  isRunning(): boolean {
+    return this.ctx?.state === "running";
+  }
+
+  /** Must be called directly from a user gesture. Everything that needs the
+   *  gesture (context creation, resume, unmuting) happens before any await. */
   async unlock(): Promise<void> {
-    if (this.unlocked) return;
-    this.unlocking ??= (async () => {
+    if (!this.ctx) {
       const Ctor =
         window.AudioContext ??
         (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
       if (!Ctor) throw new Error("Web Audio is not supported");
-      this.ctx ??= new Ctor();
-      await this.ctx.resume();
-      this.unlocked = true;
-      for (const [id, el] of this.elements) this.wire(id, el);
-      this.applyAudibility();
-    })().finally(() => {
-      this.unlocking = null;
-    });
-    return this.unlocking;
+      this.ctx = new Ctor();
+      this.ctx.onstatechange = () => this.notify();
+    }
+    const resumed = this.ctx.resume();
+    for (const [id, el] of this.elements) this.wire(id, el);
+    this.applyAudibility();
+    this.notify();
+    await resumed;
+    this.notify();
   }
 
   setAudible(id: number | null): void {
@@ -58,9 +74,10 @@ export class AudioEngine {
 
   attach(id: number, el: HTMLVideoElement): () => void {
     this.elements.set(id, el);
-    if (this.unlocked) {
+    if (this.ctx) {
       this.wire(id, el);
       this.applyAudibility();
+      this.notify();
     }
     return () => {
       // Ignore stale cleanups (id re-attached with another element).
@@ -68,11 +85,18 @@ export class AudioEngine {
       this.elements.delete(id);
       this.unwire(id);
       el.muted = true;
+      this.notify();
     };
   }
 
   analyser(id: number): AnalyserNode | null {
     return this.chains.get(id)?.analyser ?? null;
+  }
+
+  /** True only for elements that can never have an analyser (native HLS). */
+  analyserUnavailable(id: number): boolean {
+    const el = this.elements.get(id);
+    return !!el && nativeElements.has(el);
   }
 
   private wire(id: number, el: HTMLVideoElement): void {
@@ -103,7 +127,7 @@ export class AudioEngine {
   }
 
   private applyAudibility(): void {
-    if (!this.unlocked) return;
+    if (!this.ctx) return;
     for (const [id, el] of this.elements) {
       const audible = id === this.audibleId;
       const chain = this.chains.get(id);

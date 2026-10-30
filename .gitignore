@@ -22,9 +22,10 @@ dist/
 .DS_Store
 
 # Local data
-/media/
 *.sqlite3
 
 # Project scratch / legacy
 alt/
 .superpowers/
+/media/
+/backend/media/

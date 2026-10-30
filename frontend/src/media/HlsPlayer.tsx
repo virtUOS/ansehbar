@@ -43,7 +43,22 @@ export function HlsPlayer({ id, src, className, onError }: Props) {
     let timer: ReturnType<typeof setTimeout> | undefined;
     let retries = 0;
 
-    const play = () => void el.play().catch(() => {});
+    const report = (err: unknown) => {
+      if (!cancelled) onErrorRef.current?.(err instanceof Error ? err.message : String(err));
+    };
+    // Muted playback beats a black tile: on an autoplay rejection fall back to
+    // muted and retry.
+    const play = () => {
+      el.play().catch((err: unknown) => {
+        if (err instanceof DOMException && err.name === "AbortError") return; // src changed/torn down
+        if (err instanceof DOMException && err.name === "NotAllowedError") {
+          el.muted = true;
+          el.play().catch(report);
+          return;
+        }
+        report(err);
+      });
+    };
 
     if (!useHlsJs) {
       if (el.canPlayType("application/vnd.apple.mpegurl")) {
