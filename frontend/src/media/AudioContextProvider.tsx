@@ -7,6 +7,8 @@ import { AudioEngine } from "./audio";
 
 export interface AudioApi {
   unlocked: boolean;
+  /** Click needed: context not running, or an element was force-muted. */
+  needsUnlock: boolean;
   unlock(): Promise<void>;
   audibleId: number | null;
   setAudible(id: number | null): void;
@@ -14,6 +16,8 @@ export interface AudioApi {
   analyser(id: number): AnalyserNode | null;
   /** True only when the element can never have an analyser (native HLS). */
   analyserUnavailable(id: number): boolean;
+  isForceMuted(id: number): boolean;
+  markForceMuted(id: number, value: boolean): void;
 }
 
 const AudioCtx = createContext<AudioApi | undefined>(undefined);
@@ -24,6 +28,7 @@ export function AudioContextProvider({ children }: { children: ReactNode }) {
   const version = useSyncExternalStore(engine.subscribe, engine.getVersion);
   // "unlocked" means: the context is running right now.
   const unlocked = engine.isRunning();
+  const needsUnlock = engine.needsUnlock();
   const [audibleId, setAudibleId] = useState<number | null>(null);
 
   const unlock = useCallback(async () => {
@@ -40,11 +45,17 @@ export function AudioContextProvider({ children }: { children: ReactNode }) {
   const analyser = useCallback((id: number) => engine.analyser(id), [engine]);
   const analyserUnavailable = useCallback((id: number) => engine.analyserUnavailable(id), [engine]);
 
+  const isForceMuted = useCallback((id: number) => engine.isForceMuted(id), [engine]);
+  const markForceMuted = useCallback(
+    (id: number, v: boolean) => engine.markForceMuted(id, v),
+    [engine],
+  );
+
   const value = useMemo<AudioApi>(
-    () => ({ unlocked, unlock, audibleId, setAudible, attach, analyser, analyserUnavailable }),
+    () => ({ unlocked, needsUnlock, unlock, audibleId, setAudible, attach, analyser, analyserUnavailable, isForceMuted, markForceMuted }),
     // version: chains/context state changed, consumers must re-resolve.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [unlocked, version, unlock, audibleId, setAudible, attach, analyser, analyserUnavailable],
+    [unlocked, needsUnlock, version, unlock, audibleId, setAudible, attach, analyser, analyserUnavailable, isForceMuted, markForceMuted],
   );
   return <AudioCtx.Provider value={value}>{children}</AudioCtx.Provider>;
 }

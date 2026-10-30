@@ -7,8 +7,8 @@ import { useAudio } from "./AudioContextProvider";
 
 export function AudioUnlockButton() {
   const { t } = useTranslation();
-  const { unlocked, unlock } = useAudio();
-  if (unlocked) return null;
+  const { needsUnlock, unlock } = useAudio();
+  if (!needsUnlock) return null;
   return (
     <button
       type="button"

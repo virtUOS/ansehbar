@@ -18,7 +18,7 @@ interface Props {
 
 export function HlsPlayer({ id, src, className, onError }: Props) {
   const ref = useRef<HTMLVideoElement>(null);
-  const { attach } = useAudio();
+  const { attach, markForceMuted } = useAudio();
   // Keep the latest callback without restarting playback when it changes.
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
@@ -53,6 +53,7 @@ export function HlsPlayer({ id, src, className, onError }: Props) {
         if (err instanceof DOMException && err.name === "AbortError") return; // src changed/torn down
         if (err instanceof DOMException && err.name === "NotAllowedError") {
           el.muted = true;
+          markForceMuted(id, true);
           el.play().catch(report);
           return;
         }
@@ -98,7 +99,7 @@ export function HlsPlayer({ id, src, className, onError }: Props) {
       hls?.destroy();
       hls?.detachMedia();
     };
-  }, [src, useHlsJs]);
+  }, [src, useHlsJs, id, markForceMuted]);
 
   return <video ref={ref} className={className} autoPlay playsInline muted />;
 }

@@ -26,6 +26,7 @@ export class AudioEngine {
   /** createMediaElementSource may only be called once per element. */
   private sources = new WeakMap<HTMLMediaElement, MediaElementAudioSourceNode>();
   private audibleId: number | null = null;
+  private forceMuted = new Set<number>();
   private version = 0;
   private listeners = new Set<() => void>();
 
@@ -48,6 +49,22 @@ export class AudioEngine {
     return this.ctx?.state === "running";
   }
 
+  /** The player had to mute this element to get playback going (autoplay
+   *  rejection). Its analyser would only see silence until unlock() recovers it. */
+  markForceMuted(id: number, value: boolean): void {
+    if (value === this.forceMuted.has(id)) return;
+    if (value) this.forceMuted.add(id);
+    else this.forceMuted.delete(id);
+    this.notify();
+  }
+  isForceMuted(id: number): boolean {
+    return this.forceMuted.has(id);
+  }
+  /** True when a click is needed: context not running or any element force-muted. */
+  needsUnlock(): boolean {
+    return !this.isRunning() || this.forceMuted.size > 0;
+  }
+
   /** Must be called directly from a user gesture. Everything that needs the
    *  gesture (context creation, resume, unmuting) happens before any await. */
   async unlock(): Promise<void> {
@@ -60,7 +77,12 @@ export class AudioEngine {
       this.ctx.onstatechange = () => this.notify();
     }
     const resumed = this.ctx.resume();
-    for (const [id, el] of this.elements) this.wire(id, el);
+    for (const [id, el] of this.elements) {
+      this.wire(id, el);
+      if (this.chains.has(id)) el.muted = false;
+      if (el.paused) el.play().catch(() => {});
+    }
+    this.forceMuted.clear();
     this.applyAudibility();
     this.notify();
     await resumed;
@@ -83,6 +105,7 @@ export class AudioEngine {
       // Ignore stale cleanups (id re-attached with another element).
       if (this.elements.get(id) !== el) return;
       this.elements.delete(id);
+      this.forceMuted.delete(id);
       this.unwire(id);
       el.muted = true;
       this.notify();

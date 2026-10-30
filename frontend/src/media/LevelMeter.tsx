@@ -10,8 +10,10 @@ const REDUCED_MOTION_INTERVAL_MS = 250;
 
 export function LevelMeter({ id }: { id: number }) {
   const { t } = useTranslation();
-  const { unlocked, analyser, analyserUnavailable } = useAudio();
-  const node = unlocked ? analyser(id) : null;
+  const { unlocked, analyser, analyserUnavailable, isForceMuted } = useAudio();
+  // A force-muted element only feeds silence: never show "silent" for it.
+  const forced = isForceMuted(id);
+  const node = unlocked && !forced ? analyser(id) : null;
   const fill = useRef<HTMLDivElement>(null);
   const meter = useRef<HTMLDivElement>(null);
   const [level, setLevel] = useState<LevelDescription>("silent");
@@ -43,7 +45,7 @@ export function LevelMeter({ id }: { id: number }) {
   }, [node]);
 
   // "unavailable" only for native playback; "not yet wired" shows no text.
-  const label = !unlocked
+  const label = !unlocked || forced
     ? t("Level after click")
     : node
       ? t(level)
