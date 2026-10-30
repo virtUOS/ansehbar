@@ -1,12 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Universität Osnabrück (virtUOS)
 
+from django.conf import settings
+from django.db.models import Max
+from django.utils import timezone
 from rest_framework import mixins, viewsets
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.permissions import HasAccess
-from recorders.models import MonitorSettings, Recorder
+from recorders.models import MonitorSettings, Recorder, RecorderStatus
 from recorders.serializers import MonitorSettingsSerializer, RecorderSerializer
 
 
@@ -48,3 +51,25 @@ class MonitorSettingsView(APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
+
+
+class MonitorHealthView(APIView):
+    """Heartbeat of the monitor process: when did it last check a recorder?
+
+    The client compares `last_check` against the server's `now` (not the
+    browser clock) to detect a stalled or stopped monitor.
+    """
+
+    permission_classes = [HasAccess]
+
+    def get(self, request):
+        last_check = RecorderStatus.objects.filter(recorder__active=True).aggregate(
+            last=Max("checked_at")
+        )["last"]
+        return Response(
+            {
+                "last_check": last_check,
+                "now": timezone.now(),
+                "interval_seconds": settings.MONITOR_INTERVAL_SECONDS,
+            }
+        )

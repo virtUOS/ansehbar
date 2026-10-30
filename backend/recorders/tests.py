@@ -155,6 +155,43 @@ class MonitorSettingsApiTests(TestCase):
         self.assertEqual(self.client.get("/api/settings/monitor/").status_code, 403)
 
 
+class MonitorHealthApiTests(TestCase):
+    def setUp(self):
+        Recorder.objects.all().delete()  # drop seeded recorders
+        member = User.objects.create_user(username="member", is_superuser=True)
+        self.client.force_login(member)
+
+    @override_settings(MONITOR_INTERVAL_SECONDS=15)
+    def test_reports_latest_check_of_active_recorders(self):
+        older = datetime(2026, 1, 1, 11, 0, tzinfo=timezone.utc)
+        newest = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+        a = Recorder.objects.create(room_name="A", stream_name="rec-a")
+        b = Recorder.objects.create(room_name="B", stream_name="rec-b")
+        c = Recorder.objects.create(room_name="C", stream_name="rec-c", active=False)
+        RecorderStatus.objects.filter(recorder=a).update(checked_at=older)
+        RecorderStatus.objects.filter(recorder=b).update(checked_at=newest)
+        # Inactive recorders are not probed and must not count as a heartbeat.
+        RecorderStatus.objects.filter(recorder=c).update(
+            checked_at=datetime(2026, 1, 2, tzinfo=timezone.utc)
+        )
+        body = self.client.get("/api/monitor/health/").json()
+        self.assertEqual(
+            datetime.fromisoformat(body["last_check"].replace("Z", "+00:00")), newest
+        )
+        self.assertEqual(body["interval_seconds"], 15)
+        self.assertTrue(body["now"])
+
+    def test_last_check_null_without_checks(self):
+        Recorder.objects.create(room_name="A", stream_name="rec-a")
+        body = self.client.get("/api/monitor/health/").json()
+        self.assertIsNone(body["last_check"])
+
+    def test_requires_access(self):
+        outsider = User.objects.create_user(username="out")
+        self.client.force_login(outsider)
+        self.assertEqual(self.client.get("/api/monitor/health/").status_code, 403)
+
+
 class SeedTests(TestCase):
     def test_seed_created_33_active_recorders(self):
         self.assertEqual(Recorder.objects.count(), 33)
