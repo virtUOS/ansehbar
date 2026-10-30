@@ -4,7 +4,7 @@
 /** Polls the recorder list; pauses while the tab is hidden. A 403 means the
  *  access gate changed, so `onForbidden` lets the App re-check whoami. */
 import { useEffect, useRef, useState } from "react";
-import { useAppContext } from "./App";
+import { useAppContext } from "./appContext";
 import { ApiError, api, type Recorder } from "./api";
 import { mergeRecorders } from "./recorders";
 
@@ -13,7 +13,7 @@ export function useRecorders(intervalMs = 8000, onForbidden?: () => void) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   // Outside the app shell the context is undefined: fall back to a no-op.
-  const ctx = useAppContext() as ReturnType<typeof useAppContext> | undefined;
+  const ctx = useAppContext();
   const forbidden = useRef<(() => void) | undefined>();
   forbidden.current = onForbidden ?? ctx?.refreshWhoami;
 

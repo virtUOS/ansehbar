@@ -5,7 +5,7 @@
  *  gate (Landing / NoAccess / app). */
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { NavLink, Outlet, useOutletContext } from "react-router-dom";
+import { NavLink, Outlet } from "react-router-dom";
 import { LogIn, LogOut } from "lucide-react";
 import {
   PreferencesMenu,
@@ -13,19 +13,10 @@ import {
   setTranslationEnabled,
 } from "@basicbar/ui";
 import i18n from "./i18n";
+import { AppContext } from "./appContext";
 import Landing from "./pages/Landing";
 import NoAccess from "./pages/NoAccess";
 import { api, loginUrl, logoutUrl, type Whoami } from "./api";
-
-export interface AppContext {
-  whoami: Whoami;
-  /** Re-fetch whoami (e.g. after a 403 from the API). */
-  refreshWhoami: () => void;
-}
-
-export function useAppContext() {
-  return useOutletContext<AppContext>();
-}
 
 export default function App() {
   const { t } = useTranslation();
@@ -106,7 +97,9 @@ export default function App() {
         ) : !whoami.has_access ? (
           <NoAccess contact={whoami.access_contact} />
         ) : (
-          <Outlet context={{ whoami, refreshWhoami: load } satisfies AppContext} />
+          <AppContext.Provider value={{ whoami, refreshWhoami: load }}>
+            <Outlet />
+          </AppContext.Provider>
         )}
       </main>
     </div>
