@@ -62,6 +62,7 @@ INSTALLED_APPS = [
     # Local apps
     "common",
     "accounts",
+    "recorders",
 ]
 
 AUTH_USER_MODEL = "accounts.User"
