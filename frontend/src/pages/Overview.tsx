@@ -10,6 +10,7 @@ import { emptyNowMessage, filterOverview, formatClock, keepsPlayer, outsideNow, 
 import type { Recorder } from "../api";
 import { RecorderTile } from "../components/RecorderTile";
 import { RoomList } from "../components/RoomList";
+import { MonitorBanner } from "../components/MonitorBanner";
 import { AudioUnlockButton } from "../media/AudioUnlockButton";
 
 /** JS media query (not CSS hidden): hidden tiles would still mount players. */
@@ -27,7 +28,7 @@ function useMediaQuery(query: string): boolean {
 
 export function Overview() {
   const { t, i18n } = useTranslation();
-  const { recorders, error, loading, lastUpdated } = useRecorders();
+  const { recorders, error, loading, lastUpdated, monitorStale, monitorLastCheck } = useRecorders();
   const [mode, setMode] = useState<"now" | "all">("now");
   const [query, setQuery] = useState("");
   const wide = useMediaQuery("(min-width: 768px)");
@@ -59,6 +60,7 @@ export function Overview() {
   return (
     <div className="space-y-4 p-4">
       <h1 className="sr-only">{t("Overview")}</h1>
+      <MonitorBanner stale={monitorStale} lastCheck={monitorLastCheck} />
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex gap-2">
           {chip("now", "Now", nowCount)}

@@ -98,5 +98,6 @@
   "Preview": "Vorschau",
   "Status unknown – check not possible": "Status unbekannt – Prüfung nicht möglich",
   "Status currently unclear": "Status derzeit unklar",
-  "Recorder inactive": "Rekorder inaktiv"
+  "Recorder inactive": "Rekorder inaktiv",
+  "Monitor has delivered no data since {{time}} – status may be outdated": "Monitor liefert keine Daten seit {{time}} – Status kann veraltet sein"
 }

@@ -9,6 +9,7 @@ import { useRecorders } from "../useRecorders";
 import { formatClock, formatDuration, presentation, stateTransition } from "../recorders";
 import { StatusBadge } from "../components/StatusBadge";
 import { StreamPlaceholder } from "../components/StreamPlaceholder";
+import { MonitorBanner } from "../components/MonitorBanner";
 import { HlsPlayer } from "../media/HlsPlayer";
 import { LevelMeter } from "../media/LevelMeter";
 import { useAudio } from "../media/AudioContextProvider";
@@ -41,7 +42,7 @@ export function RoomView() {
   const navigate = useNavigate();
   const params = useParams();
   const id = Number(params.id);
-  const { recorders, error, loading, lastUpdated } = useRecorders();
+  const { recorders, error, loading, lastUpdated, monitorStale, monitorLastCheck } = useRecorders();
   const { unlocked, unlock, audibleId, setAudible } = useAudio();
   const container = useRef<HTMLDivElement>(null);
   const [announcement, setAnnouncement] = useState("");
@@ -115,13 +116,18 @@ export function RoomView() {
     }
   };
 
-  const notice = error ? (
-    <p role="status" className="rounded-lg bg-amber-100 px-3 py-2 text-sm text-amber-950">
-      {t("Status could not be updated – last update {{time}}", {
-        time: lastUpdated ? formatClock(lastUpdated.toISOString(), i18n.language) : "–",
-      })}
-    </p>
-  ) : null;
+  const notice = (
+    <>
+      <MonitorBanner stale={monitorStale} lastCheck={monitorLastCheck} />
+      {error ? (
+        <p role="status" className="rounded-lg bg-amber-100 px-3 py-2 text-sm text-amber-950">
+          {t("Status could not be updated – last update {{time}}", {
+            time: lastUpdated ? formatClock(lastUpdated.toISOString(), i18n.language) : "–",
+          })}
+        </p>
+      ) : null}
+    </>
+  );
 
   if (!recorder) {
     return (

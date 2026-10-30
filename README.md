@@ -43,9 +43,14 @@ Die Settings verweigern den Start mit dem Entwicklungs-`SECRET_KEY`, sobald
 
 Die App läuft als zwei Prozesse aus demselben Image: `backend` (Web/API) und
 `monitor` (`python manage.py run_monitor`). Der Monitor prüft alle aktiven
-Rekorder im Intervall und schreibt den Status in die Datenbank; ohne ihn
-zeigt die Übersicht dauerhaft „Status unbekannt“. Beide Dienste brauchen
-dieselben Umgebungsvariablen (siehe `.env.prod.example`).
+Rekorder im Intervall und schreibt den Status in die Datenbank. Läuft er
+nicht, frieren die Status auf dem letzten Stand ein (ein Stream kann also
+weiter als „live“ erscheinen). Das Frontend fragt deshalb mit den Rekordern
+den Herzschlag `GET /api/monitor/health/` ab und zeigt in Übersicht und
+Raumansicht ein Banner „Monitor liefert keine Daten seit … – Status kann
+veraltet sein“, sobald die letzte Prüfung länger als drei Intervalle
+(Serverzeit) zurückliegt. Beide Dienste brauchen dieselben
+Umgebungsvariablen (siehe `.env.prod.example`).
 
 | Variable | Bedeutung | Standard |
 | --- | --- | --- |
@@ -66,7 +71,10 @@ Hinweise:
   Ohne CORS-Header bleibt die Vorschau leer, auch wenn der Monitor „live“ meldet.
 - **„seit“ in Stufe 1:** Die Uhrzeit zeigt, wann der Monitor den Stream
   erstmals als live gesehen hat, nicht den tatsächlichen Aufzeichnungsbeginn.
-  Nach einem Neustart des Monitors beginnt sie für laufende Streams neu.
+  Sie übersteht einen Neustart des Monitors und Prüfungen mit unklarem
+  Ergebnis („Status unbekannt“): Nach einem längeren Ausfall des Monitors
+  steht dort daher noch die alte Startzeit, bis der Monitor den Stream wieder
+  als beendet erkannt hat.
 - Die Stream-URL-Vorlage und der Frische-Faktor stehen im Frontend unter
   „Verwaltung → Einstellungen“.
 - Backend-Texte sind englische gettext-Schlüssel, die deutschen Übersetzungen
