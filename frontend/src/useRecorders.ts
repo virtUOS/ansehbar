@@ -12,6 +12,7 @@ export function useRecorders(intervalMs = 8000, onForbidden?: () => void) {
   const [recorders, setRecorders] = useState<Recorder[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   // Outside the app shell the context is undefined: fall back to a no-op.
   const ctx = useAppContext();
   const forbidden = useRef<(() => void) | undefined>();
@@ -30,6 +31,7 @@ export function useRecorders(intervalMs = 8000, onForbidden?: () => void) {
         if (cancelled || mine !== seq) return;
         setRecorders((prev) => mergeRecorders(prev, next));
         setError(null);
+        setLastUpdated(new Date());
       } catch (e) {
         if (cancelled || mine !== seq) return;
         if (e instanceof ApiError && e.status === 403) forbidden.current?.();
@@ -62,5 +64,5 @@ export function useRecorders(intervalMs = 8000, onForbidden?: () => void) {
     };
   }, [intervalMs]);
 
-  return { recorders, error, loading };
+  return { recorders, error, loading, lastUpdated };
 }

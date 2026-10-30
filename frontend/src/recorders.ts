@@ -50,3 +50,15 @@ export function formatDuration(fromIso: string, now: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
 }
+
+/** "now" = live recorders only; "all" = every recorder. The query matches room
+ *  or stream name case-insensitively (for filtering only: stream names are
+ *  never altered). */
+export function filterOverview(list: Recorder[], mode: "now" | "all", query: string): Recorder[] {
+  const q = query.trim().toLowerCase();
+  return list.filter((r) => {
+    if (mode === "now" && r.status.state !== "live") return false;
+    if (!q) return true;
+    return r.room_name.toLowerCase().includes(q) || r.stream_name.toLowerCase().includes(q);
+  });
+}

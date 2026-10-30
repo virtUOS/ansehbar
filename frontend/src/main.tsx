@@ -9,7 +9,8 @@ import "./index.css";
 import "./i18n";
 import { ThemeProvider } from "@basicbar/ui";
 import App from "./App";
-import { InvitationsAdmin, Overview, RecordersAdmin, RoomView, SettingsAdmin } from "./pages/Placeholders";
+import { Overview } from "./pages/Overview";
+import { InvitationsAdmin, RecordersAdmin, RoomView, SettingsAdmin } from "./pages/Placeholders";
 
 const router = createBrowserRouter([
   {

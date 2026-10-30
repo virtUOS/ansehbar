@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { Recorder } from "./api";
-import { formatDuration, mergeRecorders, sortForOverview } from "./recorders";
+import { filterOverview, formatDuration, mergeRecorders, sortForOverview } from "./recorders";
 
 function rec(id: number, room: string, state: Recorder["status"]["state"] = "offline"): Recorder {
   return {
@@ -65,5 +65,23 @@ describe("formatDuration", () => {
   });
   it("formats hours", () => {
     expect(formatDuration("2026-01-01T10:12:48Z", now)).toBe("1:47:12");
+  });
+});
+
+describe("filterOverview", () => {
+  const list = [
+    { ...rec(1, "40/R05", "live"), stream_name: "cap-90-R12" },
+    { ...rec(2, "40/R06", "offline"), stream_name: "cap-90-R13" },
+    { ...rec(3, "20/R17", "live"), stream_name: "rec-40/e" },
+  ];
+  it("now mode keeps only live recorders matching room or stream, case-insensitively", () => {
+    expect(filterOverview(list, "now", "15/e").map((r) => r.id)).toEqual([1, 3]);
+  });
+  it("all mode includes non-live recorders", () => {
+    expect(filterOverview(list, "all", "15/e").map((r) => r.id)).toEqual([1, 2, 3]);
+  });
+  it("matches stream names and empty query matches everything", () => {
+    expect(filterOverview(list, "all", "E34").map((r) => r.id)).toEqual([2]);
+    expect(filterOverview(list, "now", "  ").map((r) => r.id)).toEqual([1, 3]);
   });
 });
