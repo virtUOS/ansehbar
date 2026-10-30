@@ -10,5 +10,16 @@
   "Skip to content": "Zum Inhalt springen",
   "Preferences": "Einstellungen",
   "Move translation controls": "Übersetzungsleiste verschieben",
-  "(follows your system)": "(folgt deinem System)"
+  "(follows your system)": "(folgt deinem System)",
+  "Monitoring the live streams from the recording rooms": "Kontrolle der Live-Streams aus den Aufzeichnungsräumen",
+  "No access": "Kein Zugang",
+  "Your account has not been granted access to ansehBAR yet.": "Dein Konto hat noch keinen Zugang zu ansehBAR.",
+  "Please contact": "Bitte wende dich an",
+  "Main": "Hauptnavigation",
+  "Overview": "Übersicht",
+  "Administration": "Verwaltung",
+  "Room": "Raum",
+  "Recorders": "Rekorder",
+  "Invitations": "Einladungen",
+  "Settings": "Einstellungen"
 }

@@ -8,13 +8,20 @@ import "@fontsource-variable/plus-jakarta-sans";
 import "./index.css";
 import "./i18n";
 import { ThemeProvider } from "@basicbar/ui";
-import App, { Home } from "./App";
+import App from "./App";
+import { InvitationsAdmin, Overview, RecordersAdmin, RoomView, SettingsAdmin } from "./pages/Placeholders";
 
 const router = createBrowserRouter([
   {
     path: "/",
     element: <App />,
-    children: [{ index: true, element: <Home /> }],
+    children: [
+      { index: true, element: <Overview /> },
+      { path: "raum/:id", element: <RoomView /> },
+      { path: "verwaltung/rekorder", element: <RecordersAdmin /> },
+      { path: "verwaltung/einladungen", element: <InvitationsAdmin /> },
+      { path: "verwaltung/einstellungen", element: <SettingsAdmin /> },
+    ],
   },
 ]);
 

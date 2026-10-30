@@ -26,6 +26,52 @@ export interface Whoami {
   ai_enabled: boolean;
   content_default_language: string;
   content_translation_enabled: boolean;
+  has_access: boolean;
+  access_contact: string;
+}
+
+export type RecorderState = "live" | "offline" | "unknown";
+
+export interface Recorder {
+  id: number;
+  room_name: string;
+  stream_name: string;
+  active: boolean;
+  needs_review: boolean;
+  playback_url: string;
+  status: { state: RecorderState; live_since: string | null; checked_at: string | null };
+}
+
+export interface Invitation {
+  id: number;
+  identifier: string;
+  note: string;
+  created_by_name: string;
+  created_at: string;
+}
+
+export interface MonitorSettings {
+  url_template: string;
+  stale_factor: number;
+}
+
+export interface UserHit {
+  id: number;
+  username: string;
+  email: string;
+  display_name: string;
+}
+
+/** Thrown for non-2xx responses; `fieldErrors` holds DRF's `{field: [msg]}`. */
+export class ApiError extends Error {
+  status: number;
+  fieldErrors: Record<string, string[]>;
+  constructor(message: string, status: number, fieldErrors: Record<string, string[]> = {}) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.fieldErrors = fieldErrors;
+  }
 }
 
 let csrfToken = "";
@@ -43,12 +89,20 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   });
   if (!response.ok) {
     let detail = `HTTP ${response.status}`;
+    const fieldErrors: Record<string, string[]> = {};
     try {
-      detail = (await response.json()).detail ?? detail;
+      const body = await response.json();
+      if (typeof body.detail === "string") detail = body.detail;
+      else if (body && typeof body === "object") {
+        for (const [key, value] of Object.entries(body)) {
+          if (Array.isArray(value)) fieldErrors[key] = value.map(String);
+          else if (typeof value === "string") fieldErrors[key] = [value];
+        }
+      }
     } catch {
       /* non-JSON error body */
     }
-    throw new Error(detail);
+    throw new ApiError(detail, response.status, fieldErrors);
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
@@ -65,4 +119,26 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ language }),
     }),
+  recorders: {
+    list: () => request<Recorder[]>("/api/recorders/"),
+    get: (id: number) => request<Recorder>(`/api/recorders/${id}/`),
+    create: (data: Partial<Recorder>) =>
+      request<Recorder>("/api/recorders/", { method: "POST", body: JSON.stringify(data) }),
+    update: (id: number, data: Partial<Recorder>) =>
+      request<Recorder>(`/api/recorders/${id}/`, { method: "PATCH", body: JSON.stringify(data) }),
+  },
+  invitations: {
+    list: () => request<Invitation[]>("/api/invitations/"),
+    create: (data: { identifier: string; note: string }) =>
+      request<Invitation>("/api/invitations/", { method: "POST", body: JSON.stringify(data) }),
+    remove: (id: number) => request<void>(`/api/invitations/${id}/`, { method: "DELETE" }),
+  },
+  users: {
+    search: (q: string) => request<UserHit[]>(`/api/users/?search=${encodeURIComponent(q)}`),
+  },
+  settings: {
+    get: () => request<MonitorSettings>("/api/settings/monitor/"),
+    put: (data: MonitorSettings) =>
+      request<MonitorSettings>("/api/settings/monitor/", { method: "PUT", body: JSON.stringify(data) }),
+  },
 };

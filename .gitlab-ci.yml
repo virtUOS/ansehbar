@@ -36,6 +36,7 @@ frontend-build:
     # platform-specific optional deps reliably); plain install before that.
     - if [ -f package-lock.json ]; then npm ci --no-fund --no-audit; else npm install --no-fund --no-audit; fi
     - npm run build
+    - npm test
   cache:
     key:
       files:
