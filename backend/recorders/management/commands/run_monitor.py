@@ -5,6 +5,7 @@
 import logging
 import signal
 import threading
+import time
 
 import httpx
 from django.conf import settings
@@ -18,6 +19,9 @@ from streams.sources import HlsStreamSource
 
 logger = logging.getLogger(__name__)
 
+# Unchanged cycle summaries are logged at INFO at most this often.
+SUMMARY_EVERY_SECONDS = 60
+
 
 class Command(BaseCommand):
     help = "Probe all active recorders periodically and store their live status."
@@ -26,6 +30,8 @@ class Command(BaseCommand):
         parser.add_argument("--once", action="store_true", help="Run one cycle, exit.")
 
     def handle(self, *args, **options):
+        self._last_counts = None
+        self._last_summary_at = 0.0
         stop = threading.Event()
         previous = {}
         # Signal handlers only work in the main thread (not under test runners).
@@ -61,12 +67,22 @@ class Command(BaseCommand):
                     RecorderStatus.UNKNOWN,
                 )
             }
-            line = (
-                f"monitor cycle: checked={checked} live={counts['live']} "
-                f"offline={counts['offline']} unknown={counts['unknown']}"
-            )
-            logger.info(line)
-            self.stdout.write(line)
+            self._log_summary(checked, counts)
         except Exception:
             # Keep the loop alive across DB or other transient errors.
             logger.exception("monitor cycle failed")
+
+    def _log_summary(self, checked, counts):
+        """INFO when the counts change, otherwise at most once a minute."""
+        line = (
+            f"monitor cycle: checked={checked} live={counts['live']} "
+            f"offline={counts['offline']} unknown={counts['unknown']}"
+        )
+        now = time.monotonic()
+        key = (checked, counts)
+        if key != self._last_counts or now - self._last_summary_at >= SUMMARY_EVERY_SECONDS:
+            self._last_counts = key
+            self._last_summary_at = now
+            logger.info(line)
+        else:
+            logger.debug(line)

@@ -66,6 +66,11 @@ class HlsStreamSource:
             return None, Probe(
                 False, False, None, None, f"HTTP {response.status_code}"
             )
+        # Redirects are followed, but never from https down to another scheme.
+        if self.url_template.startswith("https:") and response.url.scheme != "https":
+            return None, Probe(
+                False, False, None, None, f"Redirect to non-https URL {response.url}"
+            )
         return response, None
 
     def probe(self, stream_name: str) -> Probe:
@@ -75,7 +80,8 @@ class HlsStreamSource:
             return failure
         variants = parse_master(response.text)
         if variants:
-            response, failure = self._get(urljoin(master_url, variants[0]))
+            # Resolve against the final URL: the master may have been redirected.
+            response, failure = self._get(urljoin(str(response.url), variants[0]))
             if failure:
                 return failure
         sequence, target = parse_media(response.text)

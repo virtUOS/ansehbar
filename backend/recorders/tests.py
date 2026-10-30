@@ -86,6 +86,39 @@ class RecorderApiTests(TestCase):
         rec.refresh_from_db()
         self.assertFalse(rec.active)
 
+    def test_changing_stream_name_resets_status(self):
+        rec = Recorder.objects.create(room_name="A", stream_name="rec-a")
+        live_since = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+        RecorderStatus.objects.filter(recorder=rec).update(
+            state="live",
+            live_since=live_since,
+            media_sequence=7,
+            sequence_changed_at=live_since,
+        )
+        response = self.client.patch(
+            f"/api/recorders/{rec.pk}/", {"stream_name": "rec-b"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["status"]["state"], "unknown")
+        self.assertIsNone(response.json()["status"]["live_since"])
+        status = RecorderStatus.objects.get(recorder=rec)
+        self.assertEqual(status.state, "unknown")
+        self.assertIsNone(status.live_since)
+        self.assertIsNone(status.media_sequence)
+        self.assertIsNone(status.sequence_changed_at)
+
+    def test_other_changes_keep_status(self):
+        rec = Recorder.objects.create(room_name="A", stream_name="rec-a")
+        RecorderStatus.objects.filter(recorder=rec).update(state="live", media_sequence=7)
+        response = self.client.patch(
+            f"/api/recorders/{rec.pk}/", {"room_name": "B", "stream_name": "rec-a"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        status = RecorderStatus.objects.get(recorder=rec)
+        self.assertEqual((status.state, status.media_sequence), ("live", 7))
+
     def test_list_requires_access(self):
         outsider = User.objects.create_user(username="out")
         self.client.force_login(outsider)
@@ -272,3 +305,26 @@ class RunCycleTests(TestCase):
         ):
             call_command("run_monitor", "--once")
         self.assertEqual(Recorder.objects.get().status.state, "offline")
+
+
+class RunMonitorLoggingTests(TestCase):
+    def test_summary_only_on_change_or_once_a_minute(self):
+        from recorders.management.commands import run_monitor
+
+        cmd = run_monitor.Command()
+        cmd._last_counts = None
+        cmd._last_summary_at = 0.0
+        same = {"live": 1, "offline": 2, "unknown": 0}
+        clock = [1000.0]
+        logger = "recorders.management.commands.run_monitor"
+        with mock.patch.object(run_monitor.time, "monotonic", lambda: clock[0]):
+            with self.assertLogs(logger, level="DEBUG") as logs:
+                cmd._log_summary(3, dict(same))  # first: INFO
+                clock[0] += 10
+                cmd._log_summary(3, dict(same))  # unchanged: DEBUG
+                clock[0] += 10
+                cmd._log_summary(3, {**same, "live": 2})  # changed: INFO
+                clock[0] += 61
+                cmd._log_summary(3, {**same, "live": 2})  # a minute later: INFO
+        levels = [r.levelname for r in logs.records]
+        self.assertEqual(levels, ["INFO", "DEBUG", "INFO", "INFO"])

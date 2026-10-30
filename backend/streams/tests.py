@@ -23,7 +23,8 @@ NOW = datetime(2026, 10, 30, 12, 0, tzinfo=timezone.utc)
 
 
 def source(handler):
-    client = httpx.Client(transport=httpx.MockTransport(handler))
+    # Same redirect policy as run_monitor's client.
+    client = httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=True)
     return HlsStreamSource(TEMPLATE, client)
 
 
@@ -94,6 +95,38 @@ class ProbeTests(unittest.TestCase):
         p = source(handler).probe("x")
         self.assertTrue(p.reachable)
         self.assertFalse(p.exists)
+
+
+    def test_probe_resolves_chunklist_against_redirected_master(self):
+        seen = []
+
+        def handler(request):
+            seen.append(str(request.url))
+            if request.url.host == "live.example":
+                return httpx.Response(
+                    302,
+                    headers={"Location": "https://edge.example/app/abc/playlist.m3u8"},
+                )
+            if request.url.path.endswith("playlist.m3u8"):
+                return httpx.Response(200, text=MASTER)
+            return httpx.Response(200, text=MEDIA)
+
+        p = source(handler).probe("abc")
+        self.assertEqual(seen[-1], "https://edge.example/app/abc/chunklist_w123.m3u8")
+        self.assertEqual((p.exists, p.media_sequence), (True, 42))
+
+    def test_probe_rejects_redirect_from_https_to_http(self):
+        def handler(request):
+            if request.url.scheme == "https":
+                return httpx.Response(
+                    301, headers={"Location": "http://live.example/plain.m3u8"}
+                )
+            return httpx.Response(200, text=MEDIA)
+
+        p = source(handler).probe("abc")
+        self.assertFalse(p.reachable)
+        self.assertFalse(p.exists)
+        self.assertIn("non-https", p.detail)
 
 
 class EvaluateTests(unittest.TestCase):

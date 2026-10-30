@@ -28,6 +28,27 @@ class RecorderSerializer(serializers.ModelSerializer):
             "status",
         ]
 
+    def update(self, instance, validated_data):
+        old_stream = instance.stream_name
+        instance = super().update(instance, validated_data)
+        if instance.stream_name != old_stream:
+            # The old stream's status says nothing about the new one.
+            status, _ = RecorderStatus.objects.get_or_create(recorder=instance)
+            status.state = RecorderStatus.UNKNOWN
+            status.live_since = None
+            status.media_sequence = None
+            status.sequence_changed_at = None
+            status.save(
+                update_fields=[
+                    "state",
+                    "live_since",
+                    "media_sequence",
+                    "sequence_changed_at",
+                ]
+            )
+            instance.status = status
+        return instance
+
     def get_playback_url(self, obj) -> str:
         template = self.context.get("url_template")
         if template is None:
