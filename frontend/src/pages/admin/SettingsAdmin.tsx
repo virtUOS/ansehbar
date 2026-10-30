@@ -13,7 +13,7 @@ const NO_ERRORS: FormErrors = { fields: {}, general: [] };
 
 export function SettingsAdmin() {
   const { t } = useTranslation();
-  const ctx = useAppContext();
+  const refreshWhoami = useAppContext()?.refreshWhoami;
   const [template, setTemplate] = useState("");
   const [stale, setStale] = useState("3");
   const [firstStream, setFirstStream] = useState<string | undefined>();
@@ -28,6 +28,7 @@ export function SettingsAdmin() {
     Promise.all([api.settings.get(), api.recorders.list()])
       .then(([s, recs]) => {
         if (cancelled) return;
+        // Initial load only; the effect never reruns over unsaved edits.
         setTemplate(s.url_template);
         setStale(String(s.stale_factor));
         setFirstStream(recs[0]?.stream_name);
@@ -35,13 +36,13 @@ export function SettingsAdmin() {
       })
       .catch((e) => {
         if (cancelled) return;
-        if (e instanceof ApiError && e.status === 403) ctx?.refreshWhoami();
+        if (e instanceof ApiError && e.status === 403) refreshWhoami?.();
         setLoadError(e instanceof Error ? e.message : String(e));
       });
     return () => {
       cancelled = true;
     };
-  }, [ctx]);
+  }, [refreshWhoami]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();

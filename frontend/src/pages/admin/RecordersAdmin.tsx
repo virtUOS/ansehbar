@@ -17,7 +17,7 @@ type Editing = number | "new" | null;
 
 export function RecordersAdmin() {
   const { t } = useTranslation();
-  const ctx = useAppContext();
+  const refreshWhoami = useAppContext()?.refreshWhoami;
   const [recorders, setRecorders] = useState<Recorder[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -31,12 +31,12 @@ export function RecordersAdmin() {
       setRecorders(await api.recorders.list());
       setLoadError(null);
     } catch (e) {
-      if (e instanceof ApiError && e.status === 403) ctx?.refreshWhoami();
+      if (e instanceof ApiError && e.status === 403) refreshWhoami?.();
       setLoadError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
-  }, [ctx]);
+  }, [refreshWhoami]);
 
   useEffect(() => {
     void reload();
@@ -201,6 +201,12 @@ function RecorderForm({
         <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} className="h-4 w-4" />
         {t("Active")}
       </label>
+      {errors.fields.active?.length ? (
+        <p role="alert" className="text-sm font-medium text-red-800 dark:text-red-300">
+          <span aria-hidden>⚠ </span>
+          {errors.fields.active.join(" ")}
+        </p>
+      ) : null}
       <div className="flex flex-wrap gap-2">
         <button type="submit" disabled={saving} className="btn-primary">
           {t("Save")}

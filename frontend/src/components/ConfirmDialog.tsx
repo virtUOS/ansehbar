@@ -41,7 +41,7 @@ export function ConfirmDialog({ title, children, confirmLabel, onConfirm, onCanc
         e.preventDefault(); // we unmount ourselves
         onCancel();
       }}
-      className="w-[calc(100%-2rem)] max-w-md rounded-xl border border-slate-300 bg-white p-5 text-slate-900 backdrop:bg-black/50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+      className="m-auto h-fit w-[calc(100%-2rem)] max-w-md rounded-xl border border-slate-300 bg-white p-5 text-slate-900 backdrop:bg-black/40 dark:backdrop:bg-black/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
     >
       <h2 id={titleId} className="text-lg font-bold">
         {title}

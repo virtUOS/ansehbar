@@ -15,7 +15,7 @@ const NO_ERRORS: FormErrors = { fields: {}, general: [] };
 
 export function InvitationsAdmin() {
   const { t } = useTranslation();
-  const ctx = useAppContext();
+  const refreshWhoami = useAppContext()?.refreshWhoami;
   const [items, setItems] = useState<Invitation[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -28,12 +28,12 @@ export function InvitationsAdmin() {
       setItems(await api.invitations.list());
       setLoadError("");
     } catch (e) {
-      if (e instanceof ApiError && e.status === 403) ctx?.refreshWhoami();
+      if (e instanceof ApiError && e.status === 403) refreshWhoami?.();
       setLoadError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
-  }, [ctx]);
+  }, [refreshWhoami]);
 
   useEffect(() => {
     void reload();

@@ -3,7 +3,7 @@
 
 /** App shell: header (navigation, preferences, login/logout) and the access
  *  gate (Landing / NoAccess / app). */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { NavLink, Outlet } from "react-router-dom";
 import { LogIn, LogOut } from "lucide-react";
@@ -37,6 +37,8 @@ export default function App() {
   }, []);
 
   useEffect(load, [load]);
+
+  const appCtx = useMemo(() => (whoami ? { whoami, refreshWhoami: load } : null), [whoami, load]);
 
   const navClass = ({ isActive }: { isActive: boolean }) =>
     `rounded-full px-2 py-1 text-sm sm:px-3 font-medium transition-colors hover:bg-slate-100 dark:hover:bg-slate-800 ${
@@ -98,7 +100,7 @@ export default function App() {
         ) : !whoami.has_access ? (
           <NoAccess contact={whoami.access_contact} />
         ) : (
-          <AppContext.Provider value={{ whoami, refreshWhoami: load }}>
+          <AppContext.Provider value={appCtx!}>
             <AudioContextProvider>
               <Outlet />
             </AudioContextProvider>
