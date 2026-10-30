@@ -6,8 +6,9 @@ import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Maximize, Volume2, VolumeX } from "lucide-react";
 import { useRecorders } from "../useRecorders";
-import { formatClock, formatDuration, stateTransition } from "../recorders";
+import { formatClock, formatDuration, presentation, stateTransition } from "../recorders";
 import { StatusBadge } from "../components/StatusBadge";
+import { StreamPlaceholder } from "../components/StreamPlaceholder";
 import { HlsPlayer } from "../media/HlsPlayer";
 import { LevelMeter } from "../media/LevelMeter";
 import { useAudio } from "../media/AudioContextProvider";
@@ -74,7 +75,9 @@ export function RoomView() {
     [recorders],
   );
 
-  const live = state === "live";
+  const shown = recorder ? presentation(recorder) : undefined;
+  // Unknown but last seen live: keep the player (and its controls) on.
+  const live = shown === "live" || shown === "live-unknown";
   const audible = audibleId === id;
 
   const toggleSound = async () => {
@@ -188,26 +191,21 @@ export function RoomView() {
               <LevelMeter key={recorder.id} id={recorder.id} />
             </div>
           </div>
-        ) : (
-          <div
-            className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-4 text-center text-sm font-medium text-slate-800 dark:text-slate-100"
-            style={{
-              backgroundImage:
-                "repeating-linear-gradient(135deg, rgb(148 163 184 / 0.35) 0 10px, rgb(148 163 184 / 0.15) 10px 20px)",
-            }}
-          >
-            <span className="rounded bg-white/80 px-2 py-1 dark:bg-slate-900/80">
-              {t("No stream – the recorder is not sending right now")}
-            </span>
-            {recorder.status.checked_at ? (
+        ) : !shown ? null : (
+          <StreamPlaceholder kind={shown}>
+            {recorder.status.checked_at && shown !== "inactive" ? (
               <span className="rounded bg-white/80 px-2 py-1 text-xs dark:bg-slate-900/80">
                 {t("Last checked {{time}}", { time: formatClock(recorder.status.checked_at, i18n.language) })}
               </span>
             ) : null}
-          </div>
+          </StreamPlaceholder>
         )}
         <div className="absolute left-2 top-2">
-          {live ? <LiveBadge since={recorder.status.live_since} /> : <StatusBadge state={recorder.status.state} />}
+          {shown === "live" ? (
+            <LiveBadge since={recorder.status.live_since} />
+          ) : (
+            <StatusBadge state={shown === "inactive" ? "inactive" : recorder.status.state} />
+          )}
         </div>
       </div>
 

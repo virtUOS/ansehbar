@@ -4,7 +4,7 @@
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import type { Recorder } from "../api";
-import { formatClock } from "../recorders";
+import { formatClock, keepsPlayer } from "../recorders";
 import { StatusBadge } from "./StatusBadge";
 
 export function RoomList({ recorders }: { recorders: Recorder[] }) {
@@ -21,7 +21,7 @@ export function RoomList({ recorders }: { recorders: Recorder[] }) {
               <StatusBadge state={r.status.state} />
             </span>
             <span className="min-w-0 flex-1 truncate text-lg font-bold">{r.room_name}</span>
-            {r.status.state === "live" && r.status.live_since ? (
+            {keepsPlayer(r) && r.status.live_since ? (
               <span className="shrink-0 text-base font-bold tabular-nums">
                 {t("since")} {formatClock(r.status.live_since, i18n.language)}
               </span>

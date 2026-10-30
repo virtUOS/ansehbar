@@ -5,7 +5,9 @@ import { useTranslation } from "react-i18next";
 import type { RecorderState } from "../api";
 
 /** Always text plus symbol, never colour alone. */
-const STYLE: Record<RecorderState, { symbol: string; label: string; cls: string }> = {
+type BadgeState = RecorderState | "inactive";
+
+const STYLE: Record<BadgeState, { symbol: string; label: string; cls: string }> = {
   live: { symbol: "●", label: "LIVE", cls: "bg-red-700 text-white" },
   offline: {
     symbol: "○",
@@ -13,9 +15,14 @@ const STYLE: Record<RecorderState, { symbol: string; label: string; cls: string 
     cls: "bg-slate-200 text-slate-800 dark:bg-slate-700 dark:text-slate-100",
   },
   unknown: { symbol: "?", label: "Status unknown", cls: "bg-amber-300 text-amber-950" },
+  inactive: {
+    symbol: "–",
+    label: "Recorder inactive",
+    cls: "bg-slate-200 text-slate-800 dark:bg-slate-700 dark:text-slate-100",
+  },
 };
 
-export function StatusBadge({ state }: { state: RecorderState }) {
+export function StatusBadge({ state }: { state: BadgeState }) {
   const { t } = useTranslation();
   const s = STYLE[state];
   return (

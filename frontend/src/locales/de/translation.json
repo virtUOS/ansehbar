@@ -95,5 +95,8 @@
   "Must contain {stream} exactly once.": "Muss {stream} genau einmal enthalten.",
   "Stale factor": "Schwellwert-Faktor",
   "A stream counts as live while its playlist changed within this many target durations (2–10).": "Ein Stream gilt als live, solange sich seine Playlist innerhalb dieser Anzahl von Zieldauern geändert hat (2–10).",
-  "Preview": "Vorschau"
+  "Preview": "Vorschau",
+  "Status unknown – check not possible": "Status unbekannt – Prüfung nicht möglich",
+  "Status currently unclear": "Status derzeit unklar",
+  "Recorder inactive": "Rekorder inaktiv"
 }

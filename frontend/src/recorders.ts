@@ -2,7 +2,7 @@
 // Copyright 2026 Universität Osnabrück (virtUOS)
 
 /** Pure helpers for recorder lists (merge, sort, time formatting). */
-import type { Recorder } from "./api";
+import type { MonitorHealth, Recorder } from "./api";
 
 function same(a: Recorder, b: Recorder): boolean {
   return (
@@ -29,10 +29,27 @@ export function mergeRecorders(prev: Recorder[], next: Recorder[]): Recorder[] {
   return unchanged ? prev : merged;
 }
 
+/** How a recorder is presented. "live-unknown": the last definite state was
+ *  live (live_since survives an "unknown" check), so the player stays on. */
+export type Presentation = "live" | "live-unknown" | "unknown" | "offline" | "inactive";
+
+export function presentation(r: Recorder): Presentation {
+  if (!r.active) return "inactive";
+  if (r.status.state === "live") return "live";
+  if (r.status.state === "unknown") return r.status.live_since ? "live-unknown" : "unknown";
+  return "offline";
+}
+
+/** True while the player should be mounted ("live", or unknown but last seen live). */
+export function keepsPlayer(r: Recorder): boolean {
+  const p = presentation(r);
+  return p === "live" || p === "live-unknown";
+}
+
 export function sortForOverview(list: Recorder[]): Recorder[] {
   return [...list].sort((a, b) => {
-    const la = a.status.state === "live" ? 0 : 1;
-    const lb = b.status.state === "live" ? 0 : 1;
+    const la = keepsPlayer(a) ? 0 : 1;
+    const lb = keepsPlayer(b) ? 0 : 1;
     if (la !== lb) return la - lb;
     return a.room_name.localeCompare(b.room_name, "de", { numeric: true });
   });
@@ -51,16 +68,33 @@ export function formatDuration(fromIso: string, now: Date): string {
   return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
 }
 
-/** "now" = live recorders only; "all" = every recorder. The query matches room
- *  or stream name case-insensitively (for filtering only: stream names are
- *  never altered). */
+/** "now" = recorders that keep their player (live, or unknown but last seen
+ *  live); "all" = every recorder. The query matches room or stream name
+ *  case-insensitively (for filtering only: stream names are never altered). */
 export function filterOverview(list: Recorder[], mode: "now" | "all", query: string): Recorder[] {
   const q = query.trim().toLowerCase();
   return list.filter((r) => {
-    if (mode === "now" && r.status.state !== "live") return false;
+    if (mode === "now" && !keepsPlayer(r)) return false;
     if (!q) return true;
     return r.room_name.toLowerCase().includes(q) || r.stream_name.toLowerCase().includes(q);
   });
+}
+
+/** Recorders outside "Now", split so "unknown" is never reported as "no stream". */
+export function outsideNow(list: Recorder[]): { offline: Recorder[]; unknown: Recorder[] } {
+  const offline: Recorder[] = [];
+  const unknown: Recorder[] = [];
+  for (const r of list) {
+    const p = presentation(r);
+    if (p === "offline") offline.push(r);
+    else if (p === "unknown") unknown.push(r);
+  }
+  return { offline, unknown };
+}
+
+/** Empty "Now" message: "nothing streams" only when no active recorder is unknown. */
+export function emptyNowMessage(list: Recorder[]): "none-streaming" | "unclear" {
+  return list.some((r) => r.active && r.status.state === "unknown") ? "unclear" : "none-streaming";
 }
 
 /** Announcement for a live<->offline change; null for first load, "unknown"
@@ -72,4 +106,13 @@ export function stateTransition(
   // Only definite states count; callers pass the last definite state.
   if (prev === undefined || prev === "unknown" || next === "unknown" || prev === next) return null;
   return next === "live" ? "started" : "ended";
+}
+
+/** The monitor counts as stale when its last check is older than three
+ *  intervals (server clock), or when it never checked while active recorders
+ *  exist. */
+export function monitorStale(health: MonitorHealth, hasActive: boolean): boolean {
+  if (!health.last_check) return hasActive;
+  const age = new Date(health.now).getTime() - new Date(health.last_check).getTime();
+  return age > 3 * health.interval_seconds * 1000;
 }

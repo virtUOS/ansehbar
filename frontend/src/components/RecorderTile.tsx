@@ -6,16 +6,19 @@ import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { Volume2, VolumeX } from "lucide-react";
 import type { Recorder } from "../api";
-import { formatClock } from "../recorders";
+import { formatClock, presentation } from "../recorders";
 import { HlsPlayer } from "../media/HlsPlayer";
 import { LevelMeter } from "../media/LevelMeter";
 import { useAudio } from "../media/AudioContextProvider";
 import { StatusBadge } from "./StatusBadge";
+import { StreamPlaceholder } from "./StreamPlaceholder";
 
 function RecorderTileInner({ recorder }: { recorder: Recorder }) {
   const { t, i18n } = useTranslation();
   const { unlocked, unlock, audibleId, setAudible } = useAudio();
-  const live = recorder.status.state === "live";
+  const shown = presentation(recorder);
+  // Unknown but last seen live: keep the player (and its controls) on.
+  const live = shown === "live" || shown === "live-unknown";
   const audible = audibleId === recorder.id;
 
   const toggleSound = async () => {
@@ -47,20 +50,10 @@ function RecorderTileInner({ recorder }: { recorder: Recorder }) {
             </div>
           </div>
         ) : (
-          <div
-            className="absolute inset-0 flex items-center justify-center p-4 text-center text-sm font-medium text-slate-800 dark:text-slate-100"
-            style={{
-              backgroundImage:
-                "repeating-linear-gradient(135deg, rgb(148 163 184 / 0.35) 0 10px, rgb(148 163 184 / 0.15) 10px 20px)",
-            }}
-          >
-            <span className="rounded bg-white/80 px-2 py-1 dark:bg-slate-900/80">
-              {t("No stream – the recorder is not sending right now")}
-            </span>
-          </div>
+          <StreamPlaceholder kind={shown} />
         )}
         <div className="absolute left-2 top-2">
-          <StatusBadge state={recorder.status.state} />
+          <StatusBadge state={shown === "inactive" ? "inactive" : recorder.status.state} />
         </div>
       </div>
       <div className="flex items-start gap-3 p-3">

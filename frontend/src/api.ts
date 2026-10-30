@@ -42,6 +42,13 @@ export interface Recorder {
   status: { state: RecorderState; live_since: string | null; checked_at: string | null };
 }
 
+/** Monitor heartbeat; `now` is the server clock (compare against it, not the browser's). */
+export interface MonitorHealth {
+  last_check: string | null;
+  now: string;
+  interval_seconds: number;
+}
+
 export interface Invitation {
   id: number;
   identifier: string;
@@ -129,6 +136,9 @@ export const api = {
       request<Recorder>("/api/recorders/", { method: "POST", body: JSON.stringify(data) }),
     update: (id: number, data: Partial<Recorder>) =>
       request<Recorder>(`/api/recorders/${id}/`, { method: "PATCH", body: JSON.stringify(data) }),
+  },
+  monitor: {
+    health: () => request<MonitorHealth>("/api/monitor/health/"),
   },
   invitations: {
     list: () => request<Invitation[]>("/api/invitations/"),

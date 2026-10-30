@@ -6,7 +6,8 @@ import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { Search } from "lucide-react";
 import { useRecorders } from "../useRecorders";
-import { filterOverview, formatClock, sortForOverview } from "../recorders";
+import { emptyNowMessage, filterOverview, formatClock, keepsPlayer, outsideNow, sortForOverview } from "../recorders";
+import type { Recorder } from "../api";
 import { RecorderTile } from "../components/RecorderTile";
 import { RoomList } from "../components/RoomList";
 import { AudioUnlockButton } from "../media/AudioUnlockButton";
@@ -32,10 +33,11 @@ export function Overview() {
   const wide = useMediaQuery("(min-width: 768px)");
 
   const sorted = useMemo(() => sortForOverview(recorders.filter((r) => r.active)), [recorders]);
-  const nowCount = useMemo(() => sorted.filter((r) => r.status.state === "live").length, [sorted]);
+  const nowCount = useMemo(() => sorted.filter(keepsPlayer).length, [sorted]);
   const shown = useMemo(() => filterOverview(sorted, mode, query), [sorted, mode, query]);
-  const without = useMemo(
-    () => (mode === "now" ? filterOverview(sorted, "all", query).filter((r) => r.status.state !== "live") : []),
+  // Outside "Now": definite "no stream" and "status unknown" are listed apart.
+  const outside = useMemo(
+    () => (mode === "now" ? outsideNow(filterOverview(sorted, "all", query)) : { offline: [], unknown: [] }),
     [sorted, mode, query],
   );
 
@@ -96,7 +98,11 @@ export function Overview() {
         </p>
       ) : shown.length === 0 ? (
         <p className="py-8 text-center text-lg text-slate-700 dark:text-slate-300">
-          {mode === "now" && !query.trim() ? t("No recording room is streaming right now.") : t("No rooms found.")}
+          {mode !== "now" || query.trim()
+            ? t("No rooms found.")
+            : emptyNowMessage(sorted) === "unclear"
+              ? t("Status currently unclear")
+              : t("No recording room is streaming right now.")}
         </p>
       ) : wide ? (
         <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(22rem, 1fr))" }}>
@@ -108,19 +114,29 @@ export function Overview() {
         <RoomList recorders={shown} />
       )}
 
-      {mode === "now" && without.length > 0 ? (
-        <p className="text-sm text-slate-700 dark:text-slate-300">
-          <span className="font-bold">{t("Currently without stream")}:</span>{" "}
-          {without.map((r, i) => (
-            <span key={r.id}>
-              {i > 0 ? ", " : ""}
-              <Link to={`/raum/${r.id}`} className="underline hover:text-brand-700 dark:hover:text-brand-300">
-                {r.room_name}
-              </Link>
-            </span>
-          ))}
-        </p>
+      {mode === "now" ? (
+        <>
+          <RoomLinks label={t("Currently without stream")} recorders={outside.offline} />
+          <RoomLinks label={t("Status unknown")} recorders={outside.unknown} />
+        </>
       ) : null}
     </div>
+  );
+}
+
+function RoomLinks({ label, recorders }: { label: string; recorders: Recorder[] }) {
+  if (recorders.length === 0) return null;
+  return (
+    <p className="text-sm text-slate-700 dark:text-slate-300">
+      <span className="font-bold">{label}:</span>{" "}
+      {recorders.map((r, i) => (
+        <span key={r.id}>
+          {i > 0 ? ", " : ""}
+          <Link to={`/raum/${r.id}`} className="underline hover:text-brand-700 dark:hover:text-brand-300">
+            {r.room_name}
+          </Link>
+        </span>
+      ))}
+    </p>
   );
 }
