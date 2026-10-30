@@ -69,8 +69,7 @@ export function stateTransition(
   prev: Recorder["status"]["state"] | undefined,
   next: Recorder["status"]["state"],
 ): "started" | "ended" | null {
-  if (prev === undefined || prev === next) return null;
-  if (next === "live") return "started";
-  if (prev === "live" && next === "offline") return "ended";
-  return null;
+  // Only definite states count; callers pass the last definite state.
+  if (prev === undefined || prev === "unknown" || next === "unknown" || prev === next) return null;
+  return next === "live" ? "started" : "ended";
 }

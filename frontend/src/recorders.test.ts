@@ -91,7 +91,7 @@ describe("stateTransition", () => {
     expect(stateTransition(undefined, "live")).toBeNull();
     expect(stateTransition("live", "live")).toBeNull();
     expect(stateTransition("offline", "live")).toBe("started");
-    expect(stateTransition("unknown", "live")).toBe("started");
+    expect(stateTransition("unknown", "live")).toBeNull();
     expect(stateTransition("live", "offline")).toBe("ended");
     expect(stateTransition("live", "unknown")).toBeNull();
   });

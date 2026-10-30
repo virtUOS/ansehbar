@@ -40,7 +40,7 @@ export function RoomView() {
   const navigate = useNavigate();
   const params = useParams();
   const id = Number(params.id);
-  const { recorders, loading } = useRecorders();
+  const { recorders, error, loading, lastUpdated } = useRecorders();
   const { unlocked, unlock, audibleId, setAudible } = useAudio();
   const container = useRef<HTMLDivElement>(null);
   const [announcement, setAnnouncement] = useState("");
@@ -58,6 +58,8 @@ export function RoomView() {
 
   useEffect(() => {
     if (!state) return;
+    // "unknown" is ignored: live -> unknown -> live is not a new start.
+    if (state === "unknown") return;
     const change = stateTransition(prevState.current, state);
     prevState.current = state;
     if (change === "started") setAnnouncement(t("Stream in {{room}} started", { room }));
@@ -94,16 +96,30 @@ export function RoomView() {
   const goFullscreen = () => {
     const el = container.current;
     if (el?.requestFullscreen) {
-      void el.requestFullscreen().catch(() => findVideo()?.webkitEnterFullscreen?.());
+      void el.requestFullscreen().catch(() => {
+        try {
+          findVideo()?.webkitEnterFullscreen?.();
+        } catch {
+          /* metadata not loaded yet */
+        }
+      });
     } else {
-      findVideo()?.webkitEnterFullscreen?.();
+      try {
+        findVideo()?.webkitEnterFullscreen?.();
+      } catch {
+        /* metadata not loaded yet */
+      }
     }
   };
 
   if (!recorder) {
     return (
       <div className="mx-auto w-full max-w-4xl">
-        {loading ? (
+        {error && !lastUpdated ? (
+          <p className="py-8 text-center text-lg text-slate-700 dark:text-slate-300">
+            {t("Status not available yet")}
+          </p>
+        ) : loading || !lastUpdated ? (
           <p>{t("Loading…")}</p>
         ) : (
           <>
@@ -120,6 +136,13 @@ export function RoomView() {
 
   return (
     <div className="mx-auto w-full min-w-0 max-w-4xl space-y-3">
+      {error ? (
+        <p role="status" className="rounded-lg bg-amber-100 px-3 py-2 text-sm text-amber-950">
+          {t("Status could not be updated – last update {{time}}", {
+            time: lastUpdated ? formatClock(lastUpdated.toISOString(), i18n.language) : "–",
+          })}
+        </p>
+      ) : null}
       <div aria-live="polite" className="sr-only">
         {announcement}
       </div>
@@ -152,12 +175,13 @@ export function RoomView() {
         {live ? (
           <div className="absolute inset-0 flex">
             <HlsPlayer
+              key={recorder.id}
               id={recorder.id}
               src={recorder.playback_url}
               className="h-full min-w-0 flex-1 bg-black object-contain"
             />
             <div className="flex shrink-0 items-stretch bg-white/90 p-1.5 dark:bg-slate-900/90">
-              <LevelMeter id={recorder.id} />
+              <LevelMeter key={recorder.id} id={recorder.id} />
             </div>
           </div>
         ) : (
