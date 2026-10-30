@@ -14,6 +14,7 @@ import {
 } from "@basicbar/ui";
 import i18n from "./i18n";
 import { AppContext } from "./appContext";
+import { AudioContextProvider } from "./media/AudioContextProvider";
 import Landing from "./pages/Landing";
 import NoAccess from "./pages/NoAccess";
 import { api, loginUrl, logoutUrl, type Whoami } from "./api";
@@ -98,7 +99,9 @@ export default function App() {
           <NoAccess contact={whoami.access_contact} />
         ) : (
           <AppContext.Provider value={{ whoami, refreshWhoami: load }}>
-            <Outlet />
+            <AudioContextProvider>
+              <Outlet />
+            </AudioContextProvider>
           </AppContext.Provider>
         )}
       </main>

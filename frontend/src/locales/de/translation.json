@@ -21,5 +21,12 @@
   "Room": "Raum",
   "Recorders": "Rekorder",
   "Invitations": "Einladungen",
-  "Settings": "Einstellungen"
+  "Settings": "Einstellungen",
+  "Enable level & sound": "Pegel & Ton aktivieren",
+  "Level after click": "Pegel nach Klick",
+  "Level unavailable": "Pegel nicht verfügbar",
+  "Level": "Pegel",
+  "silent": "still",
+  "low": "leise",
+  "normal": "normal"
 }
