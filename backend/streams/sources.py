@@ -103,7 +103,7 @@ def evaluate(
     target = probe.target_duration or DEFAULT_TARGET_DURATION
     age = (now - changed_at).total_seconds()
     if age <= stale_factor * target:
-        live_since = prev.live_since if prev.state == LIVE and prev.live_since else now
+        live_since = prev.live_since or now  # offline always clears live_since
         return LiveState(LIVE, live_since, probe.media_sequence, changed_at, "")
     return LiveState(
         OFFLINE,

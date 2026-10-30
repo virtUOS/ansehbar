@@ -162,6 +162,37 @@ class EvaluateTests(unittest.TestCase):
         self.assertIsNone(out.live_since)
         self.assertIn("MEDIA-SEQUENCE", out.detail)
 
+    def test_evaluate_live_unknown_live_keeps_live_since(self):
+        prev = self.prev()
+        unknown = evaluate(prev, Probe(False, False, None, None, "t"), NOW, 3)
+        later = NOW + timedelta(seconds=5)
+        for seq in (42, 43):
+            out = evaluate(unknown, self.probe(media_sequence=seq), later, 3)
+            self.assertEqual(out.state, "live")
+            self.assertEqual(out.live_since, prev.live_since)
+
+    def test_evaluate_recovers_after_stale_offline(self):
+        prev = self.prev(sequence_changed_at=NOW - timedelta(seconds=60))
+        off = evaluate(prev, self.probe(), NOW, 3)
+        self.assertEqual(off.state, "offline")
+        later = NOW + timedelta(seconds=6)
+        out = evaluate(off, self.probe(media_sequence=43), later, 3)
+        self.assertEqual((out.state, out.live_since), ("live", later))
+
+    def test_evaluate_stale_stays_offline_without_flapping(self):
+        state = self.prev(sequence_changed_at=NOW - timedelta(seconds=60))
+        frozen = state.sequence_changed_at
+        for i in range(4):
+            state = evaluate(state, self.probe(), NOW + timedelta(seconds=6 * i), 3)
+            self.assertEqual(state.state, "offline")
+            self.assertIsNone(state.live_since)
+            self.assertEqual(state.sequence_changed_at, frozen)
+
+    def test_evaluate_boundary_18s_live_19s_offline(self):
+        for secs, expected in ((18, "live"), (19, "offline")):
+            prev = self.prev(sequence_changed_at=NOW - timedelta(seconds=secs))
+            self.assertEqual(evaluate(prev, self.probe(), NOW, 3).state, expected)
+
     def test_evaluate_uses_default_target_duration(self):
         prev = self.prev(sequence_changed_at=NOW - timedelta(seconds=19))
         out = evaluate(prev, self.probe(target_duration=None), NOW, 3)
