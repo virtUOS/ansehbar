@@ -2,10 +2,16 @@
 # Copyright 2026 Universität Osnabrück (virtUOS)
 
 """Tests for recorders, monitor settings and the seed data."""
+from datetime import datetime, timezone
+from unittest import mock
+
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
 from django.test import TestCase, override_settings
 
 from recorders.models import MonitorSettings, Recorder, RecorderStatus
+from recorders.monitor import run_cycle
+from streams.sources import Probe
 
 User = get_user_model()
 
@@ -154,3 +160,66 @@ class SeedTests(TestCase):
         self.assertEqual(
             Recorder.objects.get(stream_name="rec-40-r28").room_name, "40/R28"
         )
+
+
+class FakeSource:
+    def __init__(self, probes):
+        self.probes = probes
+        self.probed = []
+
+    def playback_url(self, stream_name):
+        return f"https://example.invalid/{stream_name}"
+
+    def probe(self, stream_name):
+        self.probed.append(stream_name)
+        result = self.probes[stream_name]
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+
+NOW = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+
+
+class RunCycleTests(TestCase):
+    def setUp(self):
+        Recorder.objects.all().delete()  # drop seeded recorders
+
+    def test_run_cycle_one_failing_probe_does_not_affect_others(self):
+        a = Recorder.objects.create(room_name="A", stream_name="rec-a")
+        b = Recorder.objects.create(room_name="B", stream_name="rec-b")
+        source = FakeSource(
+            {
+                "rec-a": RuntimeError("boom"),
+                "rec-b": Probe(True, True, 100, 6.0),
+            }
+        )
+        self.assertEqual(run_cycle(source, NOW), 2)
+        a.status.refresh_from_db()
+        b.status.refresh_from_db()
+        self.assertEqual(a.status.state, "unknown")
+        self.assertEqual(b.status.state, "live")
+        self.assertEqual(b.status.live_since, NOW)
+        self.assertEqual(a.status.checked_at, NOW)
+
+    def test_run_cycle_sets_inactive_unknown_and_skips_probe(self):
+        r = Recorder.objects.create(room_name="A", stream_name="rec-a", active=False)
+        RecorderStatus.objects.filter(recorder=r).update(
+            state="live", live_since=NOW
+        )
+        source = FakeSource({})
+        self.assertEqual(run_cycle(source, NOW), 0)
+        self.assertEqual(source.probed, [])
+        r.status.refresh_from_db()
+        self.assertEqual(r.status.state, "unknown")
+        self.assertIsNone(r.status.live_since)
+
+    def test_run_once_command_exits(self):
+        Recorder.objects.create(room_name="A", stream_name="rec-a")
+        source = FakeSource({"rec-a": Probe(True, False, None, None, "HTTP 404")})
+        with mock.patch(
+            "recorders.management.commands.run_monitor.HlsStreamSource",
+            return_value=source,
+        ):
+            call_command("run_monitor", "--once")
+        self.assertEqual(Recorder.objects.get().status.state, "offline")
