@@ -29,9 +29,10 @@ Anmeldung läuft über OIDC (Keycloak); Zugang haben Mitglieder einer
 IdP-Gruppe und in ansehBAR eingeladene Personen. ansehBAR ändert nichts in
 Keycloak, Opencast oder an den Rekordern — es beobachtet nur.
 
-**Stand:** Stufe 1 — Monitor mit gepflegter Rekorderliste und
-Live-Erkennung der HLS-Streams (derzeit ein HLS-Streaming-Server). Geplant sind die Anbindung
-an Opencast (Stufe 2), Alarme per E-Mail und über den Monitoring-Dienst mit Ausfallprotokoll
+**Stand:** Stufe 2 — Monitor mit gepflegter Rekorderliste und
+Live-Erkennung der HLS-Streams (derzeit ein HLS-Streaming-Server) sowie
+optionaler Anbindung an Opencast (geplante Aufzeichnungen, „Stream fehlt“,
+„Heute noch geplant“; nur lesend). Geplant sind Alarme per E-Mail und über den Monitoring-Dienst mit Ausfallprotokoll
 (Stufe 3) und lernende Toleranzen (Stufe 4); Details im
 [Design-Dokument](docs/superpowers/specs/2026-10-30-ansehbar-design.md).
 
@@ -140,6 +141,11 @@ Umgebungsvariablen (siehe `.env.prod.example`).
 | `ANSEHBAR_BOOTSTRAP_USERS` | Kommagetrennte Benutzernamen/E-Mails mit Zugang ohne Gruppe (erste Einrichtung); weitere Personen lädt die Verwaltung unter „Einladungen“ ein | leer |
 | `ANSEHBAR_ACCESS_CONTACT` | Kontakt (z. B. Mailadresse), der Personen ohne Zugang angezeigt wird | leer |
 | `MONITOR_INTERVAL_SECONDS` | Sekunden zwischen zwei Prüfläufen des Monitors | `10` |
+| `OPENCAST_URL` | Basisadresse von Opencast; leer = Opencast-Anbindung aus (siehe [Konfigurationsanleitung](docs/KONFIGURATION.md#5-opencast-anbinden-optional)) | leer |
+| `OPENCAST_USER` | Benutzer (nur Leserechte) für die Opencast External API | leer |
+| `OPENCAST_PASSWORD` | Passwort dieses Benutzers | leer |
+| `OPENCAST_SYNC_SECONDS` | Sekunden zwischen zwei Abgleichen mit Opencast | `60` |
+| `OPENCAST_LOOKAHEAD_DAYS` | Tage Terminplan im Voraus | `7` |
 | `ANSEHBAR_SITE_CONFIG` | Pfad der Standortkonfiguration für `load_site_config` (siehe „Standortkonfiguration“) | `backend/site.local.json` |
 
 Hinweise:

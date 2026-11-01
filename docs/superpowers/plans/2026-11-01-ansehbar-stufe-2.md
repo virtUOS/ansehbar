@@ -574,4 +574,27 @@ Vorfälle, Alarme und Kalender (Abschnitt 7) gehören nicht dazu.
 
 ## Abnahme
 
-(wird in Task 8 ausgefüllt)
+Durchgeführt am 2026-11-01 gegen `https://stable.opencast.org` (öffentliche
+Demo-Zugangsdaten, nur in der lokalen `.env`), auf API-Ebene (curl, Monitor-Log,
+Django-Shell gegen die lokale API); die Sichtprüfung im Browser steht noch aus.
+Zeiten in UTC.
+
+- **Agents:** Beim ersten Sync (20:09) legte ansehBAR die drei Agents des
+  Testservers als Rekorder mit leerem Raumnamen und `needs_review=true` an.
+- **Termin:** Der von Hand per curl angelegte Testtermin (Start 20:18, Ende
+  20:48) stand ab dem nächsten Sync als `next_event`, ab 20:18 als
+  `current_event`.
+- **Stream fehlt:** `missing_since` = 20:21:00 (Start plus Wartezeit von
+  3 Minuten), sichtbar bei der Abfrage um 20:22; vorher `null`. Der Testserver
+  hat keine Streams, `status.agent_state` meldete `capturing`.
+- **Löschen:** Nach `DELETE` des Termins in Opencast (20:22:09) war er beim
+  nächsten Sync (20:22:50) lokal entfernt, `current_event` und
+  `missing_since` wieder `null`.
+- **Falsches Passwort:** Monitor-Log `opencast sync failed: /api/agents: HTTP 401`
+  und `opencast=error`. `opencast.last_success` blieb bei 20:22:50 stehen
+  (um 20:26:52 über 4 Minuten alt, also über drei Intervallen, das Banner
+  ginge an), während `last_check` der Stream-Prüfung weiter fortschritt
+  (alle 10 s). Das Passwort kam in keinem Log vor.
+- **Wiederherstellung:** Mit korrektem Passwort `opencast=ok`,
+  `last_success` ging wieder voran (20:26:59).
+- **Offen:** Sichtprüfung der Banner und Kacheln im Browser.

@@ -17,6 +17,8 @@ Frontend 5179, Backend 8007, Keycloak 8086, Postgres 5438.
 - Backend-Apps: `config` (Settings/URLs), `accounts` (User, Zugangsprüfung
   über IdP-Gruppe/Bootstrap/Einladungen, Einladungs- und Benutzersuche-API),
   `recorders` (Rekorder, Status, Monitor-Einstellungen, API, Monitor-Zyklus),
+  `opencast` (read-only-Client der External API, Sync von Agents und
+  Terminen, `ScheduledEvent`, `OpencastSyncState`),
   `streams` (HLS-Probe: Master-/Chunklist, Frische der Media-Sequence),
   `common` (Basis).
 - Monitor: eigener Compose-Dienst `monitor`, `python manage.py run_monitor`
@@ -76,4 +78,4 @@ docker compose exec backend sh -c "pip install -q ruff && ruff check ."  # Lint 
   im Repo: sie stehen in der git-ignorierten `backend/site.local.json`
   (Vorlage `backend/site.example.json`, Befehl `load_site_config`, siehe README
   „Standortkonfiguration“). Migrationen und Tests nur mit fiktiven Werten.
-- ansehBAR schreibt nie nach Keycloak.
+- ansehBAR schreibt nie nach Keycloak und nie nach Opencast (Client kennt nur GET).

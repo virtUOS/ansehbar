@@ -234,7 +234,64 @@ Ohne Standortkonfiguration startet ansehBAR mit leerer Rekorderliste und
 der Beispiel-URL. Rekorder lassen sich dann auch direkt in der Verwaltung
 anlegen.
 
-## 5. Erste Anmeldung und laufende Pflege
+## 5. Opencast anbinden (optional)
+
+Mit Opencast kennt ansehBAR die geplanten Aufzeichnungen und kann zwischen
+„kein Stream, weil nichts geplant ist“ und „Stream fehlt“ unterscheiden.
+ansehBAR liest nur (External API, nur GET) und **schreibt nie** nach
+Opencast. Ohne `OPENCAST_URL` bleibt die Anbindung aus, alles andere
+funktioniert wie zuvor.
+
+| Variable | Bedeutung | Standard |
+| --- | --- | --- |
+| `OPENCAST_URL` | Basisadresse von Opencast, z. B. `https://opencast.example.org`; leer = aus | leer |
+| `OPENCAST_USER` | Benutzer für die External API | leer |
+| `OPENCAST_PASSWORD` | Passwort dieses Benutzers | leer |
+| `OPENCAST_SYNC_SECONDS` | Sekunden zwischen zwei Abgleichen (der Monitor gleicht mit ab) | `60` |
+| `OPENCAST_LOOKAHEAD_DAYS` | Wie viele Tage Terminplan im Voraus gelesen werden | `7` |
+
+Nach Änderungen an der `.env` die Container neu erzeugen
+(`docker compose -f docker-compose.prod.yml up -d`), denn ein bloßer Neustart
+liest die Datei nicht neu ein.
+
+### Konto in Opencast
+
+Ein eigenes Konto nur mit Leserechten anlegen, mit den Rollen:
+
+- `ROLE_API`
+- `ROLE_API_CAPTURE_AGENTS_VIEW`
+- `ROLE_API_EVENTS_VIEW`
+- `ROLE_API_EVENTS_SCHEDULING_VIEW`
+
+Außerdem muss das Konto die geplanten Events lesen dürfen. Dafür braucht
+eine seiner Rollen Leserecht in den Event-ACLs, am einfachsten über die
+ACL-Vorlagen, mit denen die Termine angelegt werden. Fehlt das, antwortet
+die API zwar fehlerfrei, die Terminliste bleibt aber leer.
+
+Prüfen von der Kommandozeile (Benutzer und Passwort werden abgefragt):
+
+```bash
+curl -u ansehbar https://<opencast>/api/agents
+curl -u ansehbar "https://<opencast>/api/events?withscheduling=true"
+```
+
+Die erste Antwort muss die Capture Agents der Rekorder zeigen, die zweite
+die geplanten Termine.
+
+### Agent und Stream zuordnen
+
+- **Standard:** Agent-ID und Stream-Name sind gleich (case-sensitiv).
+- **Abweichender Name:** Die Agent-ID als `agent_id` beim Rekorder in der
+  `site.local.json` eintragen oder unter **Verwaltung → Rekorder** pflegen.
+- **Neue Agents:** Ein Agent ohne passenden Rekorder wird als Rekorder mit
+  leerem Raumnamen angelegt und erscheint als „Neu – bitte prüfen“. Raumname
+  vergeben oder den Rekorder deaktivieren, dann ist er geprüft.
+
+Zum Ausprobieren eignet sich der öffentliche Opencast-Testserver; die
+Demo-Zugangsdaten stehen auf seiner Startseite. Nur in die lokale `.env`
+eintragen, nie ins Repository.
+
+## 6. Erste Anmeldung und laufende Pflege
 
 1. `https://<host>` öffnen und mit einem Konto anmelden, das in der Gruppe
    oder in `ANSEHBAR_BOOTSTRAP_USERS` steht.
@@ -250,7 +307,7 @@ anlegen.
 5. Sobald Gruppe und Einladungen tragen, kann `ANSEHBAR_BOOTSTRAP_USERS`
    wieder geleert werden.
 
-## 6. Prüfen und Fehlersuche
+## 7. Prüfen und Fehlersuche
 
 | Beobachtung | Ursache und Abhilfe |
 | --- | --- |
@@ -261,8 +318,11 @@ anlegen.
 | Kachel zeigt „live“, aber das Video bleibt schwarz oder „Wiedergabe gestört“ | Meist fehlende CORS-Header am Streaming-Server, oder das Gerät erreicht den Streaming-Server nicht. Browser-Konsole prüfen. |
 | Banner „Monitor liefert keine Daten seit …“ | Der Container `monitor` läuft nicht oder hängt: `docker compose -f docker-compose.prod.yml ps` und `logs monitor`. Ohne Monitor bleibt der zuletzt bekannte Status stehen, das Banner warnt davor. |
 | Pegelanzeige bleibt grau | Der Browser gibt Audio erst nach einem Klick frei: „Pegel & Ton aktivieren“ drücken. Auf Geräten, die HLS nativ abspielen, steht „Pegel nicht verfügbar“. |
+| Banner „Opencast-Daten veraltet“ | Der letzte erfolgreiche Abgleich ist länger als drei Intervalle her. `docker compose -f docker-compose.prod.yml logs monitor` zeigt die Fehlerart (`opencast=error`): Adresse, Zugangsdaten und Erreichbarkeit prüfen, mit dem `curl` aus Abschnitt 5 gegenprobieren. Die Stream-Prüfung läuft unabhängig davon weiter. |
+| Termine fehlen, obwohl in Opencast geplant | Meist darf das Konto die Events nicht lesen: Rolle in den Event-ACLs bzw. ACL-Vorlagen ergänzen. Außerdem liegt der Termin vielleicht außerhalb von `OPENCAST_LOOKAHEAD_DAYS`, oder der Agent ist keinem Rekorder zugeordnet. |
+| Agent wird übersprungen | Der Log des Monitors nennt per WARNING den Grund: Die Agent-ID ist kein gültiger Stream-Name (erlaubt sind Buchstaben, Ziffern, `.`, `_`, `-`), oder der Stream-Name gehört schon zu einem anderen Agent. `agent_id` beim passenden Rekorder setzen. |
 
-## 7. Aktualisieren
+## 8. Aktualisieren
 
 ```bash
 git pull
