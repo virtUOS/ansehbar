@@ -16,13 +16,13 @@ ansehbar.example.org {
 
 	# API, Django admin and OIDC endpoints → Django (uvicorn).
 	handle /api/* {
-		reverse_proxy backend:8000
+		reverse_proxy app:8000
 	}
 	handle /admin/* {
-		reverse_proxy backend:8000
+		reverse_proxy app:8000
 	}
 	handle /oidc/* {
-		reverse_proxy backend:8000
+		reverse_proxy app:8000
 	}
 
 	# Uploaded media and collected static files → served directly from volumes.

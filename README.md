@@ -40,6 +40,11 @@ an Opencast (Stufe 2), Alarme per E-Mail und Matrix mit Ausfallprotokoll
 React + Vite, OIDC via Keycloak, @basicbar/ui-Designsystem, hls.js; ein
 eigener Monitor-Prozess prüft die Streams.
 
+**Einrichtung an einem Standort:** Das Repository enthält keine Angaben zu
+einer konkreten Einrichtung. Streaming-Server, Rekorder, Anmeldedienst und
+Domain richtet jeder Standort selbst ein, Schritt für Schritt beschrieben in
+der [Konfigurationsanleitung](docs/KONFIGURATION.md).
+
 **Lizenz:** [Apache-2.0](LICENSE), siehe auch [NOTICE](NOTICE).
 
 ## Entwicklung
@@ -115,7 +120,8 @@ angegeben).
 
 ## Betrieb
 
-Die App läuft als zwei Prozesse aus demselben Image: `backend` (Web/API) und
+Die App läuft als zwei Prozesse aus demselben Image: Web/API (`backend` in
+der Entwicklung, `app` in `docker-compose.prod.yml`) und
 `monitor` (`python manage.py run_monitor`). Der Monitor prüft alle aktiven
 Rekorder im Intervall und schreibt den Status in die Datenbank. Läuft er
 nicht, frieren die Status auf dem letzten Stand ein (ein Stream kann also
@@ -141,9 +147,11 @@ Hinweise:
   laufende Sitzung, bis er sich neu anmeldet. Soll der Zugang sofort enden,
   die Sitzung beenden bzw. den Benutzer in Keycloak abmelden.
 - **Der Streaming-Server muss CORS erlauben.** Der Browser lädt die
-  HLS-Playlists direkt vom Streaming-Server
-  (`streaming.example.org` antwortet mit `Access-Control-Allow-Origin: *`).
-  Ohne CORS-Header bleibt die Vorschau leer, auch wenn der Monitor „live“ meldet.
+  HLS-Playlists direkt vom Streaming-Server; dieser muss dafür
+  `Access-Control-Allow-Origin` (ansehBAR-Domain oder `*`) senden. Ohne
+  CORS-Header bleibt die Vorschau leer, auch wenn der Monitor „live“ meldet.
+  Alle Anforderungen an den Streaming-Server stehen in der
+  [Konfigurationsanleitung](docs/KONFIGURATION.md#1-voraussetzungen-am-streaming-server).
 - **„seit“ in Stufe 1:** Die Uhrzeit zeigt, wann der Monitor den Stream
   erstmals als live gesehen hat, nicht den tatsächlichen Aufzeichnungsbeginn.
   Sie übersteht einen Neustart des Monitors und Prüfungen mit unklarem
