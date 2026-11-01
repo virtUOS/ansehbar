@@ -10,6 +10,9 @@ import {
   formatDuration,
   keepsPlayer,
   mergeRecorders,
+  missingMinutes,
+  newlyMissing,
+  quietWithoutRecording,
   monitorStale,
   opencastStale,
   outsideNow,
@@ -263,5 +266,25 @@ describe("opencastStale", () => {
   it("is stale beyond three sync intervals", () => {
     expect(opencastStale(h(true, "2026-01-01T11:57:00Z"))).toBe(false);
     expect(opencastStale(h(true, "2026-01-01T11:56:59Z"))).toBe(true);
+  });
+});
+
+describe("Stream-missing helpers", () => {
+  const miss = (id: number) => ({ ...rec(id, `R${id}`), missing_since: "2026-01-01T11:00:00Z" });
+  it("missingMinutes floors and never goes negative", () => {
+    expect(missingMinutes("2026-01-01T11:00:00Z", new Date("2026-01-01T11:17:59Z"))).toBe(17);
+    expect(missingMinutes("2026-01-01T12:00:00Z", new Date("2026-01-01T11:00:00Z"))).toBe(0);
+  });
+  it("newlyMissing announces nothing on first load", () => {
+    expect(newlyMissing(null, [miss(1)])).toEqual([]);
+  });
+  it("newlyMissing returns only recorders that were not missing before", () => {
+    const list = [miss(1), miss(2), rec(3, "R3")];
+    expect(newlyMissing(new Set([1]), list).map((r) => r.id)).toEqual([2]);
+  });
+  it("quietWithoutRecording drops unknown recorders", () => {
+    const list = [rec(1, "A"), rec(2, "B", "unknown")];
+    expect(quietToday(list).map((r) => r.id)).toEqual([1, 2]);
+    expect(quietWithoutRecording(list).map((r) => r.id)).toEqual([1]);
   });
 });

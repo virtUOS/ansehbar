@@ -173,3 +173,22 @@ export function opencastStale(health: MonitorHealth): boolean {
   const age = new Date(health.now).getTime() - new Date(oc.last_success).getTime();
   return age > 3 * oc.sync_seconds * 1000;
 }
+
+/** Whole minutes since the stream went missing, never negative. */
+export function missingMinutes(sinceIso: string, now: Date): number {
+  return Math.max(0, Math.floor((now.getTime() - new Date(sinceIso).getTime()) / 60000));
+}
+
+/** Recorders that are "missing" now but were not in `prev` (ids of the last
+ *  poll's missing recorders). `prev === null` is the first load: nothing is
+ *  announced then. */
+export function newlyMissing(prev: ReadonlySet<number> | null, list: Recorder[]): Recorder[] {
+  if (prev === null) return [];
+  return list.filter((r) => presentation(r) === "missing" && !prev.has(r.id));
+}
+
+/** "No recording today" line: quiet recorders except "unknown" ones, which
+ *  are listed apart as "Status unknown" and never as "no recording". */
+export function quietWithoutRecording(list: Recorder[]): Recorder[] {
+  return quietToday(list).filter((r) => presentation(r) !== "unknown");
+}

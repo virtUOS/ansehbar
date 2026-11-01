@@ -100,5 +100,21 @@
   "Playback failed": "Wiedergabe fehlgeschlagen",
   "Reload": "Neu laden",
   "Sound": "Ton",
-  "Sound for {{room}}": "Ton für {{room}}"
+  "Sound for {{room}}": "Ton für {{room}}",
+  "Stream missing": "Stream fehlt",
+  "Stream missing for {{minutes}} min": "Stream fehlt – seit {{minutes}} min",
+  "from": "ab",
+  "until {{time}}": "bis {{time}}",
+  "Today": "Heute",
+  "Still scheduled today": "Heute noch geplant",
+  "in {{hours}} h {{minutes}} min": "in {{hours}} h {{minutes}} min",
+  "in {{minutes}} min": "in {{minutes}} min",
+  "No recording today": "Heute ohne Aufzeichnung",
+  "No stream – no recording scheduled": "Kein Stream – keine Aufzeichnung geplant",
+  "next: {{time}}": "nächste: {{time}}",
+  "Room name missing": "Raumname fehlt",
+  "Opencast data out of date – last update {{time}}": "Opencast-Daten veraltet – letzte Aktualisierung {{time}}",
+  "Opencast data not available yet": "Opencast-Daten noch nicht verfügbar",
+  "Stream missing in {{room}}": "Stream fehlt in {{room}}",
+  "today from {{time}}": "heute ab {{time}}"
 }
