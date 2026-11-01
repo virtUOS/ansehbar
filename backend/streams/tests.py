@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 import httpx
 
 from streams.hls import parse_master, parse_media
-from streams.sources import LiveState, Probe, HlsStreamSource, evaluate
+from streams.sources import HlsStreamSource, LiveState, Probe, evaluate
 
 MASTER = (
     "#EXTM3U\n#EXT-X-VERSION:3\n"
