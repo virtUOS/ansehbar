@@ -16,6 +16,8 @@ export function SettingsAdmin() {
   const refreshWhoami = useAppContext()?.refreshWhoami;
   const [template, setTemplate] = useState("");
   const [stale, setStale] = useState("3");
+  // Not editable yet (UI follows in a later task); sent back unchanged.
+  const [grace, setGrace] = useState(10);
   const [firstStream, setFirstStream] = useState<string | undefined>();
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState("");
@@ -31,6 +33,7 @@ export function SettingsAdmin() {
         // Initial load only; the effect never reruns over unsaved edits.
         setTemplate(s.url_template);
         setStale(String(s.stale_factor));
+        setGrace(s.missing_grace_minutes);
         setFirstStream(recs[0]?.stream_name);
         setLoaded(true);
       })
@@ -50,9 +53,12 @@ export function SettingsAdmin() {
     setSaved(false);
     setErrors(NO_ERRORS);
     try {
-      const result = await api.settings.put({ url_template: template.trim(), stale_factor: Number(stale) });
+      const result = await api.settings.put({ url_template: template.trim(), stale_factor: Number(stale),
+        missing_grace_minutes: grace,
+      });
       setTemplate(result.url_template);
       setStale(String(result.stale_factor));
+      setGrace(result.missing_grace_minutes);
       setSaved(true);
     } catch (err) {
       setErrors(splitErrors(err, FIELDS));

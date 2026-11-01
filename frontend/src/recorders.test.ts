@@ -2,18 +2,24 @@
 // Copyright 2026 Universität Osnabrück (virtUOS)
 
 import { describe, expect, it } from "vitest";
-import type { Recorder } from "./api";
+import type { EventBrief, MonitorHealth, Recorder } from "./api";
 import {
+  displayName,
   emptyNowMessage,
   filterOverview,
   formatDuration,
   keepsPlayer,
   mergeRecorders,
   monitorStale,
+  opencastStale,
   outsideNow,
   presentation,
+  quietToday,
+  roomNameMissing,
   sortForOverview,
   stateTransition,
+  untilParts,
+  upcomingToday,
 } from "./recorders";
 
 function rec(id: number, room: string, state: Recorder["status"]["state"] = "offline"): Recorder {
@@ -21,10 +27,14 @@ function rec(id: number, room: string, state: Recorder["status"]["state"] = "off
     id,
     room_name: room,
     stream_name: `cap-${id}`,
+    agent_id: null,
     active: true,
     needs_review: false,
     playback_url: "",
-    status: { state, live_since: null, checked_at: null },
+    status: { state, live_since: null, checked_at: null, agent_state: "", agent_updated_at: null },
+    current_event: null,
+    next_event: null,
+    missing_since: null,
   };
 }
 
@@ -161,14 +171,97 @@ describe("presentation of unknown", () => {
 
 describe("monitorStale", () => {
   const now = "2026-01-01T12:00:00Z";
+  const oc = { enabled: false, last_success: null, sync_seconds: 60 };
   it("is fresh within three intervals (server clock)", () => {
-    expect(monitorStale({ now, last_check: "2026-01-01T11:59:30Z", interval_seconds: 10 }, true)).toBe(false);
+    expect(monitorStale({ now, last_check: "2026-01-01T11:59:30Z", interval_seconds: 10, opencast: oc }, true)).toBe(false);
   });
   it("is stale beyond three intervals", () => {
-    expect(monitorStale({ now, last_check: "2026-01-01T11:59:29Z", interval_seconds: 10 }, true)).toBe(true);
+    expect(monitorStale({ now, last_check: "2026-01-01T11:59:29Z", interval_seconds: 10, opencast: oc }, true)).toBe(true);
   });
   it("is stale without any check only while active recorders exist", () => {
-    expect(monitorStale({ now, last_check: null, interval_seconds: 10 }, true)).toBe(true);
-    expect(monitorStale({ now, last_check: null, interval_seconds: 10 }, false)).toBe(false);
+    expect(monitorStale({ now, last_check: null, interval_seconds: 10, opencast: oc }, true)).toBe(true);
+    expect(monitorStale({ now, last_check: null, interval_seconds: 10, opencast: oc }, false)).toBe(false);
+  });
+});
+
+const ev = (title: string, start: string): EventBrief => ({
+  title,
+  series: "",
+  start,
+  end: "2026-01-01T14:00:00Z",
+});
+const missing = (r: Recorder): Recorder => ({ ...r, missing_since: "2026-01-01T10:00:00Z" });
+
+describe("missing presentation", () => {
+  it("is missing only for active offline recorders with missing_since", () => {
+    expect(presentation(missing(rec(1, "A")))).toBe("missing");
+    expect(presentation(missing(rec(1, "A", "unknown")))).toBe("unknown");
+    expect(presentation({ ...missing(rec(1, "A")), active: false })).toBe("inactive");
+  });
+  it("sorts missing before live before offline", () => {
+    const list = [rec(1, "A"), rec(2, "B", "live"), missing(rec(3, "C"))];
+    expect(sortForOverview(list).map((r) => r.id)).toEqual([3, 2, 1]);
+  });
+  it("now mode includes missing recorders", () => {
+    const list = [rec(1, "A"), missing(rec(2, "B")), rec(3, "C", "live")];
+    expect(filterOverview(list, "now", "").map((r) => r.id)).toEqual([2, 3]);
+  });
+});
+
+describe("today mode, search and event helpers", () => {
+  const withNext = { ...rec(1, "A"), next_event: ev("Lecture", "2026-01-01T13:00:00Z") };
+  const earlier = { ...rec(2, "B"), next_event: ev("Seminar", "2026-01-01T12:30:00Z") };
+  const quiet = rec(3, "C");
+  const inactive = { ...rec(4, "D"), active: false, next_event: ev("X", "2026-01-01T12:10:00Z") };
+  const now = new Date("2026-01-01T12:00:00Z");
+
+  it("today keeps recorders with events and drops quiet ones", () => {
+    expect(filterOverview([withNext, quiet], "today", "").map((r) => r.id)).toEqual([1]);
+  });
+  it("search matches agent_id", () => {
+    const r = { ...rec(5, "E"), agent_id: "rec-hall" };
+    expect(filterOverview([r, quiet], "all", "REC-HALL").map((x) => x.id)).toEqual([5]);
+  });
+  it("upcomingToday sorts by start and skips inactive", () => {
+    expect(upcomingToday([withNext, earlier, quiet, inactive], now).map((r) => r.id)).toEqual([2, 1]);
+  });
+  it("quietToday lists active recorders without events", () => {
+    expect(quietToday([withNext, quiet, inactive]).map((r) => r.id)).toEqual([3]);
+  });
+  it("displayName and roomNameMissing", () => {
+    const blank = { ...rec(6, "  "), agent_id: "cap-90-R12" };
+    expect(displayName(blank)).toBe("cap-90-R12");
+    expect(roomNameMissing(blank)).toBe(true);
+    expect(displayName({ ...rec(7, " "), agent_id: null })).toBe("cap-7");
+    expect(displayName(rec(8, " 40/R05 "))).toBe("40/R05");
+    expect(roomNameMissing(rec(8, "40/R05"))).toBe(false);
+  });
+  it("untilParts floors to minutes and never goes negative", () => {
+    expect(untilParts("2026-01-01T12:43:00Z", new Date("2026-01-01T11:00:00Z"))).toEqual({ hours: 1, minutes: 43 });
+    expect(untilParts("2026-01-01T10:00:00Z", now)).toEqual({ hours: 0, minutes: 0 });
+  });
+  it("merge detects a changed next_event title", () => {
+    const prev = [withNext];
+    const same = mergeRecorders(prev, [{ ...withNext, next_event: { ...withNext.next_event! } }]);
+    expect(same).toBe(prev);
+    const changed = mergeRecorders(prev, [{ ...withNext, next_event: ev("Other", "2026-01-01T13:00:00Z") }]);
+    expect(changed[0]).not.toBe(prev[0]);
+  });
+});
+
+describe("opencastStale", () => {
+  const h = (enabled: boolean, last_success: string | null): MonitorHealth => ({
+    last_check: null,
+    now: "2026-01-01T12:00:00Z",
+    interval_seconds: 10,
+    opencast: { enabled, last_success, sync_seconds: 60 },
+  });
+  it("is false when disabled, true without success", () => {
+    expect(opencastStale(h(false, null))).toBe(false);
+    expect(opencastStale(h(true, null))).toBe(true);
+  });
+  it("is stale beyond three sync intervals", () => {
+    expect(opencastStale(h(true, "2026-01-01T11:57:00Z"))).toBe(false);
+    expect(opencastStale(h(true, "2026-01-01T11:56:59Z"))).toBe(true);
   });
 });

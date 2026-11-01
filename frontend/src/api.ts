@@ -32,14 +32,33 @@ export interface Whoami {
 
 export type RecorderState = "live" | "offline" | "unknown";
 
+/** An Opencast event (ISO datetimes). */
+export interface EventBrief {
+  title: string;
+  series: string;
+  start: string;
+  end: string;
+}
+
 export interface Recorder {
   id: number;
   room_name: string;
   stream_name: string;
+  agent_id: string | null;
   active: boolean;
   needs_review: boolean;
   playback_url: string;
-  status: { state: RecorderState; live_since: string | null; checked_at: string | null };
+  status: {
+    state: RecorderState;
+    live_since: string | null;
+    checked_at: string | null;
+    /** "" = never seen. */
+    agent_state: string;
+    agent_updated_at: string | null;
+  };
+  current_event: EventBrief | null;
+  next_event: EventBrief | null;
+  missing_since: string | null;
 }
 
 /** Monitor heartbeat; `now` is the server clock (compare against it, not the browser's). */
@@ -47,6 +66,7 @@ export interface MonitorHealth {
   last_check: string | null;
   now: string;
   interval_seconds: number;
+  opencast: { enabled: boolean; last_success: string | null; sync_seconds: number };
 }
 
 export interface Invitation {
@@ -60,6 +80,7 @@ export interface Invitation {
 export interface MonitorSettings {
   url_template: string;
   stale_factor: number;
+  missing_grace_minutes: number;
 }
 
 export interface UserHit {
