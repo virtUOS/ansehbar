@@ -8,8 +8,11 @@ import { ApiError, api, type Recorder } from "../../api";
 import { useAppContext } from "../../appContext";
 import { Field, FormErrorSummary, inputCls } from "../../components/FormParts";
 import { StatusBadge } from "../../components/StatusBadge";
+import { RoomName } from "../../components/RoomName";
+import { AgentStateText } from "../../components/AgentStateText";
+import { displayName, sortForAdmin } from "../../recorders";
 
-const FIELDS = ["room_name", "stream_name", "active"];
+const FIELDS = ["room_name", "stream_name", "agent_id", "active"];
 const NO_ERRORS: FormErrors = { fields: {}, general: [] };
 
 /** Recorder id being edited, "new", or null when the form is closed. */
@@ -101,6 +104,7 @@ export function RecordersAdmin() {
               <tr>
                 <th scope="col" className="px-3 py-2">{t("Room name")}</th>
                 <th scope="col" className="px-3 py-2">{t("Stream name")}</th>
+                <th scope="col" className="px-3 py-2">{t("Opencast agent")}</th>
                 <th scope="col" className="px-3 py-2">{t("Active")}</th>
                 <th scope="col" className="px-3 py-2">{t("Status")}</th>
                 <th scope="col" className="px-3 py-2">{t("Review")}</th>
@@ -108,22 +112,31 @@ export function RecordersAdmin() {
               </tr>
             </thead>
             <tbody>
-              {recorders.map((r) => (
+              {sortForAdmin(recorders).map((r) => (
                 <tr key={r.id} className="border-t border-slate-200 dark:border-slate-800">
-                  <th scope="row" className="px-3 py-2 font-medium">{r.room_name}</th>
+                  <th scope="row" className="px-3 py-2 font-medium"><RoomName recorder={r} /></th>
                   <td className="px-3 py-2 font-mono">{r.stream_name}</td>
+                  <td className="px-3 py-2 font-mono">
+                    {r.agent_id ? (
+                      <>
+                        {r.agent_id} <span className="font-sans text-xs text-slate-600 dark:text-slate-300">· <AgentStateText state={r.status.agent_state} /></span>
+                      </>
+                    ) : (
+                      <span className="font-sans text-slate-600 dark:text-slate-300">{t("Not linked")}</span>
+                    )}
+                  </td>
                   <td className="px-3 py-2">{r.active ? `✓ ${t("Active")}` : `– ${t("Inactive")}`}</td>
                   <td className="px-3 py-2">{r.active ? <StatusBadge state={r.status.state} /> : <span aria-hidden>–</span>}</td>
                   <td className="px-3 py-2">
                     {r.needs_review ? (
-                      <span className="inline-flex rounded-full bg-amber-300 px-2.5 py-0.5 text-xs font-bold text-amber-950">⚑ {t("Review")}</span>
+                      <span className="inline-flex rounded-full bg-amber-300 px-2.5 py-0.5 text-xs font-bold text-amber-950">⚑ {t("New – please check")}</span>
                     ) : null}
                   </td>
                   <td className="whitespace-nowrap px-3 py-2 text-right">
                     <button
                       type="button"
                       className="btn-secondary mr-2"
-                      aria-label={t("Edit {{room}}", { room: r.room_name })}
+                      aria-label={t("Edit {{room}}", { room: displayName(r) })}
                       onClick={() => { setMessage(""); setEditing(r.id); }}
                     >
                       {t("Edit")}
@@ -131,7 +144,7 @@ export function RecordersAdmin() {
                     <button
                       type="button"
                       className="btn-secondary"
-                      aria-label={`${r.active ? t("Deactivate") : t("Activate")}: ${r.room_name}`}
+                      aria-label={`${r.active ? t("Deactivate") : t("Activate")}: ${displayName(r)}`}
                       onClick={() => void toggleActive(r)}
                     >
                       {r.active ? t("Deactivate") : t("Activate")}
@@ -141,7 +154,7 @@ export function RecordersAdmin() {
               ))}
               {!recorders.length ? (
                 <tr>
-                  <td colSpan={6} className="px-3 py-4 text-slate-600 dark:text-slate-300">{t("No recorders yet.")}</td>
+                  <td colSpan={7} className="px-3 py-4 text-slate-600 dark:text-slate-300">{t("No recorders yet.")}</td>
                 </tr>
               ) : null}
             </tbody>
@@ -164,6 +177,7 @@ function RecorderForm({
   const { t } = useTranslation();
   const [room, setRoom] = useState(recorder?.room_name ?? "");
   const [stream, setStream] = useState(recorder?.stream_name ?? "");
+  const [agent, setAgent] = useState(recorder?.agent_id ?? "");
   const [active, setActive] = useState(recorder?.active ?? true);
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<FormErrors>(NO_ERRORS);
@@ -174,7 +188,8 @@ function RecorderForm({
     e.preventDefault();
     setSaving(true);
     setErrors(NO_ERRORS);
-    const data = { room_name: room.trim(), stream_name: stream.trim(), active };
+    // Saving counts as the review; "" unlinks the agent (server: "" -> null).
+    const data = { room_name: room.trim(), stream_name: stream.trim(), agent_id: agent.trim() || null, active, needs_review: false };
     try {
       if (recorder) await api.recorders.update(recorder.id, data);
       else await api.recorders.create(data);
@@ -192,10 +207,13 @@ function RecorderForm({
       </h3>
       <FormErrorSummary messages={errors.general} />
       <Field label={t("Room name")} errors={errors.fields.room_name}>
-        {(p) => <input {...p} ref={first} required value={room} onChange={(e) => setRoom(e.target.value)} className={inputCls} />}
+        {(p) => <input {...p} ref={first} value={room} onChange={(e) => setRoom(e.target.value)} className={inputCls} />}
       </Field>
       <Field label={t("Stream name")} errors={errors.fields.stream_name} hint={t("Case-sensitive, e.g. cap-90-R12")}>
         {(p) => <input {...p} required value={stream} onChange={(e) => setStream(e.target.value)} className={`${inputCls} font-mono`} autoCapitalize="off" autoCorrect="off" spellCheck={false} />}
+      </Field>
+      <Field label={t("Opencast agent")} errors={errors.fields.agent_id} hint={t("Opencast capture agent; leave empty if not linked.")}>
+        {(p) => <input {...p} value={agent} onChange={(e) => setAgent(e.target.value)} className={`${inputCls} font-mono`} autoCapitalize="off" autoCorrect="off" spellCheck={false} />}
       </Field>
       <label className="flex items-center gap-2 text-sm font-medium">
         <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} className="h-4 w-4" />

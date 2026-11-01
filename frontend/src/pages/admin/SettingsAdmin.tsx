@@ -8,7 +8,7 @@ import { ApiError, api } from "../../api";
 import { useAppContext } from "../../appContext";
 import { Field, FormErrorSummary, inputCls } from "../../components/FormParts";
 
-const FIELDS = ["url_template", "stale_factor"];
+const FIELDS = ["url_template", "stale_factor", "missing_grace_minutes"];
 const NO_ERRORS: FormErrors = { fields: {}, general: [] };
 
 export function SettingsAdmin() {
@@ -16,8 +16,7 @@ export function SettingsAdmin() {
   const refreshWhoami = useAppContext()?.refreshWhoami;
   const [template, setTemplate] = useState("");
   const [stale, setStale] = useState("3");
-  // Not editable yet (UI follows in a later task); sent back unchanged.
-  const [grace, setGrace] = useState(10);
+  const [grace, setGrace] = useState("10");
   const [firstStream, setFirstStream] = useState<string | undefined>();
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState("");
@@ -33,7 +32,7 @@ export function SettingsAdmin() {
         // Initial load only; the effect never reruns over unsaved edits.
         setTemplate(s.url_template);
         setStale(String(s.stale_factor));
-        setGrace(s.missing_grace_minutes);
+        setGrace(String(s.missing_grace_minutes));
         setFirstStream(recs[0]?.stream_name);
         setLoaded(true);
       })
@@ -54,11 +53,11 @@ export function SettingsAdmin() {
     setErrors(NO_ERRORS);
     try {
       const result = await api.settings.put({ url_template: template.trim(), stale_factor: Number(stale),
-        missing_grace_minutes: grace,
+        missing_grace_minutes: Number(grace),
       });
       setTemplate(result.url_template);
       setStale(String(result.stale_factor));
-      setGrace(result.missing_grace_minutes);
+      setGrace(String(result.missing_grace_minutes));
       setSaved(true);
     } catch (err) {
       setErrors(splitErrors(err, FIELDS));
@@ -100,6 +99,21 @@ export function SettingsAdmin() {
               step={1}
               value={stale}
               onChange={(e) => { setStale(e.target.value); setSaved(false); }}
+              className={`${inputCls} max-w-32`}
+            />
+          )}
+        </Field>
+        <Field label={t("Grace period before “stream missing” (minutes)")} errors={errors.fields.missing_grace_minutes}>
+          {(p) => (
+            <input
+              {...p}
+              required
+              type="number"
+              min={0}
+              max={30}
+              step={1}
+              value={grace}
+              onChange={(e) => { setGrace(e.target.value); setSaved(false); }}
               className={`${inputCls} max-w-32`}
             />
           )}

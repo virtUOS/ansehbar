@@ -192,3 +192,21 @@ export function newlyMissing(prev: ReadonlySet<number> | null, list: Recorder[])
 export function quietWithoutRecording(list: Recorder[]): Recorder[] {
   return quietToday(list).filter((r) => presentation(r) !== "unknown");
 }
+
+export const AGENT_STATES = ["idle", "capturing", "uploading", "offline", "unknown"] as const;
+export type AgentState = (typeof AGENT_STATES)[number];
+
+/** The agent state if it has a translation; null for "" (never seen) or any
+ *  other value (shown raw). Case-sensitive, never normalised. */
+export function knownAgentState(state: string): AgentState | null {
+  return (AGENT_STATES as readonly string[]).includes(state) ? (state as AgentState) : null;
+}
+
+/** Admin list order: "new – please check" first, then by display name. */
+export function sortForAdmin(list: Recorder[]): Recorder[] {
+  return [...list].sort((a, b) => {
+    const d = Number(b.needs_review) - Number(a.needs_review);
+    if (d !== 0) return d;
+    return displayName(a).localeCompare(displayName(b), "de", { numeric: true });
+  });
+}

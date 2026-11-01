@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 import type { EventBrief, MonitorHealth, Recorder } from "./api";
 import {
   displayName,
+  knownAgentState,
+  sortForAdmin,
   emptyNowMessage,
   filterOverview,
   formatDuration,
@@ -286,5 +288,28 @@ describe("Stream-missing helpers", () => {
     const list = [rec(1, "A"), rec(2, "B", "unknown")];
     expect(quietToday(list).map((r) => r.id)).toEqual([1, 2]);
     expect(quietWithoutRecording(list).map((r) => r.id)).toEqual([1]);
+  });
+});
+
+describe("knownAgentState", () => {
+  it("knows the translated states only", () => {
+    expect(knownAgentState("capturing")).toBe("capturing");
+    expect(knownAgentState("")).toBeNull();
+    expect(knownAgentState("Idle")).toBeNull();
+    expect(knownAgentState("shutting_down")).toBeNull();
+  });
+});
+
+describe("sortForAdmin", () => {
+  it("puts needs_review first, then sorts by display name", () => {
+    const b = rec(1, "B room");
+    const a = rec(2, "A room");
+    const n = { ...rec(3, "Z room"), needs_review: true };
+    expect(sortForAdmin([b, a, n]).map((r) => r.id)).toEqual([3, 2, 1]);
+  });
+  it("does not mutate the input", () => {
+    const list = [rec(1, "B"), rec(2, "A")];
+    sortForAdmin(list);
+    expect(list.map((r) => r.id)).toEqual([1, 2]);
   });
 });
