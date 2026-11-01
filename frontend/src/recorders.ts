@@ -174,6 +174,12 @@ export function opencastStale(health: MonitorHealth): boolean {
   return age > 3 * oc.sync_seconds * 1000;
 }
 
+/** false only when fresh Opencast data says nothing is scheduled today for
+ *  this recorder; without Opencast or with stale sync data no claim is made. */
+export function recordingScheduled(r: Recorder, opencastEnabled: boolean, opencastStale: boolean): boolean {
+  return !(opencastEnabled && !opencastStale && !r.current_event && !r.next_event);
+}
+
 /** Whole minutes since the stream went missing, never negative. */
 export function missingMinutes(sinceIso: string, now: Date): number {
   return Math.max(0, Math.floor((now.getTime() - new Date(sinceIso).getTime()) / 60000));

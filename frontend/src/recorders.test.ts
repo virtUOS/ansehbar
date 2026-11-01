@@ -20,6 +20,7 @@ import {
   outsideNow,
   presentation,
   quietToday,
+  recordingScheduled,
   roomNameMissing,
   sortForOverview,
   stateTransition,
@@ -268,6 +269,18 @@ describe("opencastStale", () => {
   it("is stale beyond three sync intervals", () => {
     expect(opencastStale(h(true, "2026-01-01T11:57:00Z"))).toBe(false);
     expect(opencastStale(h(true, "2026-01-01T11:56:59Z"))).toBe(true);
+  });
+});
+
+describe("recordingScheduled", () => {
+  it("claims 'nothing scheduled' only with fresh Opencast data", () => {
+    const r = rec(1, "A");
+    const e = ev("T", "2026-01-01T13:00:00Z");
+    expect(recordingScheduled(r, true, false)).toBe(false);
+    expect(recordingScheduled(r, true, true)).toBe(true);
+    expect(recordingScheduled(r, false, false)).toBe(true);
+    expect(recordingScheduled({ ...r, next_event: e }, true, false)).toBe(true);
+    expect(recordingScheduled({ ...r, current_event: e }, true, false)).toBe(true);
   });
 });
 

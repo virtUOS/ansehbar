@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { Volume2, VolumeX } from "lucide-react";
 import type { Recorder } from "../api";
-import { displayName, formatClock, presentation } from "../recorders";
+import { displayName, formatClock, presentation, recordingScheduled } from "../recorders";
 import { RoomName } from "./RoomName";
 import { HlsPlayer } from "../media/HlsPlayer";
 import { LevelMeter } from "../media/LevelMeter";
@@ -18,9 +18,11 @@ import { PlaybackOverlay, usePlayback } from "./PlaybackOverlay";
 function RecorderTileInner({
   recorder,
   opencast = false,
+  opencastStale = false,
 }: {
   recorder: Recorder;
   opencast?: boolean;
+  opencastStale?: boolean;
 }) {
   const { t, i18n } = useTranslation();
   const { unlocked, unlock, audibleId, setAudible } = useAudio();
@@ -78,9 +80,7 @@ function RecorderTileInner({
           <StreamPlaceholder
             kind={shown}
             missingSince={recorder.missing_since}
-            scheduled={
-              !(opencast && !recorder.current_event && !recorder.next_event)
-            }
+            scheduled={recordingScheduled(recorder, opencast, opencastStale)}
           />
         )}
         <div className="absolute left-2 top-2 z-10">

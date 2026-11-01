@@ -2,7 +2,7 @@
 // Copyright 2026 Universität Osnabrück (virtUOS)
 
 /** Pure helpers for the admin pages. */
-import { ApiError, type UserHit } from "./api";
+import { ApiError, type Recorder, type UserHit } from "./api";
 
 export interface FormErrors {
   fields: Record<string, string[]>;
@@ -33,4 +33,10 @@ export function previewUrl(template: string, streamName: string | undefined): st
 /** What picking a search hit puts into the identifier field. */
 export function identifierFor(hit: UserHit): string {
   return hit.email || hit.username;
+}
+
+/** PATCH body for the Activate/Deactivate button. Deactivating is an explicit
+ *  review decision, so it also clears "new – please check". */
+export function toggleActivePayload(r: Pick<Recorder, "active">): Partial<Recorder> {
+  return r.active ? { active: false, needs_review: false } : { active: true };
 }

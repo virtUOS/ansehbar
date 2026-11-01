@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import { ApiError } from "./api";
-import { identifierFor, previewUrl, splitErrors } from "./admin";
+import { identifierFor, previewUrl, splitErrors, toggleActivePayload } from "./admin";
 
 describe("splitErrors", () => {
   it("maps known fields and routes the rest to general", () => {
@@ -36,5 +36,14 @@ describe("identifierFor", () => {
   it("prefers email", () => {
     expect(identifierFor({ id: 1, username: "u", email: "u@x.de", display_name: "U" })).toBe("u@x.de");
     expect(identifierFor({ id: 1, username: "u", email: "", display_name: "U" })).toBe("u");
+  });
+});
+
+describe("toggleActivePayload", () => {
+  it("deactivating also marks the recorder as checked", () => {
+    expect(toggleActivePayload({ active: true })).toEqual({ active: false, needs_review: false });
+  });
+  it("activating changes only active", () => {
+    expect(toggleActivePayload({ active: false })).toEqual({ active: true });
   });
 });

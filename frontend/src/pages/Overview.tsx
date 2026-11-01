@@ -222,7 +222,7 @@ export function Overview() {
           }}
         >
           {shown.map((r) => (
-            <RecorderTile key={r.id} recorder={r} opencast={opencastEnabled} />
+            <RecorderTile key={r.id} recorder={r} opencast={opencastEnabled} opencastStale={opencastStale} />
           ))}
         </div>
       ) : (

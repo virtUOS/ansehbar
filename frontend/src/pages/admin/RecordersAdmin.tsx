@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { splitErrors, type FormErrors } from "../../admin";
+import { splitErrors, toggleActivePayload, type FormErrors } from "../../admin";
 import { ApiError, api, type Recorder } from "../../api";
 import { useAppContext } from "../../appContext";
 import { Field, FormErrorSummary, inputCls } from "../../components/FormParts";
@@ -48,7 +48,7 @@ export function RecordersAdmin() {
   const toggleActive = async (r: Recorder) => {
     setRowError("");
     try {
-      await api.recorders.update(r.id, { active: !r.active });
+      await api.recorders.update(r.id, toggleActivePayload(r));
       setMessage(t("Saved."));
       await reload();
     } catch (e) {

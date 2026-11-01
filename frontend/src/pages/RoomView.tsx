@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Maximize, Volume2, VolumeX } from "lucide-react";
 import { useRecorders } from "../useRecorders";
-import { displayName, formatClock, formatDuration, presentation, stateTransition } from "../recorders";
+import { displayName, formatClock, formatDuration, presentation, recordingScheduled, stateTransition } from "../recorders";
 import { RoomName } from "../components/RoomName";
 import { AgentStateText } from "../components/AgentStateText";
 import { StatusBadge } from "../components/StatusBadge";
@@ -45,7 +45,7 @@ export function RoomView() {
   const navigate = useNavigate();
   const params = useParams();
   const id = Number(params.id);
-  const { recorders, error, loading, lastUpdated, monitorStale, monitorLastCheck, opencastEnabled: opencast } = useRecorders();
+  const { recorders, error, loading, lastUpdated, monitorStale, monitorLastCheck, opencastEnabled: opencast, opencastStale } = useRecorders();
   const { unlocked, unlock, audibleId, setAudible } = useAudio();
   const container = useRef<HTMLDivElement>(null);
   // Each announcement gets a new seq, so the live region node is recreated and
@@ -181,7 +181,7 @@ export function RoomView() {
           <ArrowLeft aria-hidden className="h-5 w-5" />
           {t("Back")}
         </Link>
-        <h1 className="min-w-0 flex-1 truncate text-2xl font-bold">
+        <h1 className="min-w-0 flex-1 basis-56 break-words text-2xl font-bold">
           <RoomName recorder={recorder} />
         </h1>
         <label className="flex items-center">
@@ -225,7 +225,7 @@ export function RoomView() {
           <StreamPlaceholder
             kind={shown}
             missingSince={recorder.missing_since}
-            scheduled={!(opencast && !recorder.current_event && !recorder.next_event)}
+            scheduled={recordingScheduled(recorder, opencast, opencastStale)}
           >
             {recorder.status.checked_at && shown !== "inactive" ? (
               <span className="rounded bg-white/80 px-2 py-1 text-xs dark:bg-slate-900/80">
@@ -259,15 +259,16 @@ export function RoomView() {
         </p>
       ) : null}
 
-      <p className="truncate text-sm text-slate-600 dark:text-slate-300">
+      <p className="break-words text-sm text-slate-600 dark:text-slate-300">
         <span className="font-mono">{recorder.stream_name}</span>
-        {" · "}
-        {recorder.agent_id ? (
+        {!opencast ? null : recorder.agent_id ? (
           <>
+            {" · "}
             {t("Opencast agent")}: <span className="font-mono">{recorder.agent_id}</span> · <AgentStateText state={recorder.status.agent_state} />
           </>
         ) : (
           <>
+            {" · "}
             {t("Opencast agent")}: {t("Not linked")}
           </>
         )}
