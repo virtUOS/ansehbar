@@ -42,9 +42,15 @@ docker compose exec backend sh -c "pip install -q ruff && ruff check ."  # Lint 
 
 ## Workflow
 
-- Branch + PR/MR, nie direkt auf `main`; der Mensch merged.
-- Release = Git-Tag `vX.Y.Z`;
-  Deployment über `docker-compose.prod.yml` (siehe README).
+- Repo: `github.com/virtUOS/ansehbar` (öffentlich). Keine Infrastruktur-Details
+  einer Einrichtung committen (Hostnamen, Rekorder-/Raumnamen) — die gehören in
+  die ungetrackte Standortkonfiguration (`*.local.json`, siehe docs/KONFIGURATION.md).
+- Vereinfachter Gitflow: `main` ist geschützt (kein direkter Push, kein
+  Force-Push); Arbeit auf `feature/<slug>`, `fix/<slug>`, `chore/<slug>`,
+  `docs/<slug>`; PR mit grüner CI (`.github/workflows/ci.yml`); der Mensch merged.
+- Release = Git-Tag `vX.Y.Z` → `.github/workflows/release.yml` baut das Image
+  nach `ghcr.io/virtuos/ansehbar`; Deployment über `docker-compose.prod.yml`
+  (siehe README, docs/KONFIGURATION.md).
 - Gerüst-Updates: `pipx run copier update --vcs-ref HEAD` (Identitäts- und
   Inhaltsdateien sind davon ausgenommen, siehe README).
 
