@@ -141,7 +141,7 @@ Umgebungsvariablen (siehe `.env.prod.example`).
 | `ANSEHBAR_BOOTSTRAP_USERS` | Kommagetrennte Benutzernamen/E-Mails mit Zugang ohne Gruppe (erste Einrichtung); weitere Personen lädt die Verwaltung unter „Einladungen“ ein | leer |
 | `ANSEHBAR_ACCESS_CONTACT` | Kontakt (z. B. Mailadresse), der Personen ohne Zugang angezeigt wird | leer |
 | `MONITOR_INTERVAL_SECONDS` | Sekunden zwischen zwei Prüfläufen des Monitors | `10` |
-| `OPENCAST_URL` | Basisadresse von Opencast; leer = Opencast-Anbindung aus (siehe [Konfigurationsanleitung](docs/KONFIGURATION.md#5-opencast-anbinden-optional)) | leer |
+| `OPENCAST_URL` | Basisadresse von Opencast (nur `https://`, außer mit `DJANGO_DEBUG=1`); leer = Opencast-Anbindung aus (siehe [Konfigurationsanleitung](docs/KONFIGURATION.md#5-opencast-anbinden-optional)) | leer |
 | `OPENCAST_USER` | Benutzer (nur Leserechte) für die Opencast External API | leer |
 | `OPENCAST_PASSWORD` | Passwort dieses Benutzers | leer |
 | `OPENCAST_SYNC_SECONDS` | Sekunden zwischen zwei Abgleichen mit Opencast | `60` |

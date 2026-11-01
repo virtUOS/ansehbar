@@ -244,10 +244,10 @@ funktioniert wie zuvor.
 
 | Variable | Bedeutung | Standard |
 | --- | --- | --- |
-| `OPENCAST_URL` | Basisadresse von Opencast, z. B. `https://opencast.example.org`; leer = aus | leer |
+| `OPENCAST_URL` | Basisadresse von Opencast, z. B. `https://opencast.example.org`; leer = aus. Nur `https://`: bei `http://` (außer mit `DJANGO_DEBUG=1`) gleicht der Monitor nicht ab und meldet einen ERROR im Log, damit die Zugangsdaten nie unverschlüsselt übertragen werden | leer |
 | `OPENCAST_USER` | Benutzer für die External API | leer |
 | `OPENCAST_PASSWORD` | Passwort dieses Benutzers | leer |
-| `OPENCAST_SYNC_SECONDS` | Sekunden zwischen zwei Abgleichen (der Monitor gleicht mit ab) | `60` |
+| `OPENCAST_SYNC_SECONDS` | Sekunden zwischen zwei Abgleichen (der Monitor gleicht in einem eigenen Thread ab; ein langsames Opencast verzögert die Stream-Prüfung nicht) | `60` |
 | `OPENCAST_LOOKAHEAD_DAYS` | Wie viele Tage Terminplan im Voraus gelesen werden | `7` |
 
 Nach Änderungen an der `.env` die Container neu erzeugen
@@ -284,8 +284,15 @@ die geplanten Termine.
 - **Abweichender Name:** Die Agent-ID als `agent_id` beim Rekorder in der
   `site.local.json` eintragen oder unter **Verwaltung → Rekorder** pflegen.
 - **Neue Agents:** Ein Agent ohne passenden Rekorder wird als Rekorder mit
-  leerem Raumnamen angelegt und erscheint als „Neu – bitte prüfen“. Raumname
-  vergeben oder den Rekorder deaktivieren, dann ist er geprüft.
+  leerem Raumnamen angelegt und erscheint als „Neu – bitte prüfen“. Speichern
+  im Bearbeiten-Formular der Verwaltung oder Deaktivieren markiert ihn als
+  geprüft.
+- **Doppelter Rekorder:** Heißt der Agent anders als der Stream des
+  vorhandenen Rekorders, legt der Abgleich zunächst einen zweiten Rekorder
+  (Stream-Name = Agent-ID) an. Dann zuerst beim automatisch angelegten
+  Rekorder `agent_id` leeren und ihn deaktivieren, danach die Agent-ID beim
+  richtigen Rekorder eintragen (eine Agent-ID kann nur an einem Rekorder
+  stehen).
 
 Zum Ausprobieren eignet sich der öffentliche Opencast-Testserver; die
 Demo-Zugangsdaten stehen auf seiner Startseite. Nur in die lokale `.env`
@@ -318,9 +325,9 @@ eintragen, nie ins Repository.
 | Kachel zeigt „live“, aber das Video bleibt schwarz oder „Wiedergabe gestört“ | Meist fehlende CORS-Header am Streaming-Server, oder das Gerät erreicht den Streaming-Server nicht. Browser-Konsole prüfen. |
 | Banner „Monitor liefert keine Daten seit …“ | Der Container `monitor` läuft nicht oder hängt: `docker compose -f docker-compose.prod.yml ps` und `logs monitor`. Ohne Monitor bleibt der zuletzt bekannte Status stehen, das Banner warnt davor. |
 | Pegelanzeige bleibt grau | Der Browser gibt Audio erst nach einem Klick frei: „Pegel & Ton aktivieren“ drücken. Auf Geräten, die HLS nativ abspielen, steht „Pegel nicht verfügbar“. |
-| Banner „Opencast-Daten veraltet“ | Der letzte erfolgreiche Abgleich ist länger als drei Intervalle her. `docker compose -f docker-compose.prod.yml logs monitor` zeigt die Fehlerart (`opencast=error`): Adresse, Zugangsdaten und Erreichbarkeit prüfen, mit dem `curl` aus Abschnitt 5 gegenprobieren. Die Stream-Prüfung läuft unabhängig davon weiter. |
+| Banner „Opencast-Daten veraltet“ | Der letzte erfolgreiche Abgleich ist länger als drei Abgleich-Intervalle (`OPENCAST_SYNC_SECONDS`) her, oder es gab noch gar keinen erfolgreichen Abgleich (etwa kurz nach dem Start). Solange das Banner steht, zeigen Kachel und Raumansicht nicht „Kein Stream – keine Aufzeichnung geplant“. `docker compose -f docker-compose.prod.yml logs monitor` zeigt die Fehlerart (`opencast=error`): Adresse, Zugangsdaten und Erreichbarkeit prüfen, mit dem `curl` aus Abschnitt 5 gegenprobieren. Die Stream-Prüfung läuft unabhängig davon weiter. |
 | Termine fehlen, obwohl in Opencast geplant | Meist darf das Konto die Events nicht lesen: Rolle in den Event-ACLs bzw. ACL-Vorlagen ergänzen. Außerdem liegt der Termin vielleicht außerhalb von `OPENCAST_LOOKAHEAD_DAYS`, oder der Agent ist keinem Rekorder zugeordnet. |
-| Agent wird übersprungen | Der Log des Monitors nennt per WARNING den Grund: Die Agent-ID ist kein gültiger Stream-Name (erlaubt sind Buchstaben, Ziffern, `.`, `_`, `-`), oder der Stream-Name gehört schon zu einem anderen Agent. `agent_id` beim passenden Rekorder setzen. |
+| Agent wird übersprungen | Der Log des Monitors nennt per WARNING den Grund: Die Agent-ID ist kein gültiger Stream-Name (erlaubt sind Buchstaben, Ziffern, `.`, `_`, `-`), oder zu lang (mehr als 100 Zeichen), oder der Stream-Name gehört schon zu einem anderen Agent. `agent_id` beim passenden Rekorder setzen. |
 
 ## 8. Aktualisieren
 
