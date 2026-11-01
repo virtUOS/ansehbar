@@ -1,0 +1,6 @@
+[
+  {"identifier": "evt-0001", "title": "Lecture A", "series": "Series One", "is_part_of": "ID-series-one", "location": "cap-90-R12", "status": "EVENTS.EVENTS.STATUS.SCHEDULED", "start": "2026-11-01T20:00:00Z", "duration": 3600000, "scheduling": {"start": "2026-11-01T20:00:00Z", "end": "2026-11-01T21:00:00Z", "agent_id": "cap-90-R12", "inputs": ["Channel A"]}},
+  {"identifier": "evt-0002", "title": "Lecture B", "series": "Series Two", "is_part_of": "ID-series-two", "location": "rec-hall", "status": "EVENTS.EVENTS.STATUS.SCHEDULED", "start": "2026-11-01T09:00:00Z", "duration": 5400000, "scheduling": {"start": "2026-11-01T09:00:00+00:00", "end": "2026-11-01T10:30:00Z", "agent_id": "rec-hall", "inputs": ["Channel A"]}},
+  {"identifier": "evt-0003", "title": "Unscheduled", "series": "Series One", "status": "EVENTS.EVENTS.STATUS.PROCESSED", "start": "2026-11-01T12:00:00Z", "duration": 1000, "scheduling": {}},
+  {"identifier": "evt-0004", "title": "No end", "series": "Series One", "location": "rec-hall", "status": "EVENTS.EVENTS.STATUS.SCHEDULED", "start": "2026-11-01T14:00:00Z", "scheduling": {"start": "2026-11-01T14:00:00Z", "agent_id": "rec-hall", "inputs": []}}
+]
