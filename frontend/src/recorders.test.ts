@@ -59,11 +59,14 @@ describe("sortForOverview", () => {
       rec(2, "40/R05"),
       rec(3, "90/R12", "live"),
       rec(4, "40/R22"),
+      rec(5, "40/128"),
     ];
+    // Digits sort before letters; numbers compare numerically.
     expect(sortForOverview(list).map((r) => r.room_name)).toEqual([
       "90/R12",
-      "40/R22",
+      "40/128",
       "40/R05",
+      "40/R22",
       "70/R01",
     ]);
   });
@@ -81,18 +84,18 @@ describe("formatDuration", () => {
 
 describe("filterOverview", () => {
   const list = [
-    { ...rec(1, "40/R05", "live"), stream_name: "cap-90-R12" },
-    { ...rec(2, "40/R06", "offline"), stream_name: "cap-90-R13" },
-    { ...rec(3, "20/R17", "live"), stream_name: "rec-40/e" },
+    { ...rec(1, "40/R05", "live"), stream_name: "cap-90-r12" },
+    { ...rec(2, "40/R06", "offline"), stream_name: "cap-90-r13" },
+    { ...rec(3, "20/R17", "live"), stream_name: "rec-40/r17" },
   ];
   it("now mode keeps only live recorders matching room or stream, case-insensitively", () => {
-    expect(filterOverview(list, "now", "15/e").map((r) => r.id)).toEqual([1, 3]);
+    expect(filterOverview(list, "now", "40/r").map((r) => r.id)).toEqual([1, 3]);
   });
   it("all mode includes non-live recorders", () => {
-    expect(filterOverview(list, "all", "15/e").map((r) => r.id)).toEqual([1, 2, 3]);
+    expect(filterOverview(list, "all", "40/r").map((r) => r.id)).toEqual([1, 2, 3]);
   });
   it("matches stream names and empty query matches everything", () => {
-    expect(filterOverview(list, "all", "E34").map((r) => r.id)).toEqual([2]);
+    expect(filterOverview(list, "all", "R13").map((r) => r.id)).toEqual([2]);
     expect(filterOverview(list, "now", "  ").map((r) => r.id)).toEqual([1, 3]);
   });
 });
