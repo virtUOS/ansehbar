@@ -8,14 +8,17 @@ from datetime import datetime, timezone
 from io import StringIO
 from pathlib import Path
 from unittest import mock
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.management import CommandError, call_command
+from django.db import connection
 from django.test import TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 
 from opencast.client import OpencastError
-from opencast.models import OpencastSyncState
+from opencast.models import OpencastSyncState, ScheduledEvent
 from recorders.models import MonitorSettings, Recorder, RecorderStatus
 from recorders.monitor import run_cycle
 from streams.sources import Probe
@@ -72,7 +75,14 @@ class RecorderApiTests(TestCase):
             "https://streaming.example.org/live/rec-a/playlist.m3u8",
         )
         self.assertEqual(
-            row["status"], {"state": "unknown", "live_since": None, "checked_at": None}
+            row["status"],
+            {
+                "state": "unknown",
+                "live_since": None,
+                "checked_at": None,
+                "agent_state": "",
+                "agent_updated_at": None,
+            },
         )
 
     def test_active_filter(self):
@@ -563,3 +573,213 @@ class LoadSiteConfigTests(TestCase):
         self.assertIn("created: 4", out.getvalue())
         self.assertFalse(Recorder.objects.get(stream_name="rec-20-hall").active)
         self.assertIn("unchanged: 4", self.run_cmd(json.loads(example.read_text())))
+
+
+BERLIN = ZoneInfo("Europe/Berlin")
+
+
+def berlin(hour, minute=0, day=10):
+    """Local time on 2026-11-<day> (CET, UTC+1)."""
+    return datetime(2026, 11, day, hour, minute, tzinfo=BERLIN)
+
+
+class RecorderEventApiTests(TestCase):
+    def setUp(self):
+        member = User.objects.create_user(username="member", is_superuser=True)
+        self.client.force_login(member)
+        self.recorder = Recorder.objects.create(
+            room_name="Hall", stream_name="rec-hall", agent_id="rec-hall"
+        )
+        self.n = 0
+
+    def event(self, start, end, title="T", recorder=None):
+        self.n += 1
+        return ScheduledEvent.objects.create(
+            identifier=f"ev-{self.n}",
+            recorder=recorder or self.recorder,
+            title=title,
+            series="S",
+            start=start,
+            end=end,
+        )
+
+    def get(self, now, recorder=None):
+        with mock.patch("django.utils.timezone.now", return_value=now):
+            response = self.client.get(f"/api/recorders/{(recorder or self.recorder).pk}/")
+        self.assertEqual(response.status_code, 200, response.content)
+        return response.json()
+
+    def set_status(self, state, offline_since=None):
+        RecorderStatus.objects.filter(recorder=self.recorder).update(
+            state=state, offline_since=offline_since
+        )
+
+    def test_current_and_next_event(self):
+        self.event(berlin(10), berlin(12), "first")
+        self.event(berlin(14), berlin(16), "second")
+        body = self.get(berlin(11))
+        self.assertEqual(body["current_event"]["title"], "first")
+        self.assertEqual(body["current_event"]["series"], "S")
+        self.assertEqual(body["next_event"]["title"], "second")
+        self.assertEqual(
+            datetime.fromisoformat(body["next_event"]["start"]), berlin(14)
+        )
+
+    def test_no_events_gives_null(self):
+        body = self.get(berlin(11))
+        self.assertIsNone(body["current_event"])
+        self.assertIsNone(body["next_event"])
+        self.assertIsNone(body["missing_since"])
+
+    def test_next_event_only_today_local(self):
+        self.event(berlin(23, 30), berlin(23, 50), "late")
+        self.event(berlin(0, 30, day=11), berlin(1, 0, day=11), "tomorrow")
+        body = self.get(berlin(22))
+        self.assertEqual(body["next_event"]["title"], "late")
+        self.set_status("live")
+        ScheduledEvent.objects.filter(title="late").delete()
+        self.assertIsNone(self.get(berlin(22))["next_event"])
+
+    def test_overnight_event_is_current(self):
+        self.event(berlin(23), berlin(1, day=11), "night")
+        body = self.get(berlin(0, 30, day=11))
+        self.assertEqual(body["current_event"]["title"], "night")
+
+    def test_earliest_start_wins_when_overlapping(self):
+        self.event(berlin(10, 30), berlin(12), "later")
+        self.event(berlin(10), berlin(12), "earlier")
+        self.assertEqual(self.get(berlin(11))["current_event"]["title"], "earlier")
+
+    def test_event_end_is_exclusive(self):
+        self.event(berlin(10), berlin(12))
+        self.assertIsNone(self.get(berlin(12))["current_event"])
+
+    def test_missing_since_after_grace(self):
+        self.event(berlin(10), berlin(12))
+        self.set_status("offline")
+        self.assertIsNone(self.get(berlin(10, 2))["missing_since"])
+        body = self.get(berlin(10, 5))
+        self.assertEqual(
+            datetime.fromisoformat(body["missing_since"]), berlin(10, 3)
+        )
+
+    def test_missing_since_uses_offline_since_mid_event(self):
+        self.event(berlin(10), berlin(12))
+        self.set_status("offline", offline_since=berlin(10, 40))
+        body = self.get(berlin(11))
+        self.assertEqual(
+            datetime.fromisoformat(body["missing_since"]), berlin(10, 40)
+        )
+
+    def test_missing_since_respects_grace_setting(self):
+        MonitorSettings.objects.update_or_create(
+            pk=1, defaults={"missing_grace_minutes": 10}
+        )
+        self.event(berlin(10), berlin(12))
+        self.set_status("offline")
+        self.assertIsNone(self.get(berlin(10, 5))["missing_since"])
+        self.assertEqual(
+            datetime.fromisoformat(self.get(berlin(10, 10))["missing_since"]),
+            berlin(10, 10),
+        )
+
+    def test_unknown_during_event_is_never_missing(self):
+        self.event(berlin(10), berlin(12))
+        self.set_status("unknown")
+        self.assertIsNone(self.get(berlin(11))["missing_since"])
+
+    def test_live_is_never_missing(self):
+        self.event(berlin(10), berlin(12))
+        self.set_status("live")
+        self.assertIsNone(self.get(berlin(11))["missing_since"])
+
+    def test_offline_without_event_is_not_missing(self):
+        self.set_status("offline")
+        self.assertIsNone(self.get(berlin(11))["missing_since"])
+
+    def test_inactive_recorder_is_never_missing(self):
+        self.event(berlin(10), berlin(12))
+        self.set_status("offline")
+        Recorder.objects.filter(pk=self.recorder.pk).update(active=False)
+        self.assertIsNone(self.get(berlin(11))["missing_since"])
+
+    def test_status_exposes_agent_fields(self):
+        RecorderStatus.objects.filter(recorder=self.recorder).update(
+            agent_state="capturing", agent_updated_at=berlin(9)
+        )
+        status = self.get(berlin(11))["status"]
+        self.assertEqual(status["agent_state"], "capturing")
+        self.assertEqual(datetime.fromisoformat(status["agent_updated_at"]), berlin(9))
+
+    def test_agent_id_blank_becomes_null_and_unique_enforced(self):
+        def post(stream, agent_id):
+            return self.client.post(
+                "/api/recorders/",
+                {"room_name": "", "stream_name": stream, "agent_id": agent_id},
+                content_type="application/json",
+            )
+
+        first = post("s-1", "")
+        self.assertEqual(first.status_code, 201, first.content)
+        self.assertIsNone(first.json()["agent_id"])
+        self.assertEqual(first.json()["room_name"], "")
+        second = post("s-2", "")
+        self.assertEqual(second.status_code, 201, second.content)
+        self.assertIsNone(Recorder.objects.get(stream_name="s-2").agent_id)
+        dup = post("s-3", "rec-hall")
+        self.assertEqual(dup.status_code, 400)
+        self.assertIn("agent_id", dup.json())
+
+    def test_agent_id_and_needs_review_writable(self):
+        response = self.client.patch(
+            f"/api/recorders/{self.recorder.pk}/",
+            {"agent_id": "cap-90-R12", "needs_review": True},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.recorder.refresh_from_db()
+        self.assertEqual(self.recorder.agent_id, "cap-90-R12")
+        self.assertTrue(self.recorder.needs_review)
+
+    def test_list_query_count_constant(self):
+        def make(count):
+            for i in range(count):
+                rec = Recorder.objects.create(
+                    room_name=f"R{count}-{i}", stream_name=f"s-{count}-{i}"
+                )
+                self.event(berlin(10), berlin(12), recorder=rec)
+                self.event(berlin(14), berlin(16), recorder=rec)
+
+        def count_queries():
+            with mock.patch("django.utils.timezone.now", return_value=berlin(11)):
+                with CaptureQueriesContext(connection) as ctx:
+                    response = self.client.get("/api/recorders/")
+            self.assertEqual(response.status_code, 200)
+            return len(ctx), response.json()
+
+        make(3)
+        self.client.get("/api/recorders/")  # warm up: creates the settings row
+        small, body = count_queries()
+        self.assertEqual(len(body), 4)
+        self.assertEqual(body[1]["current_event"]["title"], "T")
+        make(7)
+        large, body = count_queries()
+        self.assertEqual(len(body), 11)
+        self.assertEqual(small, large)
+
+    def test_settings_grace_bounds(self):
+        for value, code in [(31, 400), (-1, 400), (30, 200), (0, 200)]:
+            with self.subTest(value=value):
+                response = self.client.put(
+                    "/api/settings/monitor/",
+                    {
+                        "url_template": MonitorSettings.load().url_template,
+                        "stale_factor": 3,
+                        "missing_grace_minutes": value,
+                    },
+                    content_type="application/json",
+                )
+                self.assertEqual(response.status_code, code, response.content)
+        self.assertEqual(
+            self.client.get("/api/settings/monitor/").json()["missing_grace_minutes"], 0
+        )
