@@ -4,6 +4,7 @@
 """Tests for recorders and monitor settings."""
 import json
 import tempfile
+import threading
 from datetime import datetime, timezone
 from io import StringIO
 from pathlib import Path
@@ -199,6 +200,7 @@ class MonitorSettingsApiTests(TestCase):
         )
         self.assertEqual(MonitorSettings.load().stale_factor, 10)
 
+    @override_settings(OPENCAST_URL="")  # independent of the local .env
     def test_health_reports_opencast_block(self):
         body = self.client.get("/api/monitor/health/").json()
         self.assertEqual(body["opencast"]["enabled"], False)
@@ -306,7 +308,7 @@ class RunCycleTests(TestCase):
     def test_run_cycle_sets_inactive_unknown_and_skips_probe(self):
         r = Recorder.objects.create(room_name="A", stream_name="rec-a", active=False)
         RecorderStatus.objects.filter(recorder=r).update(
-            state="live", live_since=NOW
+            state="live", live_since=NOW, offline_since=NOW
         )
         source = FakeSource({})
         self.assertEqual(run_cycle(source, NOW), 0)
@@ -314,6 +316,7 @@ class RunCycleTests(TestCase):
         r.status.refresh_from_db()
         self.assertEqual(r.status.state, "unknown")
         self.assertIsNone(r.status.live_since)
+        self.assertIsNone(r.status.offline_since)
 
     def _step(self, recorder, probe, at):
         run_cycle(FakeSource({recorder.stream_name: probe}), at)
@@ -345,7 +348,12 @@ class RunCycleTests(TestCase):
         self._step(r, Probe(False, False, None, None, "timeout"), t2)
         self.assertEqual(r.status.state, "unknown")
         self.assertEqual(r.status.offline_since, t1)
+        t3 = datetime(2026, 1, 1, 12, 3, tzinfo=timezone.utc)
+        self._step(r, Probe(True, False, None, None, "HTTP 404"), t3)
+        self.assertEqual(r.status.state, "offline")
+        self.assertEqual(r.status.offline_since, t1)
 
+    @override_settings(OPENCAST_URL="")  # independent of the local .env
     def test_run_once_command_exits(self):
         Recorder.objects.create(room_name="A", stream_name="rec-a")
         source = FakeSource({"rec-a": Probe(True, False, None, None, "HTTP 404")})
@@ -419,6 +427,79 @@ class RunMonitorOpencastTests(TestCase):
         self.assertIn("opencast=off", "\n".join(logs.output))
         self.recorder.status.refresh_from_db()
         self.assertIsNotNone(self.recorder.status.checked_at)
+
+
+    def test_loop_mode_blocking_sync_does_not_delay_cycle(self):
+        from recorders.management.commands import run_monitor
+
+        cmd = run_monitor.Command()
+        sync_started = threading.Event()
+        release = threading.Event()
+        seen = {}
+
+        def blocking_sync(*args, **kwargs):
+            sync_started.set()
+            # Inline (blocking) sync would time out here: the cycle never runs.
+            seen["released_by_cycle"] = release.wait(5)
+
+        def probe(name):
+            seen["sync_started"] = sync_started.wait(2)
+            seen["sync_still_running"] = not release.is_set()
+            release.set()
+            cmd._stop.set()
+            return Probe(True, True, 1, 6.0)
+
+        self.source.probe = probe
+        state = mock.Mock()
+        state.load.return_value.last_error = ""
+        with override_settings(OPENCAST_URL="https://opencast.example.org"), \
+                mock.patch(f"{MONITOR}.HlsStreamSource", return_value=self.source), \
+                mock.patch(f"{MONITOR}.run_opencast_sync", blocking_sync), \
+                mock.patch(f"{MONITOR}.OpencastSyncState", state):
+            call_command(cmd)
+        self.assertEqual(
+            seen,
+            {"sync_started": True, "sync_still_running": True, "released_by_cycle": True},
+        )
+        self.recorder.status.refresh_from_db()
+        self.assertIsNotNone(self.recorder.status.checked_at)
+        self.assertFalse(cmd._sync_thread.is_alive())
+
+    def test_start_sync_skips_while_previous_sync_runs(self):
+        from recorders.management.commands import run_monitor
+
+        cmd = run_monitor.Command()
+        cmd._last_sync_at = None
+        cmd._opencast_status = "off"
+        cmd._insecure_logged = False
+        cmd._sync_thread = mock.Mock(is_alive=mock.Mock(return_value=True))
+        with override_settings(OPENCAST_URL="https://opencast.example.org"), \
+                mock.patch.object(run_monitor.threading, "Thread") as thread:
+            cmd._start_sync(mock.Mock())
+        thread.assert_not_called()
+
+    @override_settings(OPENCAST_URL="http://opencast.example.org", DEBUG=False)
+    def test_run_monitor_refuses_plain_http_without_debug(self):
+        from recorders.management.commands import run_monitor
+
+        cmd = run_monitor.Command()
+        cmd._last_sync_at = None
+        cmd._insecure_logged = False
+        sync = mock.Mock()
+        with mock.patch(f"{MONITOR}.run_opencast_sync", sync), \
+                self.assertLogs(MONITOR, level="DEBUG") as logs:
+            cmd._sync_opencast(mock.Mock())
+            cmd._sync_opencast(mock.Mock())
+        sync.assert_not_called()
+        self.assertEqual(cmd._opencast_status, "error")
+        errors = [r for r in logs.records if r.levelname == "ERROR"]
+        self.assertEqual(len(errors), 1)
+
+    @override_settings(OPENCAST_URL="http://opencast.example.org", DEBUG=True)
+    def test_run_monitor_allows_plain_http_in_debug(self):
+        sync = mock.Mock()
+        self._run(sync)
+        sync.assert_called_once()
 
 
 class RunMonitorLoggingTests(TestCase):

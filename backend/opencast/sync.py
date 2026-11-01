@@ -47,10 +47,17 @@ class EventSyncResult:
     unmatched: int = 0
 
 
+AGENT_STATE_MAX = RecorderStatus._meta.get_field("agent_state").max_length
+EVENT_ID_MAX = ScheduledEvent._meta.get_field("identifier").max_length
+
+
 def _set_status(recorder: Recorder, agent: Agent) -> None:
     RecorderStatus.objects.update_or_create(
         recorder=recorder,
-        defaults={"agent_state": agent.state, "agent_updated_at": agent.updated_at},
+        defaults={
+            "agent_state": agent.state[:AGENT_STATE_MAX],
+            "agent_updated_at": agent.updated_at,
+        },
     )
 
 
@@ -116,7 +123,12 @@ def sync_events(
     }
     fetched: set[str] = set()
     for event in events:
-        fetched.add(event.identifier)
+        if len(event.identifier) > EVENT_ID_MAX:
+            _warn_once(
+                "event-id", event.identifier,
+                "Opencast event %r skipped: identifier too long",
+            )
+            continue
         recorder = recorders.get(event.agent_id)
         if recorder is None:
             result.unmatched += 1
@@ -135,12 +147,21 @@ def sync_events(
                 "end": event.end,
             },
         )
+        # Only stored events count as fetched: events of an agent that no
+        # longer maps to a recorder are removed from their old recorder below.
+        fetched.add(event.identifier)
         result.upserted += 1
     stale = ScheduledEvent.objects.filter(
         start__gte=window_start, start__lt=window_end
     ).exclude(identifier__in=fetched)
     result.deleted = stale.count()
     stale.delete()
+    if not events and result.deleted:
+        logger.warning(
+            "Opencast returned no events in the sync window; deleted %d stored "
+            "events (check the Opencast user's access rights)",
+            result.deleted,
+        )
     return result
 
 

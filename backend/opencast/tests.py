@@ -4,6 +4,7 @@
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest import mock
 from urllib.parse import parse_qs
 
 import httpx
@@ -99,6 +100,23 @@ class AgentsTests(SimpleTestCase):
         with self.assertRaises(OpencastError):
             client.agents()
         self.assertEqual(len(requests), 3)
+
+    def test_error_when_total_timeout_exceeded(self):
+        row = fixture("agents.json")[0]
+        clock = [0.0]
+
+        def slow(request):
+            clock[0] += 20  # every page takes 20 s
+            return json_response([row, row])
+
+        client, requests = make_client(slow, page_size=2, total_timeout=45)
+        with mock.patch("opencast.client.time.monotonic", lambda: clock[0]), \
+                self.assertRaises(OpencastError) as ctx:
+            client.agents()
+        self.assertEqual(str(ctx.exception), "/api/agents: timeout")
+        self.assertEqual(len(requests), 3)
+        # The last request only gets the remaining budget.
+        self.assertEqual(requests[2].extensions["timeout"]["read"], 5)
 
     def test_basic_auth_and_accept_json(self):
         client, requests = make_client(lambda r: json_response([]))
@@ -251,6 +269,51 @@ class SyncTests(TestCase):
         ws, we = sync.sync_window(NOW, 7)
         result = sync.sync_events([self.event("a", agent_id="nobody")], ws, we)
         self.assertEqual(result.unmatched, 1)
+        self.assertEqual(ScheduledEvent.objects.count(), 0)
+
+    def test_long_agent_state_is_truncated(self):
+        sync.sync_agents([self.agent(state="x" * 50)], NOW)
+        rec = Recorder.objects.get(agent_id="cap-90-R12")
+        self.assertEqual(rec.status.agent_state, "x" * 20)
+
+    def test_event_with_too_long_identifier_is_skipped(self):
+        Recorder.objects.create(
+            stream_name="rec-hall", room_name="Hall", agent_id="rec-hall"
+        )
+        ws, we = sync.sync_window(NOW, 7)
+        long_id = "e" * 129
+        with self.assertLogs("opencast.sync", level="WARNING") as logs:
+            sync.sync_events([self.event(long_id), self.event("ok")], ws, we)
+            sync.sync_events([self.event(long_id), self.event("ok")], ws, we)
+        self.assertEqual(
+            list(ScheduledEvent.objects.values_list("identifier", flat=True)), ["ok"]
+        )
+        self.assertEqual(len(logs.records), 1)
+
+    def test_empty_event_list_deletes_with_warning(self):
+        Recorder.objects.create(
+            stream_name="rec-hall", room_name="Hall", agent_id="rec-hall"
+        )
+        ws, we = sync.sync_window(NOW, 7)
+        sync.sync_events([self.event("a"), self.event("b")], ws, we)
+        with self.assertLogs("opencast.sync", level="WARNING") as logs:
+            result = sync.sync_events([], ws, we)
+        self.assertEqual(result.deleted, 2)
+        self.assertEqual(ScheduledEvent.objects.count(), 0)
+        self.assertIn("deleted 2", logs.output[0])
+
+    def test_unlinked_agent_events_are_removed(self):
+        rec = Recorder.objects.create(
+            stream_name="rec-hall", room_name="Hall", agent_id="rec-hall"
+        )
+        ws, we = sync.sync_window(NOW, 7)
+        sync.sync_events([self.event("a")], ws, we)
+        self.assertEqual(ScheduledEvent.objects.get().recorder, rec)
+        rec.agent_id = None
+        rec.save()
+        result = sync.sync_events([self.event("a")], ws, we)
+        self.assertEqual(result.unmatched, 1)
+        self.assertEqual(result.deleted, 1)
         self.assertEqual(ScheduledEvent.objects.count(), 0)
 
     def test_sync_window_local_midnight(self):

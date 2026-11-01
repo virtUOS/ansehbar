@@ -6,6 +6,7 @@
 Only GET requests are ever sent; ansehBAR never writes to Opencast.
 """
 
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -61,6 +62,7 @@ class OpencastClient:
         timeout: float = 10.0,
         page_size: int = 100,
         max_pages: int = 50,
+        total_timeout: float = 45.0,
     ):
         self.base_url = base_url.rstrip("/")
         self.auth = httpx.BasicAuth(user, password)
@@ -68,15 +70,18 @@ class OpencastClient:
         self.timeout = timeout
         self.page_size = page_size
         self.max_pages = max_pages
+        # Budget for all pages of one listing, so a slow server cannot keep a
+        # sync busy for max_pages * timeout.
+        self.total_timeout = total_timeout
 
-    def _get_page(self, path: str, params: dict) -> list:
+    def _get_page(self, path: str, params: dict, timeout: float) -> list:
         try:
             response = self.client.get(
                 self.base_url + path,
                 params=params,
                 auth=self.auth,
                 headers={"Accept": "application/json"},
-                timeout=self.timeout,
+                timeout=timeout,
             )
         except httpx.HTTPError as exc:
             raise OpencastError(f"{path}: {type(exc).__name__}") from None
@@ -92,11 +97,15 @@ class OpencastClient:
 
     def _get_all(self, path: str, params: dict | None = None) -> list:
         items: list = []
+        deadline = time.monotonic() + self.total_timeout
         for page in range(self.max_pages):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise OpencastError(f"{path}: timeout")
             query = dict(params or {})
             query["limit"] = self.page_size
             query["offset"] = page * self.page_size
-            chunk = self._get_page(path, query)
+            chunk = self._get_page(path, query, min(self.timeout, remaining))
             items.extend(chunk)
             if len(chunk) < self.page_size:
                 return items
