@@ -62,6 +62,7 @@ INSTALLED_APPS = [
     # Local apps
     "common",
     "accounts",
+    "recorders",
 ]
 
 AUTH_USER_MODEL = "accounts.User"
@@ -165,6 +166,22 @@ ANSEHBAR_ACCESS_GROUP = os.environ.get("ANSEHBAR_ACCESS_GROUP", "ansehbar-users"
 ANSEHBAR_BOOTSTRAP_USERS = _env_list("ANSEHBAR_BOOTSTRAP_USERS", "")
 ANSEHBAR_ACCESS_CONTACT = os.environ.get("ANSEHBAR_ACCESS_CONTACT", "")
 MONITOR_INTERVAL_SECONDS = _int_or_default("MONITOR_INTERVAL_SECONDS", 10)
+
+# Console logging (container logs). The monitor logs under "recorders".
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "plain": {"format": "%(asctime)s %(levelname)s %(name)s: %(message)s"},
+    },
+    "handlers": {
+        "console": {"class": "logging.StreamHandler", "formatter": "plain"},
+    },
+    "root": {"handlers": ["console"], "level": "WARNING"},
+    "loggers": {
+        "recorders": {"handlers": ["console"], "level": "INFO", "propagate": False},
+    },
+}
 
 # Behind a TLS-terminating reverse proxy in production: trust its forwarded
 # host/scheme so absolute URLs use https, and require secure cookies.

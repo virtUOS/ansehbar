@@ -1,0 +1,193 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Universität Osnabrück (virtUOS)
+
+/** Web Audio engine: one AudioContext per page, per element
+ *  MediaElementSource -> Analyser -> Gain -> destination. Framework-free so it
+ *  can be reasoned about (and reused) outside React. */
+
+/** Elements played by native HLS (Safari/iOS). Their media may be tainted, so
+ *  routing them through Web Audio could silence them: they are never routed;
+ *  audibility is controlled via el.muted and no analyser is offered. */
+const nativeElements = new WeakSet<HTMLMediaElement>();
+export function markNative(el: HTMLMediaElement): void {
+  nativeElements.add(el);
+}
+
+/** What the player reports about its element. */
+export type PlaybackState = "playing" | "waiting" | "retrying" | "failed";
+
+const HAVE_FUTURE_DATA = 3;
+
+/** Pure decision for the level meter: only an element that is really playing
+ *  yields a meaningful level. Anything else (paused, waiting, ended, failed,
+ *  too little data, no report yet) means "unavailable", never "silent". */
+export function isActuallyPlaying(
+  el: Pick<HTMLMediaElement, "paused" | "ended" | "readyState"> | undefined,
+  state: PlaybackState | undefined,
+): boolean {
+  return !!el && state === "playing" && !el.paused && !el.ended && el.readyState >= HAVE_FUTURE_DATA;
+}
+
+interface Chain {
+  source: MediaElementAudioSourceNode;
+  analyser: AnalyserNode;
+  gain: GainNode;
+}
+
+export class AudioEngine {
+  private ctx: AudioContext | null = null;
+  private elements = new Map<number, HTMLVideoElement>();
+  private chains = new Map<number, Chain>();
+  /** createMediaElementSource may only be called once per element. */
+  private sources = new WeakMap<HTMLMediaElement, MediaElementAudioSourceNode>();
+  private audibleId: number | null = null;
+  private forceMuted = new Set<number>();
+  private playback = new Map<number, PlaybackState>();
+  private version = 0;
+  private listeners = new Set<() => void>();
+
+  /** useSyncExternalStore plumbing: the version changes whenever chains are
+   *  created/removed or the context state changes. */
+  subscribe = (fn: () => void): (() => void) => {
+    this.listeners.add(fn);
+    return () => {
+      this.listeners.delete(fn);
+    };
+  };
+  getVersion = (): number => this.version;
+  private notify(): void {
+    this.version++;
+    for (const fn of this.listeners) fn();
+  }
+
+  /** True while the AudioContext is running (not suspended/interrupted). */
+  isRunning(): boolean {
+    return this.ctx?.state === "running";
+  }
+
+  /** The player had to mute this element to get playback going (autoplay
+   *  rejection). Its analyser would only see silence until unlock() recovers it. */
+  markForceMuted(id: number, value: boolean): void {
+    if (value === this.forceMuted.has(id)) return;
+    if (value) this.forceMuted.add(id);
+    else this.forceMuted.delete(id);
+    this.notify();
+  }
+  isForceMuted(id: number): boolean {
+    return this.forceMuted.has(id);
+  }
+  /** Reported by the player; null clears it (new source). */
+  setPlaybackState(id: number, state: PlaybackState | null): void {
+    if ((this.playback.get(id) ?? null) === state) return;
+    if (state) this.playback.set(id, state);
+    else this.playback.delete(id);
+    this.notify();
+  }
+  playbackState(id: number): PlaybackState | undefined {
+    return this.playback.get(id);
+  }
+  /** Checked live (every meter frame): the element state can change without a report. */
+  isPlaying(id: number): boolean {
+    return isActuallyPlaying(this.elements.get(id), this.playback.get(id));
+  }
+
+  /** True when a click is needed: context not running or any element force-muted. */
+  needsUnlock(): boolean {
+    return !this.isRunning() || this.forceMuted.size > 0;
+  }
+
+  /** Must be called directly from a user gesture. Everything that needs the
+   *  gesture (context creation, resume, unmuting) happens before any await. */
+  async unlock(): Promise<void> {
+    if (!this.ctx) {
+      const Ctor =
+        window.AudioContext ??
+        (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!Ctor) throw new Error("Web Audio is not supported");
+      this.ctx = new Ctor();
+      this.ctx.onstatechange = () => this.notify();
+    }
+    const resumed = this.ctx.resume();
+    for (const [id, el] of this.elements) {
+      this.wire(id, el);
+      if (this.chains.has(id)) el.muted = false;
+      if (el.paused) el.play().catch(() => {});
+    }
+    this.forceMuted.clear();
+    this.applyAudibility();
+    this.notify();
+    await resumed;
+    this.notify();
+  }
+
+  setAudible(id: number | null): void {
+    this.audibleId = id;
+    this.applyAudibility();
+  }
+
+  attach(id: number, el: HTMLVideoElement): () => void {
+    this.elements.set(id, el);
+    if (this.ctx) {
+      this.wire(id, el);
+      this.applyAudibility();
+      this.notify();
+    }
+    return () => {
+      // Ignore stale cleanups (id re-attached with another element).
+      if (this.elements.get(id) !== el) return;
+      this.elements.delete(id);
+      this.forceMuted.delete(id);
+      this.playback.delete(id);
+      this.unwire(id);
+      el.muted = true;
+      this.notify();
+    };
+  }
+
+  analyser(id: number): AnalyserNode | null {
+    return this.chains.get(id)?.analyser ?? null;
+  }
+
+  /** True only for elements that can never have an analyser (native HLS). */
+  analyserUnavailable(id: number): boolean {
+    const el = this.elements.get(id);
+    return !!el && nativeElements.has(el);
+  }
+
+  private wire(id: number, el: HTMLVideoElement): void {
+    if (!this.ctx || nativeElements.has(el) || this.chains.has(id)) return;
+    let source = this.sources.get(el);
+    if (!source) {
+      source = this.ctx.createMediaElementSource(el);
+      this.sources.set(el, source);
+    }
+    const analyser = this.ctx.createAnalyser();
+    analyser.fftSize = 2048;
+    const gain = this.ctx.createGain();
+    gain.gain.value = id === this.audibleId ? 1 : 0;
+    source.connect(analyser);
+    analyser.connect(gain);
+    gain.connect(this.ctx.destination);
+    this.chains.set(id, { source, analyser, gain });
+    el.muted = false;
+  }
+
+  private unwire(id: number): void {
+    const chain = this.chains.get(id);
+    if (!chain) return;
+    chain.source.disconnect();
+    chain.analyser.disconnect();
+    chain.gain.disconnect();
+    this.chains.delete(id);
+  }
+
+  private applyAudibility(): void {
+    if (!this.ctx) return;
+    for (const [id, el] of this.elements) {
+      const audible = id === this.audibleId;
+      const chain = this.chains.get(id);
+      if (chain) chain.gain.gain.value = audible ? 1 : 0;
+      else if (nativeElements.has(el)) el.muted = !audible;
+    }
+  }
+}

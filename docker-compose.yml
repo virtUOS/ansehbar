@@ -30,7 +30,7 @@ services:
       - ./backend:/app
     ports:
       - "${BACKEND_PORT:-8007}:8000"
-    environment:
+    environment: &backend-env
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-dev-insecure-secret-key-change-me}
       DJANGO_DEBUG: ${DJANGO_DEBUG:-1}
       POSTGRES_DB: ${POSTGRES_DB:-ansehbar}
@@ -76,6 +76,22 @@ services:
         condition: service_healthy
       keycloak:
         condition: service_started
+
+  # Periodic stream probe; same image and env as backend, no ports.
+  monitor:
+    build:
+      context: ./backend
+    container_name: ansehbar_monitor
+    restart: unless-stopped
+    command: python manage.py run_monitor
+    volumes:
+      - ./backend:/app
+    environment: *backend-env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      db:
+        condition: service_healthy
 
   keycloak:
     image: quay.io/keycloak/keycloak:26.0.7

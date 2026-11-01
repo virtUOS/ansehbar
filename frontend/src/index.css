@@ -8,3 +8,19 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Admin buttons (no button component in @basicbar/ui). */
+.btn-primary,
+.btn-secondary,
+.btn-danger {
+  @apply inline-flex items-center justify-center rounded-full px-4 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+}
+.btn-primary {
+  @apply bg-brand-400 text-slate-900 hover:bg-brand-500;
+}
+.btn-secondary {
+  @apply border border-slate-300 bg-white hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800;
+}
+.btn-danger {
+  @apply bg-red-700 text-white hover:bg-red-800;
+}

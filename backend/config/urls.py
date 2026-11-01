@@ -14,6 +14,7 @@ urlpatterns = [
     # OIDC login/logout/silent/back-channel/callback and api/whoami/language/.
     path("", include("basicbar_auth.urls")),
     path("api/whoami/", whoami),
+    path("api/", include("config.api_urls")),
 ]
 
 # Serve uploaded media and static files during local development. (Static
