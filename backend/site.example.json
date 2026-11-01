@@ -1,7 +1,7 @@
 {
   "stream_url_template": "https://streaming.example.org/live/{stream}/playlist.m3u8",
   "recorders": [
-    {"stream_name": "rec-10-r01", "room_name": "10/R01"},
+    {"stream_name": "rec-10-r01", "room_name": "10/R01", "agent_id": "rec-10-r01"},
     {"stream_name": "rec-20-r02", "room_name": "20/R02"},
     {"stream_name": "cap-30-R03", "room_name": "30/R03"},
     {"stream_name": "rec-20-hall", "room_name": "20/R06 (Hall)", "active": false}

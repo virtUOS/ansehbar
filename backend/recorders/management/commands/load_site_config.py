@@ -48,12 +48,13 @@ def parse_config(raw: str) -> dict:
         problems.append("recorders: required, must be a list")
     else:
         seen = set()
+        seen_agents = set()
         for i, item in enumerate(recorders):
             where = f"recorders[{i}]"
             if not isinstance(item, dict):
                 problems.append(f"{where}: must be an object")
                 continue
-            extra = set(item) - {"stream_name", "room_name", "active"}
+            extra = set(item) - {"stream_name", "room_name", "active", "agent_id"}
             if extra:
                 problems.append(f"{where}: unknown keys: {', '.join(sorted(extra))}")
             stream = item.get("stream_name")
@@ -84,8 +85,24 @@ def parse_config(raw: str) -> dict:
             if not isinstance(active, bool):
                 problems.append(f"{where}: active must be true or false")
                 ok = False
+            agent_id = item.get("agent_id")
+            if "agent_id" in item:
+                agent_max = Recorder._meta.get_field("agent_id").max_length
+                if not isinstance(agent_id, str) or not agent_id.strip():
+                    problems.append(f"{where}: agent_id must be a non-empty string")
+                    ok = False
+                elif len(agent_id) > agent_max:
+                    problems.append(
+                        f"{where}: agent_id longer than {agent_max} characters"
+                    )
+                    ok = False
+                elif agent_id in seen_agents:
+                    problems.append(f"{where}: duplicate agent_id {agent_id}")
+                    ok = False
+                else:
+                    seen_agents.add(agent_id)
             if ok:
-                entries.append((stream, room, active))
+                entries.append((stream, room, active, agent_id))
 
     if problems:
         raise CommandError(
@@ -127,16 +144,36 @@ class Command(BaseCommand):
         template_changed = False
         with transaction.atomic():
             listed = set()
-            for stream, room, active in config["recorders"]:
+            for stream, room, active, agent_id in config["recorders"]:
                 listed.add(stream)
+                if agent_id is not None:
+                    other = (
+                        Recorder.objects.filter(agent_id=agent_id)
+                        .exclude(stream_name=stream)
+                        .first()
+                    )
+                    if other is not None:
+                        raise CommandError(
+                            f"agent_id {agent_id} is already linked to "
+                            f"recorder {other.stream_name}"
+                        )
                 rec = Recorder.objects.filter(stream_name=stream).first()
                 if rec is None:
                     Recorder.objects.create(
-                        stream_name=stream, room_name=room, active=active
+                        stream_name=stream,
+                        room_name=room,
+                        active=active,
+                        agent_id=agent_id,
                     )
                     created.append(stream)
-                elif rec.room_name != room or rec.active != active:
+                elif (
+                    rec.room_name != room
+                    or rec.active != active
+                    or (agent_id is not None and rec.agent_id != agent_id)
+                ):
                     rec.room_name, rec.active = room, active
+                    if agent_id is not None:
+                        rec.agent_id = agent_id
                     rec.save()
                     updated.append(stream)
                 else:

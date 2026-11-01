@@ -423,6 +423,21 @@ class LoadSiteConfigTests(TestCase):
         self.run_cmd(self.config())
         self.assertEqual(MonitorSettings.load().url_template, self.TEMPLATE)
 
+    def test_load_site_config_accepts_agent_id(self):
+        cfg = {
+            "recorders": [
+                {"stream_name": "rec-a", "room_name": "A", "agent_id": "agent-a"},
+                {"stream_name": "rec-b", "room_name": "B"},
+            ]
+        }
+        self.run_cmd(cfg)
+        self.assertEqual(Recorder.objects.get(stream_name="rec-a").agent_id, "agent-a")
+        self.assertIsNone(Recorder.objects.get(stream_name="rec-b").agent_id)
+        cfg["recorders"][1]["agent_id"] = "agent-a"
+        with self.assertRaises(CommandError) as ctx:
+            self.run_cmd(cfg)
+        self.assertIn("duplicate agent_id", str(ctx.exception))
+
     def test_example_file_loads_cleanly(self):
         example = Path(settings.BASE_DIR) / "site.example.json"
         out = StringIO()

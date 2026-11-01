@@ -2,14 +2,17 @@
 # Copyright 2026 Universität Osnabrück (virtUOS)
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import parse_qs
 
 import httpx
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase
 
+from opencast import sync
 from opencast.client import Agent, Event, OpencastClient, OpencastError
+from opencast.models import OpencastSyncState, ScheduledEvent
+from recorders.models import Recorder
 
 FIXTURES = Path(__file__).parent / "fixtures"
 PASSWORD = "s3cret-pw"
@@ -143,3 +146,133 @@ class EventsTests(SimpleTestCase):
         self.assertEqual(first.end, datetime(2026, 11, 1, 21, 0, tzinfo=timezone.utc))
         self.assertEqual(second.agent_id, "rec-hall")
         self.assertEqual(second.start, datetime(2026, 11, 1, 9, 0, tzinfo=timezone.utc))
+
+
+def utc(*args):
+    return datetime(*args, tzinfo=timezone.utc)
+
+
+class FakeClient:
+    def __init__(self, agents=(), events=(), fail_events=False):
+        self._agents = list(agents)
+        self._events = list(events)
+        self.fail_events = fail_events
+
+    def agents(self):
+        return self._agents
+
+    def scheduled_events(self, start, end):
+        if self.fail_events:
+            raise OpencastError("/api/events/: HTTP 500")
+        return self._events
+
+
+NOW = utc(2026, 11, 3, 10, 0)
+
+
+class SyncTests(TestCase):
+    def setUp(self):
+        sync._logged.clear()
+
+    def agent(self, agent_id="cap-90-R12", state="idle"):
+        return Agent(agent_id, state, NOW)
+
+    def event(self, identifier, agent_id="rec-hall", title="T", start=None):
+        start = start or utc(2026, 11, 4, 8, 0)
+        return Event(identifier, agent_id, title, "S", start, start.replace(hour=9))
+
+    def test_new_agent_creates_review_recorder(self):
+        result = sync.sync_agents([self.agent()], NOW)
+        self.assertEqual(result.created, 1)
+        rec = Recorder.objects.get(agent_id="cap-90-R12")
+        self.assertEqual(rec.stream_name, "cap-90-R12")
+        self.assertEqual(rec.room_name, "")
+        self.assertTrue(rec.active)
+        self.assertTrue(rec.needs_review)
+        self.assertEqual(rec.status.agent_state, "idle")
+        self.assertEqual(rec.status.agent_updated_at, NOW)
+
+    def test_agent_links_existing_recorder_by_stream_name(self):
+        Recorder.objects.create(stream_name="rec-hall", room_name="Hall")
+        result = sync.sync_agents([self.agent("rec-hall", "capturing")], NOW)
+        self.assertEqual(result.linked, 1)
+        self.assertEqual(result.created, 0)
+        self.assertEqual(Recorder.objects.count(), 1)
+        rec = Recorder.objects.get()
+        self.assertEqual(rec.agent_id, "rec-hall")
+        self.assertFalse(rec.needs_review)
+        self.assertEqual(rec.status.agent_state, "capturing")
+
+    def test_agent_with_invalid_stream_name_is_skipped(self):
+        result = sync.sync_agents([self.agent("Hall 1")], NOW)
+        self.assertEqual(result.skipped, ["Hall 1"])
+        self.assertEqual(Recorder.objects.count(), 0)
+
+    def test_agent_stream_name_taken_by_other_agent_is_skipped(self):
+        Recorder.objects.create(stream_name="x", room_name="X", agent_id="y")
+        result = sync.sync_agents([self.agent("x")], NOW)
+        self.assertEqual(result.skipped, ["x"])
+        self.assertEqual(Recorder.objects.count(), 1)
+
+    def test_missing_agent_becomes_unknown(self):
+        rec = Recorder.objects.create(
+            stream_name="rec-hall", room_name="Hall", agent_id="rec-hall"
+        )
+        rec.status.agent_state = "idle"
+        rec.status.save()
+        result = sync.sync_agents([], NOW)
+        self.assertEqual(result.gone, 1)
+        rec.refresh_from_db()
+        self.assertEqual(rec.status.agent_state, "unknown")
+        self.assertTrue(rec.active)
+
+    def test_events_upsert_and_delete_cancelled_in_window(self):
+        Recorder.objects.create(
+            stream_name="rec-hall", room_name="Hall", agent_id="rec-hall"
+        )
+        ws, we = sync.sync_window(NOW, 7)
+        a = self.event("a", title="Old")
+        b = self.event("b", start=utc(2026, 11, 5, 8, 0))
+        sync.sync_events([a, b], ws, we)
+        self.assertEqual(ScheduledEvent.objects.count(), 2)
+        before = ScheduledEvent.objects.create(
+            identifier="c",
+            recorder=Recorder.objects.get(),
+            start=ws - timedelta(hours=2),
+            end=ws - timedelta(hours=1),
+        )
+        result = sync.sync_events([self.event("a", title="New")], ws, we)
+        self.assertEqual(result.deleted, 1)
+        self.assertEqual(ScheduledEvent.objects.get(identifier="a").title, "New")
+        self.assertFalse(ScheduledEvent.objects.filter(identifier="b").exists())
+        self.assertTrue(ScheduledEvent.objects.filter(pk=before.pk).exists())
+
+    def test_event_for_unknown_agent_is_unmatched(self):
+        ws, we = sync.sync_window(NOW, 7)
+        result = sync.sync_events([self.event("a", agent_id="nobody")], ws, we)
+        self.assertEqual(result.unmatched, 1)
+        self.assertEqual(ScheduledEvent.objects.count(), 0)
+
+    def test_sync_window_local_midnight(self):
+        ws, we = sync.sync_window(utc(2026, 11, 1, 23, 30), 7)
+        self.assertEqual(ws, utc(2026, 10, 31, 23, 0))
+        self.assertEqual(we, utc(2026, 11, 9, 23, 0))
+
+    def test_run_sync_applies_nothing_on_error(self):
+        client = FakeClient(agents=[self.agent()], fail_events=True)
+        sync.run_opencast_sync(client, NOW, 7)
+        self.assertEqual(Recorder.objects.count(), 0)
+        state = OpencastSyncState.load()
+        self.assertTrue(state.last_error)
+        self.assertEqual(state.last_attempt_at, NOW)
+        self.assertIsNone(state.last_success_at)
+
+    def test_run_sync_success_records_state(self):
+        client = FakeClient(
+            agents=[self.agent("rec-hall")], events=[self.event("a")]
+        )
+        sync.run_opencast_sync(client, NOW, 7)
+        state = OpencastSyncState.load()
+        self.assertEqual(state.last_success_at, NOW)
+        self.assertEqual(state.last_error, "")
+        self.assertEqual(ScheduledEvent.objects.count(), 1)
