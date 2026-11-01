@@ -250,7 +250,8 @@ Freigegebene Entwürfe: `.superpowers/brainstorm/*/content/uebersicht-v2.html`
 - **Einladungen** (siehe 4).
 - **Alarm-Empfänger:** E-Mail-Adressen frei eintragen oder bekannte Nutzer
   (bereits angemeldet) per Suche auswählen. Einzeln an- und abschaltbar.
-- **Alarm-Kanäle:** E-Mail, Matrix (siehe 7.4), jeweils an/aus.
+- **Alarm-Kanäle:** E-Mail, Weitergabe an den Monitoring-Dienst (siehe 7.4),
+  jeweils an/aus.
 - **Zeitraster und Schwellen** (siehe 7.2, 7.3).
 - **Streaming:** URL-Vorlage, Live-Schwellwert.
 - Sprache Deutsch und Englisch, über `@basicbar/ui` i18n.
@@ -321,8 +322,7 @@ Freigegebene Entwürfe: `.superpowers/brainstorm/*/content/uebersicht-v2.html`
   der Stream wieder (stabil, Standard ≥ 1 min, *meine Wahl*) und bricht
   erneut ab, geht **ein weiterer Alarm** raus.
 - **Entwarnung:** Wenn der Stream wiederkommt, geht eine Entwarnung an
-  dieselben Kanäle. In Matrix kommt sie als Antwort im Thread der
-  Alarmnachricht.
+  dieselben Kanäle.
 - Kurzes Flackern (unter dem Live-Schwellwert) ist kein Ausfall.
 
 ### 7.3 Alarm „Ton fehlt“
@@ -355,16 +355,13 @@ Freigegebene Entwürfe: `.superpowers/brainstorm/*/content/uebersicht-v2.html`
   Einstellungen an- und abschaltbar.
 - **E-Mail (Pflicht in Stufe 3)** an die Alarm-Empfänger, über Django-Mail
   mit SMTP-Konfiguration per Env.
-- **Matrix (in Stufe 3).** Ein unverschlüsselter, nicht öffentlicher Raum, in
-  dem alle Interessierten sind. **Offen, welcher Weg** (Antwort des
-  Auftraggebers steht aus, siehe 10):
-  - a) eigenes Bot-Konto, das direkt über die Client-Server-API sendet. Token
-    per Env, Raum-ID in den Einstellungen. Entwarnung als Thread-Antwort.
-  - b) Webhook an matrix-hookshot oder einen vergleichbaren Dienst.
-    Webhook-URL per Env.
-  - Ist die Antwort beim Bau noch offen, beginnt der Builder mit a). b) ist
-    ein allgemeiner „Webhook“-Kanal und lässt sich danach als zweiter Kanal
-    ergänzen.
+- **Monitoring-Dienst (in Stufe 3).** Keine eigene Matrix-Anbindung: Die
+  Kollegen wollen keine direkten Matrix-Nachrichten aus ansehBAR. Es gibt einen
+  bestehenden Monitoring-Dienst, der Meldungen u. a. nach Matrix weiterleitet.
+  ansehBAR übergibt Alarme und Entwarnungen an diesen Dienst. **Offen, wie**
+  (Schnittstelle, Format, Authentifizierung; Details folgen, siehe 10). Der
+  Kanal wird so gebaut, dass er sich ohne Umbau der Vorfall-Logik an diese
+  Schnittstelle anpassen lässt.
 - **Später:** Browser-Benachrichtigungen (Web Push), allgemeine Webhooks.
 - **Inhalt einer Meldung** (alles, was man zum Weiterleiten braucht): Raum,
   Rekorder, Typ, Termin (Titel, Serie, geplante Zeit), seit wann, Link zur
@@ -404,15 +401,16 @@ Freigegebene Entwürfe: `.superpowers/brainstorm/*/content/uebersicht-v2.html`
 2. **Opencast.** Capture Agents und Termine, „Stream fehlt“ in der Oberfläche,
    „Heute noch geplant“, Zuordnung Agent ↔ Stream.
 3. **Vorfälle und Alarme.** Vorfall-Logik, Backend-Pegelmessung, Kanäle
-   E-Mail und Matrix, Empfänger, Raster-Einstellungen, Raumkalender.
+   E-Mail und Monitoring-Dienst, Empfänger, Raster-Einstellungen, Raumkalender.
 4. **Pünktlichkeit lernen.**
 
 Jede Stufe ist für sich nutzbar und wird einzeln geplant und gebaut.
 
 ## 10. Offen
 
-- **Matrix-Weg** (7.4): Der Auftraggeber klärt, ob Hookshot oder ein
-  vergleichbarer Dienst vorhanden ist. Das blockiert erst Stufe 3.
+- **Anbindung an den Monitoring-Dienst** (7.4): Schnittstelle und Format
+  stehen noch aus (Stand 2026-11-01: keine direkte Matrix-Anbindung, Details
+  folgen). Das blockiert erst den zweiten Kanal in Stufe 3, nicht E-Mail.
 
 ## 11. Dem Builder überlassen
 
