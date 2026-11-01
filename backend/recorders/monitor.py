@@ -55,7 +55,14 @@ def run_cycle(source: StreamSource, now: datetime, max_workers: int = 8) -> int:
 
     for recorder, probe in zip(active, probes):
         status = recorder.status
+        previous_state = status.state
         new = evaluate(_to_live_state(status), probe, now, stale_factor)
+        if new.state == RecorderStatus.OFFLINE:
+            if previous_state != RecorderStatus.OFFLINE or status.offline_since is None:
+                status.offline_since = now
+        elif new.state == RecorderStatus.LIVE:
+            status.offline_since = None
+        # unknown: offline_since stays as it is
         status.state = new.state
         status.live_since = new.live_since
         status.media_sequence = new.media_sequence

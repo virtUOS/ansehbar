@@ -14,6 +14,8 @@ from django.contrib.auth import get_user_model
 from django.core.management import CommandError, call_command
 from django.test import TestCase, override_settings
 
+from opencast.client import OpencastError
+from opencast.models import OpencastSyncState
 from recorders.models import MonitorSettings, Recorder, RecorderStatus
 from recorders.monitor import run_cycle
 from streams.sources import Probe
@@ -187,6 +189,27 @@ class MonitorSettingsApiTests(TestCase):
         )
         self.assertEqual(MonitorSettings.load().stale_factor, 10)
 
+    def test_health_reports_opencast_block(self):
+        body = self.client.get("/api/monitor/health/").json()
+        self.assertEqual(body["opencast"]["enabled"], False)
+        self.assertIsNone(body["opencast"]["last_success"])
+        ok = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+        state = OpencastSyncState.load()
+        state.last_success_at = ok
+        state.last_error = "secret-looking error"
+        state.save()
+        with override_settings(
+            OPENCAST_URL="https://opencast.example.org", OPENCAST_SYNC_SECONDS=45
+        ):
+            body = self.client.get("/api/monitor/health/").json()
+        block = body["opencast"]
+        self.assertEqual(block["enabled"], True)
+        self.assertEqual(block["sync_seconds"], 45)
+        self.assertEqual(
+            datetime.fromisoformat(block["last_success"].replace("Z", "+00:00")), ok
+        )
+        self.assertEqual(set(block), {"enabled", "last_success", "sync_seconds"})
+
     def test_requires_access(self):
         outsider = User.objects.create_user(username="out")
         self.client.force_login(outsider)
@@ -282,6 +305,37 @@ class RunCycleTests(TestCase):
         self.assertEqual(r.status.state, "unknown")
         self.assertIsNone(r.status.live_since)
 
+    def _step(self, recorder, probe, at):
+        run_cycle(FakeSource({recorder.stream_name: probe}), at)
+        recorder.status.refresh_from_db()
+
+    def test_offline_since_set_on_transition_and_kept(self):
+        t0 = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+        t1 = datetime(2026, 1, 1, 12, 1, tzinfo=timezone.utc)
+        t2 = datetime(2026, 1, 1, 12, 2, tzinfo=timezone.utc)
+        t3 = datetime(2026, 1, 1, 12, 3, tzinfo=timezone.utc)
+        r = Recorder.objects.create(room_name="A", stream_name="rec-a")
+        self._step(r, Probe(True, True, 100, 6.0), t0)
+        self.assertIsNone(r.status.offline_since)
+        self._step(r, Probe(True, False, None, None, "HTTP 404"), t1)
+        self.assertEqual(r.status.state, "offline")
+        self.assertEqual(r.status.offline_since, t1)
+        self._step(r, Probe(True, False, None, None, "HTTP 404"), t2)
+        self.assertEqual(r.status.offline_since, t1)
+        self._step(r, Probe(True, True, 200, 6.0), t3)
+        self.assertEqual(r.status.state, "live")
+        self.assertIsNone(r.status.offline_since)
+
+    def test_offline_since_survives_unknown(self):
+        t1 = datetime(2026, 1, 1, 12, 1, tzinfo=timezone.utc)
+        t2 = datetime(2026, 1, 1, 12, 2, tzinfo=timezone.utc)
+        r = Recorder.objects.create(room_name="A", stream_name="rec-a")
+        self._step(r, Probe(True, False, None, None, "HTTP 404"), t1)
+        self.assertEqual(r.status.offline_since, t1)
+        self._step(r, Probe(False, False, None, None, "timeout"), t2)
+        self.assertEqual(r.status.state, "unknown")
+        self.assertEqual(r.status.offline_since, t1)
+
     def test_run_once_command_exits(self):
         Recorder.objects.create(room_name="A", stream_name="rec-a")
         source = FakeSource({"rec-a": Probe(True, False, None, None, "HTTP 404")})
@@ -291,6 +345,70 @@ class RunCycleTests(TestCase):
         ):
             call_command("run_monitor", "--once")
         self.assertEqual(Recorder.objects.get().status.state, "offline")
+
+
+MONITOR = "recorders.management.commands.run_monitor"
+
+
+class RunMonitorOpencastTests(TestCase):
+    def setUp(self):
+        Recorder.objects.all().delete()
+        self.recorder = Recorder.objects.create(room_name="A", stream_name="rec-a")
+        self.source = FakeSource({"rec-a": Probe(True, True, 100, 6.0)})
+
+    def _run(self, sync):
+        with mock.patch(f"{MONITOR}.HlsStreamSource", return_value=self.source), \
+                mock.patch(f"{MONITOR}.run_opencast_sync", sync):
+            call_command("run_monitor", "--once")
+
+    @override_settings(OPENCAST_URL="https://opencast.example.org")
+    def test_run_monitor_syncs_opencast_when_enabled(self):
+        order = []
+        sync = mock.Mock(side_effect=lambda *a, **k: order.append("sync"))
+        self.source.probe = mock.Mock(
+            side_effect=lambda n: order.append("probe") or Probe(True, True, 1, 6.0)
+        )
+        self._run(sync)
+        sync.assert_called_once()
+        self.assertEqual(order, ["sync", "probe"])
+        self.recorder.status.refresh_from_db()
+        self.assertIsNotNone(self.recorder.status.checked_at)
+
+    @override_settings(
+        OPENCAST_URL="https://opencast.example.org", OPENCAST_PASSWORD="hunter2-pw"
+    )
+    def test_run_monitor_stream_cycle_survives_sync_error(self):
+        sync = mock.Mock(side_effect=RuntimeError("boom"))
+        with self.assertLogs(MONITOR, level="DEBUG") as logs:
+            self._run(sync)
+        self.recorder.status.refresh_from_db()
+        self.assertIsNotNone(self.recorder.status.checked_at)
+        text = "\n".join(
+            logs.output + [r.getMessage() for r in logs.records]
+        )
+        self.assertNotIn("hunter2-pw", text)
+        state = OpencastSyncState.load()
+        self.assertEqual(state.last_error, "RuntimeError")
+        self.assertIsNotNone(state.last_attempt_at)
+        self.assertIn("opencast=error", text)
+
+    @override_settings(OPENCAST_URL="https://opencast.example.org")
+    def test_run_monitor_logs_opencast_error_without_traceback(self):
+        sync = mock.Mock(side_effect=OpencastError("/x: HTTP 500"))
+        with self.assertLogs(MONITOR, level="DEBUG") as logs:
+            self._run(sync)
+        self.assertTrue(any(r.levelname == "WARNING" for r in logs.records))
+        self.assertTrue(all(r.exc_info is None for r in logs.records))
+
+    @override_settings(OPENCAST_URL="")
+    def test_run_monitor_skips_opencast_when_disabled(self):
+        sync = mock.Mock()
+        with self.assertLogs(MONITOR, level="DEBUG") as logs:
+            self._run(sync)
+        sync.assert_not_called()
+        self.assertIn("opencast=off", "\n".join(logs.output))
+        self.recorder.status.refresh_from_db()
+        self.assertIsNotNone(self.recorder.status.checked_at)
 
 
 class RunMonitorLoggingTests(TestCase):

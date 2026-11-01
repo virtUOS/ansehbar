@@ -9,6 +9,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.permissions import HasAccess
+from opencast.models import OpencastSyncState
 from recorders.models import MonitorSettings, Recorder, RecorderStatus
 from recorders.serializers import MonitorSettingsSerializer, RecorderSerializer
 
@@ -66,10 +67,17 @@ class MonitorHealthView(APIView):
         last_check = RecorderStatus.objects.filter(recorder__active=True).aggregate(
             last=Max("checked_at")
         )["last"]
+        # filter().first(): a GET must not create the singleton row.
+        sync_state = OpencastSyncState.objects.filter(pk=1).first()
         return Response(
             {
                 "last_check": last_check,
                 "now": timezone.now(),
                 "interval_seconds": settings.MONITOR_INTERVAL_SECONDS,
+                "opencast": {
+                    "enabled": bool(settings.OPENCAST_URL),
+                    "last_success": sync_state.last_success_at if sync_state else None,
+                    "sync_seconds": settings.OPENCAST_SYNC_SECONDS,
+                },
             }
         )
