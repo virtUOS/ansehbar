@@ -1,0 +1,73 @@
+name: Release image
+
+# Publishes the all-in-one image (SPA baked in, see ../../Dockerfile) to GHCR
+# whenever a version tag is pushed. Major bumps (v1.x → v2.0.0) run under the
+# "major-release" GitHub Environment — configure a required reviewer in
+# Settings → Environments and the job pauses for approval, since a major tag
+# may ship a breaking change under :latest. Minor/patch tags run under
+# "auto-release" and proceed immediately.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  classify:
+    name: Classify bump vs. previous tag
+    runs-on: ubuntu-latest
+    outputs:
+      major: ${{ steps.classify.outputs.major }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full tag history to find the previous tag
+      - name: Classify bump
+        id: classify
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          ver="${TAG#v}"; cur_core="${ver%%-*}"; cur_major="${cur_core%%.*}"
+          prev="$(git describe --tags --abbrev=0 --match 'v*' "${TAG}^" 2>/dev/null || true)"
+          if [ -z "$prev" ]; then
+            echo "No previous tag — treating $TAG as a minor/patch release."
+            echo "major=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          prev_core="${prev#v}"; prev_core="${prev_core%%-*}"; prev_major="${prev_core%%.*}"
+          if [ "$cur_major" != "$prev_major" ]; then
+            echo "Major bump $prev → $TAG — build-and-push requires approval."
+            echo "major=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "major=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-and-push:
+    needs: classify
+    runs-on: ubuntu-latest
+    environment: ${{ needs.classify.outputs.major == 'true' && 'major-release' || 'auto-release' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ghcr.io/virtuos/ansehbar
+          tags: |
+            type=semver,pattern={{version}}
+            type=raw,value=latest
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

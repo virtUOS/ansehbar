@@ -74,8 +74,10 @@ cp .env.prod.example .env      # ausfüllen — Pflichtvariablen erzwingt compos
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-Die Pipeline auf der Uni-GitLab lintet, testet und baut; das Release-Image
-wird auf dem Server per `up -d --build` aus dem Checkout gebaut.
+GitHub Actions lintet, testet und baut jeden Pull Request
+(`.github/workflows/ci.yml`). Ein Tag `vX.Y.Z` veröffentlicht das Image als
+`ghcr.io/virtuos/ansehbar` (`.github/workflows/release.yml`); alternativ wird
+es auf dem Server per `up -d --build` aus dem Checkout gebaut.
 
 Die Settings verweigern den Start mit dem Entwicklungs-`SECRET_KEY`, sobald
 `DJANGO_DEBUG=0` ist.
@@ -183,6 +185,9 @@ Apache-2.0 mit SPDX-Headern; jede App hält Tests neben dem Code
 (`docker compose exec backend python manage.py test`); Frontend-Typecheck
 mit `docker compose exec frontend npx tsc -b`; Übersetzungs-Check mit
 `docker compose exec frontend npm run check:i18n`; Lint mit ruff
-(`backend/pyproject.toml`, inkl. Import-Sortierung). CI
-(Uni-GitLab):
-Lint, Backend-Tests gegen PostgreSQL, Frontend-Build.
+(`backend/pyproject.toml`, inkl. Import-Sortierung). CI (GitHub Actions):
+Lint, Backend-Tests gegen PostgreSQL, Frontend-Build, -Tests und
+Übersetzungs-Check.
+
+Beiträge laufen über Pull Requests: `main` ist geschützt, gearbeitet wird
+auf Branches (`feature/…`, `fix/…`, `chore/…`, `docs/…`).
