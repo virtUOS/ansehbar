@@ -318,6 +318,29 @@ class RunCycleTests(TestCase):
         self.assertIsNone(r.status.live_since)
         self.assertIsNone(r.status.offline_since)
 
+    def test_run_cycle_keeps_agent_fields_written_during_cycle(self):
+        # The Opencast sync (own thread) may commit while the probes run;
+        # the cycle must only write the fields it owns.
+        r = Recorder.objects.create(room_name="A", stream_name="rec-a")
+        RecorderStatus.objects.filter(recorder=r).update(agent_state="idle")
+        from recorders import monitor
+
+        real_evaluate = monitor.evaluate
+
+        def evaluate_after_sync(*args, **kwargs):
+            RecorderStatus.objects.filter(recorder=r).update(
+                agent_state="capturing", agent_updated_at=NOW
+            )
+            return real_evaluate(*args, **kwargs)
+
+        with mock.patch.object(monitor, "evaluate", evaluate_after_sync):
+            run_cycle(FakeSource({"rec-a": Probe(True, True, 100, 6.0)}), NOW)
+        r.status.refresh_from_db()
+        self.assertEqual(r.status.state, "live")
+        self.assertEqual(r.status.checked_at, NOW)
+        self.assertEqual(r.status.agent_state, "capturing")
+        self.assertEqual(r.status.agent_updated_at, NOW)
+
     def _step(self, recorder, probe, at):
         run_cycle(FakeSource({recorder.stream_name: probe}), at)
         recorder.status.refresh_from_db()
