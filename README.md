@@ -75,6 +75,44 @@ wird auf dem Server per `up -d --build` aus dem Checkout gebaut.
 Die Settings verweigern den Start mit dem Entwicklungs-`SECRET_KEY`, sobald
 `DJANGO_DEBUG=0` ist.
 
+## Standortkonfiguration
+
+Das Repository enthält keine Angaben zur Infrastruktur der betreibenden
+Einrichtung. Stream-Hostnamen, Rekorder-/Stream-Namen und Raumnamen stehen in
+einer lokalen JSON-Datei, die nicht eingecheckt wird (`*.local.json` ist in
+`.gitignore`). Sie enthält die Stream-URL-Vorlage (`stream_url_template`,
+optional) und die Liste der Rekorder (`stream_name`, `room_name`, optional
+`active`, Standard `true`).
+
+Datei anlegen: `backend/site.example.json` nach `backend/site.local.json`
+kopieren und mit den echten Werten füllen. Stream-Namen sind case-sensitiv.
+
+Laden in der Entwicklung:
+
+```bash
+docker compose exec backend python manage.py load_site_config
+# Optionen: --path PFAD, --deactivate-missing, --dry-run
+```
+
+Laden in Produktion (ohne Mount, die Datei kommt über stdin):
+
+```bash
+docker compose -f docker-compose.prod.yml exec -T app \
+  python manage.py load_site_config --path - < site.local.json
+```
+
+Die Datei wird vollständig geprüft, bevor etwas geschrieben wird; bei Fehlern
+bricht der Befehl mit einer Liste aller Probleme ab. Rekorder werden anhand des
+Stream-Namens angelegt oder aktualisiert, nie gelöscht. Mit
+`--deactivate-missing` werden Rekorder, die nicht in der Datei stehen,
+deaktiviert. `--dry-run` zeigt nur die Zusammenfassung (angelegt / aktualisiert
+/ unverändert / deaktiviert). Mehrfaches Laden ist unschädlich.
+
+Hinweis: Änderungen, die die Verwaltung später im Frontend vornimmt, liegen nur
+in der Datenbank. Ein erneutes Laden der Datei überschreibt Raumname und
+Aktiv-Status aller dort aufgeführten Rekorder (und die Stream-URL-Vorlage, falls
+angegeben).
+
 ## Betrieb
 
 Die App läuft als zwei Prozesse aus demselben Image: `backend` (Web/API) und
@@ -94,6 +132,7 @@ Umgebungsvariablen (siehe `.env.prod.example`).
 | `ANSEHBAR_BOOTSTRAP_USERS` | Kommagetrennte Benutzernamen/E-Mails mit Zugang ohne Gruppe (erste Einrichtung); weitere Personen lädt die Verwaltung unter „Einladungen“ ein | leer |
 | `ANSEHBAR_ACCESS_CONTACT` | Kontakt (z. B. Mailadresse), der Personen ohne Zugang angezeigt wird | leer |
 | `MONITOR_INTERVAL_SECONDS` | Sekunden zwischen zwei Prüfläufen des Monitors | `10` |
+| `ANSEHBAR_SITE_CONFIG` | Pfad der Standortkonfiguration für `load_site_config` (siehe „Standortkonfiguration“) | `backend/site.local.json` |
 
 Hinweise:
 

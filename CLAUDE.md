@@ -36,6 +36,7 @@ docker compose exec frontend npx tsc -b                # Frontend-Typecheck
 docker compose exec frontend npm test                  # Frontend-Tests (vitest)
 docker compose exec frontend npm run check:i18n        # jeder t("…")-Key hat eine deutsche Übersetzung
 docker compose exec backend python manage.py run_monitor --once  # ein Prüflauf
+docker compose exec backend python manage.py load_site_config    # Rekorder/Stream-URL aus backend/site.local.json laden
 docker compose exec backend sh -c "pip install -q ruff && ruff check ."  # Lint (wie CI, Config in backend/pyproject.toml)
 ```
 
@@ -65,4 +66,8 @@ docker compose exec backend sh -c "pip install -q ruff && ruff check ."  # Lint 
 - Stream-Namen sind case-sensitiv (`cap-90-R12`), nie kleinschreiben.
 - „Live“ = Chunklist existiert und ihre Media-Sequence hat sich innerhalb von
   `3 × TARGETDURATION` geändert; HTTP 200 auf die Master-Playlist allein reicht nicht.
+- Keine Infrastrukturdetails der Einrichtung (Stream-Hostnamen, Rekorder-/Raumnamen)
+  im Repo: sie stehen in der git-ignorierten `backend/site.local.json`
+  (Vorlage `backend/site.example.json`, Befehl `load_site_config`, siehe README
+  „Standortkonfiguration“). Migrationen und Tests nur mit fiktiven Werten.
 - ansehBAR schreibt nie nach Keycloak.

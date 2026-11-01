@@ -166,6 +166,11 @@ ANSEHBAR_ACCESS_GROUP = os.environ.get("ANSEHBAR_ACCESS_GROUP", "ansehbar-users"
 ANSEHBAR_BOOTSTRAP_USERS = _env_list("ANSEHBAR_BOOTSTRAP_USERS", "")
 ANSEHBAR_ACCESS_CONTACT = os.environ.get("ANSEHBAR_ACCESS_CONTACT", "")
 MONITOR_INTERVAL_SECONDS = _int_or_default("MONITOR_INTERVAL_SECONDS", 10)
+# Local, git-ignored site configuration (recorders, stream URL template);
+# loaded with `manage.py load_site_config`.
+ANSEHBAR_SITE_CONFIG = os.environ.get("ANSEHBAR_SITE_CONFIG") or str(
+    BASE_DIR / "site.local.json"
+)
 
 # Console logging (container logs). The monitor logs under "recorders".
 LOGGING = {

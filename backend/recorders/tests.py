@@ -1,12 +1,17 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Universität Osnabrück (virtUOS)
 
-"""Tests for recorders, monitor settings and the seed data."""
+"""Tests for recorders and monitor settings."""
+import json
+import tempfile
 from datetime import datetime, timezone
+from io import StringIO
+from pathlib import Path
 from unittest import mock
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.core.management import call_command
+from django.core.management import CommandError, call_command
 from django.test import TestCase, override_settings
 
 from recorders.models import MonitorSettings, Recorder, RecorderStatus
@@ -190,7 +195,7 @@ class MonitorSettingsApiTests(TestCase):
 
 class MonitorHealthApiTests(TestCase):
     def setUp(self):
-        Recorder.objects.all().delete()  # drop seeded recorders
+        Recorder.objects.all().delete()
         member = User.objects.create_user(username="member", is_superuser=True)
         self.client.force_login(member)
 
@@ -225,25 +230,6 @@ class MonitorHealthApiTests(TestCase):
         self.assertEqual(self.client.get("/api/monitor/health/").status_code, 403)
 
 
-class SeedTests(TestCase):
-    def test_seed_created_33_active_recorders(self):
-        self.assertEqual(Recorder.objects.count(), 33)
-        self.assertEqual(Recorder.objects.filter(active=True).count(), 33)
-        self.assertEqual(RecorderStatus.objects.count(), 33)
-        self.assertEqual(
-            Recorder.objects.get(stream_name="rec-hall").room_name, "20/R06 (Hall)"
-        )
-        self.assertEqual(
-            Recorder.objects.get(stream_name="cap-90-r12").room_name, "90/R12"
-        )
-        self.assertEqual(
-            Recorder.objects.get(stream_name="cap-10-r16").room_name, "10/R16"
-        )
-        self.assertEqual(
-            Recorder.objects.get(stream_name="rec-40-r28").room_name, "40/R28"
-        )
-
-
 class FakeSource:
     def __init__(self, probes):
         self.probes = probes
@@ -265,7 +251,7 @@ NOW = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
 
 class RunCycleTests(TestCase):
     def setUp(self):
-        Recorder.objects.all().delete()  # drop seeded recorders
+        Recorder.objects.all().delete()
 
     def test_run_cycle_one_failing_probe_does_not_affect_others(self):
         a = Recorder.objects.create(room_name="A", stream_name="rec-a")
@@ -328,3 +314,119 @@ class RunMonitorLoggingTests(TestCase):
                 cmd._log_summary(3, {**same, "live": 2})  # a minute later: INFO
         levels = [r.levelname for r in logs.records]
         self.assertEqual(levels, ["INFO", "DEBUG", "INFO", "INFO"])
+
+
+class LoadSiteConfigTests(TestCase):
+    TEMPLATE = "https://streams.example.net/{stream}/index.m3u8"
+
+    def run_cmd(self, config, *args, path=None):
+        out = StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            file = Path(tmp) / "site.json"
+            file.write_text(json.dumps(config) if not isinstance(config, str) else config)
+            call_command(
+                "load_site_config", "--path", path or str(file), *args, stdout=out
+            )
+        return out.getvalue()
+
+    def config(self, **extra):
+        return {
+            "recorders": [
+                {"stream_name": "rec-a", "room_name": "A"},
+                {"stream_name": "cap-b-R2", "room_name": "B", "active": False},
+            ],
+            **extra,
+        }
+
+    def test_create_update_unchanged(self):
+        out = self.run_cmd(self.config())
+        self.assertIn("created: 2, updated: 0, unchanged: 0", out)
+        self.assertTrue(Recorder.objects.get(stream_name="rec-a").active)
+        self.assertFalse(Recorder.objects.get(stream_name="cap-b-R2").active)
+        self.assertTrue(RecorderStatus.objects.filter(recorder__stream_name="rec-a").exists())
+        # Idempotent.
+        self.assertIn("created: 0, updated: 0, unchanged: 2", self.run_cmd(self.config()))
+        cfg = self.config()
+        cfg["recorders"][0]["room_name"] = "A2"
+        self.assertIn("created: 0, updated: 1, unchanged: 1", self.run_cmd(cfg))
+        self.assertEqual(Recorder.objects.get(stream_name="rec-a").room_name, "A2")
+
+    def test_stream_name_exact_case(self):
+        Recorder.objects.create(room_name="X", stream_name="REC-A")
+        self.run_cmd(self.config())
+        self.assertEqual(Recorder.objects.count(), 3)
+
+    def test_untouched_unless_deactivate_missing(self):
+        Recorder.objects.create(room_name="Z", stream_name="rec-z")
+        self.run_cmd(self.config())
+        self.assertTrue(Recorder.objects.get(stream_name="rec-z").active)
+        out = self.run_cmd(self.config(), "--deactivate-missing")
+        self.assertIn("deactivated: 1", out)
+        self.assertFalse(Recorder.objects.get(stream_name="rec-z").active)
+        self.assertTrue(Recorder.objects.get(stream_name="rec-a").active)
+
+    def test_invalid_file_writes_nothing_and_lists_all_problems(self):
+        cfg = {
+            "stream_url_template": "ftp://x/{stream}",
+            "recorders": [
+                {"stream_name": "ok-1", "room_name": "OK"},
+                {"stream_name": "bad/name", "room_name": "X"},
+                {"stream_name": "ok-1", "room_name": "dup"},
+                {"stream_name": "no-room"},
+            ],
+        }
+        with self.assertRaises(CommandError) as ctx:
+            self.run_cmd(cfg)
+        msg = str(ctx.exception)
+        for part in ("stream_url_template", "bad/name", "duplicate", "room_name required"):
+            self.assertIn(part, msg)
+        self.assertEqual(Recorder.objects.count(), 0)
+
+    def test_invalid_json_and_missing_recorders(self):
+        with self.assertRaises(CommandError):
+            self.run_cmd("{nope")
+        with self.assertRaises(CommandError):
+            self.run_cmd({})
+
+    def test_missing_file(self):
+        with self.assertRaises(CommandError):
+            call_command("load_site_config", "--path", "/nonexistent/x.json")
+
+    def test_default_path_from_settings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            file = Path(tmp) / "s.json"
+            file.write_text(json.dumps(self.config()))
+            with override_settings(ANSEHBAR_SITE_CONFIG=str(file)):
+                call_command("load_site_config", stdout=StringIO())
+        self.assertEqual(Recorder.objects.count(), 2)
+
+    def test_stdin_path(self):
+        out = StringIO()
+        with mock.patch("sys.stdin", StringIO(json.dumps(self.config()))):
+            call_command("load_site_config", "--path", "-", stdout=out)
+        self.assertEqual(Recorder.objects.count(), 2)
+
+    def test_dry_run_writes_nothing(self):
+        out = self.run_cmd(self.config(stream_url_template=self.TEMPLATE), "--dry-run")
+        self.assertIn("created: 2", out)
+        self.assertIn("template changed: yes", out)
+        self.assertEqual(Recorder.objects.count(), 0)
+        self.assertNotEqual(MonitorSettings.load().url_template, self.TEMPLATE)
+
+    def test_template_update(self):
+        out = self.run_cmd(self.config(stream_url_template=self.TEMPLATE))
+        self.assertIn("template changed: yes", out)
+        self.assertEqual(MonitorSettings.load().url_template, self.TEMPLATE)
+        out = self.run_cmd(self.config(stream_url_template=self.TEMPLATE))
+        self.assertIn("template changed: no", out)
+        # Absent key leaves the template alone.
+        self.run_cmd(self.config())
+        self.assertEqual(MonitorSettings.load().url_template, self.TEMPLATE)
+
+    def test_example_file_loads_cleanly(self):
+        example = Path(settings.BASE_DIR) / "site.example.json"
+        out = StringIO()
+        call_command("load_site_config", "--path", str(example), stdout=out)
+        self.assertIn("created: 4", out.getvalue())
+        self.assertFalse(Recorder.objects.get(stream_name="rec-20-hall").active)
+        self.assertIn("unchanged: 4", self.run_cmd(json.loads(example.read_text())))
