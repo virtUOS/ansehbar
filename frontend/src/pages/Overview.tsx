@@ -105,7 +105,12 @@ export function Overview() {
 
   // Announce recorders that newly turn "missing"; never on the first load.
   const prevMissing = useRef<Set<number> | null>(null);
-  const [announcement, setAnnouncement] = useState("");
+  const [announcement, setAnnouncement] = useState({ text: "", seq: 0 });
+  // The clear timer lives outside the effect: polls re-run the effect, but must
+  // not cancel it. Each announcement gets a new seq, so the live region node is
+  // recreated and identical texts (flapping stream) are announced again.
+  const clearTimer = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => () => clearTimeout(clearTimer.current), []);
   useEffect(() => {
     if (!lastUpdated) return;
     const fresh = newlyMissing(prevMissing.current, sorted);
@@ -113,13 +118,17 @@ export function Overview() {
       sorted.filter((r) => presentation(r) === "missing").map((r) => r.id),
     );
     if (fresh.length === 0) return;
-    setAnnouncement(
-      fresh
+    clearTimeout(clearTimer.current);
+    clearTimer.current = setTimeout(
+      () => setAnnouncement((a) => ({ ...a, text: "" })),
+      10000,
+    );
+    setAnnouncement((a) => ({
+      seq: a.seq + 1,
+      text: fresh
         .map((r) => t("Stream missing in {{room}}", { room: displayName(r) }))
         .join(". "),
-    );
-    const timer = setTimeout(() => setAnnouncement(""), 10000);
-    return () => clearTimeout(timer);
+    }));
   }, [sorted, lastUpdated, t]);
 
   const chip = (m: OverviewMode, label: string, n: number) => (
@@ -147,7 +156,7 @@ export function Overview() {
         opencastLastSuccess={opencastLastSuccess}
       />
       <p aria-live="polite" className="sr-only">
-        {announcement}
+        <span key={announcement.seq}>{announcement.text}</span>
       </p>
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex gap-2">
