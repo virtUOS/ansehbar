@@ -1,10 +1,46 @@
 # ansehBAR
 
-Kontrolle der Live-Streams aus den Aufzeichnungsräumen
+Kontrolle der Live-Streams aus den Aufzeichnungsräumen der Universität
+Osnabrück — ein Werkzeug des virtUOS aus der Familie der „-bar“-Tools.
 
-Erzeugt aus dem [basicbar-Template](https://github.com/virtUOS/basicbar)
-(Django + DRF, React + Vite, OIDC via Keycloak, @basicbar/ui-Designsystem,
-optionale KI-/Übersetzungs-Integrationen).
+## Worum es geht
+
+Die Hörsaal-Rekorder zeichnen die von Opencast geplanten Veranstaltungen
+auf und streamen dabei immer gleichzeitig live: Kamera- und Bildschirmbild
+in einem Video. Fehlt der Live-Stream während eines Termins, ist praktisch
+auch die Aufzeichnung kaputt. ansehBAR zeigt auf einen Blick, welche Räume
+gerade senden, und macht Bild und Ton prüfbar:
+
+- **PC-Übersicht:** Kacheln für alle Räume, die gerade streamen, mit
+  „seit HH:MM“, Pegelanzeige (auch bei stummem Video) und Ton pro Kachel.
+  Räume ohne Stream stehen klar gekennzeichnet darunter.
+- **Smartphone:** eine Raumansicht mit großem Player, Ton, Vollbild und
+  Laufzeit, z. B. für Technikerinnen und Techniker bei wichtigen
+  Veranstaltungen.
+- **Klare Zustände statt schwarzer Player:** „Kein Stream“, „Status
+  unbekannt“, „Wiedergabe gestört“ und ein Hinweis, wenn der Monitor selbst
+  keine Daten mehr liefert.
+- **Verwaltung:** Rekorder pflegen, Personen einladen, Streaming-URL
+  einstellen.
+
+ansehBAR ist ein Kontrollwerkzeug für einen kleinen Personenkreis
+(Medientechnik, Team Aufzeichnungen), kein Streaming-Angebot für alle. Die
+Anmeldung läuft über OIDC (Keycloak); Zugang haben Mitglieder einer
+IdP-Gruppe und in ansehBAR eingeladene Personen. ansehBAR ändert nichts in
+Keycloak, Opencast oder an den Rekordern — es beobachtet nur.
+
+**Stand:** Stufe 1 — Monitor mit gepflegter Rekorderliste und
+Live-Erkennung der HLS-Streams (derzeit ein HLS-Streaming-Server). Geplant sind die Anbindung
+an Opencast (Stufe 2), Alarme per E-Mail und Matrix mit Ausfallprotokoll
+(Stufe 3) und lernende Toleranzen (Stufe 4); Details im
+[Design-Dokument](docs/superpowers/specs/2026-10-30-ansehbar-design.md).
+
+**Technik:** erzeugt aus dem
+[basicbar-Template](https://github.com/virtUOS/basicbar) — Django + DRF,
+React + Vite, OIDC via Keycloak, @basicbar/ui-Designsystem, hls.js; ein
+eigener Monitor-Prozess prüft die Streams.
+
+**Lizenz:** [Apache-2.0](LICENSE), siehe auch [NOTICE](NOTICE).
 
 ## Entwicklung
 

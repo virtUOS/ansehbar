@@ -1,0 +1,9 @@
+ansehBAR — Kontrolle der Live-Streams aus den Aufzeichnungsräumen
+Copyright 2026 Universität Osnabrück (virtUOS)
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This software depends on third-party components distributed under their own
+licenses (MIT, BSD, Apache-2.0, …), e.g. Django, Django REST framework,
+React, hls.js, Tailwind CSS and the virtUOS basicbar packages. The respective
+upstream license texts apply to those components.
