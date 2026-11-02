@@ -189,6 +189,7 @@ def run_opencast_sync(
         events = client.scheduled_events(window_start, window_end)
     except OpencastError as exc:
         state.last_error = str(exc)[:300]
+        state.last_error_kind = exc.kind
         state.save()
         logger.warning("Opencast sync failed: %s", exc)
         return
@@ -197,4 +198,5 @@ def run_opencast_sync(
         sync_events(events, window_start, window_end)
         state.last_success_at = now
         state.last_error = ""
+        state.last_error_kind = "no_events" if agents and not events else ""
         state.save()

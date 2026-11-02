@@ -38,3 +38,6 @@ msgstr "Die URL-Vorlage muss {stream} genau einmal enthalten."
 
 msgid "The URL template must not contain other braces."
 msgstr "Die URL-Vorlage darf keine weiteren geschweiften Klammern enthalten."
+
+msgid "Opencast is not configured."
+msgstr "Opencast ist nicht konfiguriert."

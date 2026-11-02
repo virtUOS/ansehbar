@@ -96,6 +96,9 @@ class MonitorHealthView(APIView):
                     "enabled": bool(settings.OPENCAST_URL),
                     "last_success": sync_state.last_success_at if sync_state else None,
                     "sync_seconds": settings.OPENCAST_SYNC_SECONDS,
+                    "last_attempt": sync_state.last_attempt_at if sync_state else None,
+                    "error_kind": sync_state.last_error_kind if sync_state else "",
+                    "requested": bool(sync_state and sync_state.sync_requested),
                 },
             }
         )

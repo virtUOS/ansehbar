@@ -8,7 +8,8 @@ from unittest import mock
 from urllib.parse import parse_qs
 
 import httpx
-from django.test import SimpleTestCase, TestCase
+from django.contrib.auth import get_user_model
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from opencast import sync
 from opencast.client import Agent, Event, OpencastClient, OpencastError
@@ -135,6 +136,73 @@ class AgentsTests(SimpleTestCase):
         self.assertEqual({r.method for r in requests}, {"GET"})
 
 
+class ErrorKindTests(SimpleTestCase):
+    def kind(self, handler, **kwargs):
+        client, _ = make_client(handler, **kwargs)
+        with self.assertRaises(OpencastError) as ctx:
+            client.agents()
+        self.assertNotIn(PASSWORD, str(ctx.exception))
+        self.assertNotIn("opencast.example.org", str(ctx.exception))
+        return ctx.exception.kind
+
+    def test_html_forbidden_with_200_is_forbidden_error(self):
+        body = (
+            "<!DOCTYPE html>\n<html><head><title>Opencast :: Forbidden</title>"
+            "</head><body>Forbidden</body></html>"
+        )
+        handler = lambda r: httpx.Response(  # noqa: E731
+            200, text=body, headers={"Content-Type": "application/json"}
+        )
+        self.assertEqual(self.kind(handler), "forbidden")
+
+    def test_forbidden_text_without_markup_is_forbidden(self):
+        handler = lambda r: httpx.Response(200, text="Opencast :: Forbidden")  # noqa: E731
+        self.assertEqual(self.kind(handler), "forbidden")
+
+    def test_http_403_is_forbidden(self):
+        self.assertEqual(self.kind(lambda r: httpx.Response(403)), "forbidden")
+
+    def test_http_401_is_auth(self):
+        self.assertEqual(self.kind(lambda r: httpx.Response(401)), "auth")
+
+    def test_http_503_is_server(self):
+        self.assertEqual(self.kind(lambda r: httpx.Response(503)), "server")
+
+    def test_connect_error_is_unreachable(self):
+        def boom(request):
+            raise httpx.ConnectError("refused", request=request)
+
+        self.assertEqual(self.kind(boom), "unreachable")
+
+    def test_request_timeout_is_timeout(self):
+        def boom(request):
+            raise httpx.ReadTimeout("slow", request=request)
+
+        self.assertEqual(self.kind(boom), "timeout")
+
+    def test_total_timeout_is_timeout(self):
+        row = fixture("agents.json")[0]
+        clock = [0.0]
+
+        def slow(request):
+            clock[0] += 20
+            return json_response([row, row])
+
+        with mock.patch("opencast.client.time.monotonic", lambda: clock[0]):
+            self.assertEqual(self.kind(slow, page_size=2, total_timeout=45), "timeout")
+
+    def test_invalid_json_is_invalid(self):
+        self.assertEqual(self.kind(lambda r: httpx.Response(200, text="{")), "invalid")
+
+    def test_wrong_shape_is_invalid(self):
+        self.assertEqual(self.kind(lambda r: json_response({"a": 1})), "invalid")
+
+    def test_max_pages_is_invalid(self):
+        row = fixture("agents.json")[0]
+        handler = lambda r: json_response([row, row])  # noqa: E731
+        self.assertEqual(self.kind(handler, page_size=2, max_pages=2), "invalid")
+
+
 class EventsTests(SimpleTestCase):
     def window(self):
         return (
@@ -181,7 +249,7 @@ class FakeClient:
 
     def scheduled_events(self, start, end):
         if self.fail_events:
-            raise OpencastError("/api/events/: HTTP 500")
+            raise OpencastError("/api/events/: HTTP 500", "server")
         return self._events
 
 
@@ -339,3 +407,71 @@ class SyncTests(TestCase):
         self.assertEqual(state.last_success_at, NOW)
         self.assertEqual(state.last_error, "")
         self.assertEqual(ScheduledEvent.objects.count(), 1)
+
+    def test_sync_sets_no_events_hint(self):
+        client = FakeClient(agents=[self.agent("rec-hall"), self.agent("rec-b")])
+        sync.run_opencast_sync(client, NOW, 7)
+        state = OpencastSyncState.load()
+        self.assertEqual(state.last_success_at, NOW)
+        self.assertEqual(state.last_error, "")
+        self.assertEqual(state.last_error_kind, "no_events")
+        self.assertEqual(Recorder.objects.count(), 2)
+
+    def test_sync_without_agents_and_events_has_no_hint(self):
+        sync.run_opencast_sync(FakeClient(), NOW, 7)
+        self.assertEqual(OpencastSyncState.load().last_error_kind, "")
+
+    def test_sync_success_clears_error_kind(self):
+        state = OpencastSyncState.load()
+        state.last_error_kind = "auth"
+        state.save()
+        client = FakeClient(agents=[self.agent("rec-hall")], events=[self.event("a")])
+        sync.run_opencast_sync(client, NOW, 7)
+        self.assertEqual(OpencastSyncState.load().last_error_kind, "")
+
+    def test_sync_error_kind_recorded(self):
+        class Failing(FakeClient):
+            def agents(self):
+                raise OpencastError("/api/agents: HTTP 401", "auth")
+
+        sync.run_opencast_sync(Failing(), NOW, 7)
+        state = OpencastSyncState.load()
+        self.assertEqual(state.last_error_kind, "auth")
+        self.assertTrue(state.last_error)
+        self.assertEqual(Recorder.objects.count(), 0)
+
+
+User = get_user_model()
+
+
+class SyncRequestApiTests(TestCase):
+    def setUp(self):
+        self.client.force_login(User.objects.create_user(username="m", is_superuser=True))
+
+    @override_settings(OPENCAST_URL="https://opencast.example.org")
+    def test_sync_request_endpoint(self):
+        response = self.client.post("/api/opencast/sync/")
+        self.assertEqual(response.status_code, 202)
+        state = OpencastSyncState.load()
+        self.assertIsNotNone(state.requested_at)
+        self.assertEqual(
+            datetime.fromisoformat(response.json()["requested_at"].replace("Z", "+00:00")),
+            state.requested_at,
+        )
+
+    @override_settings(OPENCAST_URL="")
+    def test_sync_request_without_opencast_is_409(self):
+        response = self.client.post("/api/opencast/sync/")
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json(), {"detail": "Opencast is not configured."})
+        self.assertIsNone(OpencastSyncState.load().requested_at)
+
+    @override_settings(OPENCAST_URL="https://opencast.example.org")
+    def test_sync_request_requires_access(self):
+        self.client.force_login(User.objects.create_user(username="outsider"))
+        self.assertEqual(self.client.post("/api/opencast/sync/").status_code, 403)
+        self.assertIsNone(OpencastSyncState.load().requested_at)
+
+    @override_settings(OPENCAST_URL="https://opencast.example.org")
+    def test_sync_request_rejects_get(self):
+        self.assertEqual(self.client.get("/api/opencast/sync/").status_code, 405)

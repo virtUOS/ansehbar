@@ -96,10 +96,20 @@ class Command(BaseCommand):
         if (
             self._last_sync_at is not None
             and now - self._last_sync_at < settings.OPENCAST_SYNC_SECONDS
+            and not self._sync_requested()
         ):
             return False
         self._last_sync_at = now
         return True
+
+    def _sync_requested(self):
+        """True if "sync now" was pressed after the last sync attempt."""
+        try:
+            state = OpencastSyncState.objects.filter(pk=1).first()
+            return bool(state and state.sync_requested)
+        except Exception:
+            logger.exception("could not read the opencast sync request")
+            return False
 
     def _start_sync(self, http_client):
         """Start a sync thread if due; skip while the previous one still runs."""

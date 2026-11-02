@@ -33,6 +33,11 @@ class OpencastSyncState(models.Model):
     last_attempt_at = models.DateTimeField(null=True, blank=True)
     last_success_at = models.DateTimeField(null=True, blank=True)
     last_error = models.CharField(max_length=300, blank=True)
+    # Category of the last failure (see OpencastError.kind) or "no_events":
+    # sync worked and agents exist, but no event lies in the sync window.
+    last_error_kind = models.CharField(max_length=20, blank=True)
+    # Set by "sync now"; the monitor syncs when this is newer than last_attempt_at.
+    requested_at = models.DateTimeField(null=True, blank=True)
 
     @classmethod
     def load(cls) -> "OpencastSyncState":
@@ -42,3 +47,10 @@ class OpencastSyncState(models.Model):
     def save(self, *args, **kwargs):
         self.pk = 1
         super().save(*args, **kwargs)
+
+    @property
+    def sync_requested(self) -> bool:
+        """A "sync now" request that no attempt has served yet."""
+        return self.requested_at is not None and (
+            self.last_attempt_at is None or self.requested_at > self.last_attempt_at
+        )

@@ -5,7 +5,8 @@
 import json
 import tempfile
 import threading
-from datetime import datetime, timezone
+import time
+from datetime import datetime, timedelta, timezone
 from io import StringIO
 from pathlib import Path
 from unittest import mock
@@ -220,7 +221,39 @@ class MonitorSettingsApiTests(TestCase):
         self.assertEqual(
             datetime.fromisoformat(block["last_success"].replace("Z", "+00:00")), ok
         )
-        self.assertEqual(set(block), {"enabled", "last_success", "sync_seconds"})
+        self.assertEqual(
+            set(block),
+            {"enabled", "last_success", "sync_seconds", "last_attempt", "error_kind", "requested"},
+        )
+
+    @override_settings(OPENCAST_URL="https://opencast.example.org")
+    def test_health_reports_request_and_error_kind(self):
+        t1 = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+        t2 = datetime(2026, 1, 1, 12, 5, tzinfo=timezone.utc)
+        block = self.client.get("/api/monitor/health/").json()["opencast"]
+        self.assertIsNone(block["last_attempt"])
+        self.assertEqual(block["error_kind"], "")
+        self.assertFalse(block["requested"])
+        state = OpencastSyncState.load()
+        state.last_attempt_at = t1
+        state.last_error_kind = "forbidden"
+        state.last_error = "/api/agents: forbidden"
+        state.save()
+        block = self.client.get("/api/monitor/health/").json()["opencast"]
+        self.assertEqual(
+            datetime.fromisoformat(block["last_attempt"].replace("Z", "+00:00")), t1
+        )
+        self.assertEqual(block["error_kind"], "forbidden")
+        self.assertFalse(block["requested"])
+        state.requested_at = t2
+        state.save()
+        self.assertTrue(self.client.get("/api/monitor/health/").json()["opencast"]["requested"])
+        state.last_attempt_at = t2
+        state.save()
+        self.assertFalse(self.client.get("/api/monitor/health/").json()["opencast"]["requested"])
+        state.last_attempt_at = None
+        state.save()
+        self.assertTrue(self.client.get("/api/monitor/health/").json()["opencast"]["requested"])
 
     def test_requires_access(self):
         outsider = User.objects.create_user(username="out")
@@ -435,7 +468,7 @@ class RunMonitorOpencastTests(TestCase):
 
     @override_settings(OPENCAST_URL="https://opencast.example.org")
     def test_run_monitor_logs_opencast_error_without_traceback(self):
-        sync = mock.Mock(side_effect=OpencastError("/x: HTTP 500"))
+        sync = mock.Mock(side_effect=OpencastError("/x: HTTP 500", "server"))
         with self.assertLogs(MONITOR, level="DEBUG") as logs:
             self._run(sync)
         self.assertTrue(any(r.levelname == "WARNING" for r in logs.records))
@@ -475,6 +508,7 @@ class RunMonitorOpencastTests(TestCase):
         self.source.probe = probe
         state = mock.Mock()
         state.load.return_value.last_error = ""
+        state.objects.filter.return_value.first.return_value = None
         with override_settings(OPENCAST_URL="https://opencast.example.org"), \
                 mock.patch(f"{MONITOR}.HlsStreamSource", return_value=self.source), \
                 mock.patch(f"{MONITOR}.run_opencast_sync", blocking_sync), \
@@ -500,6 +534,91 @@ class RunMonitorOpencastTests(TestCase):
                 mock.patch.object(run_monitor.threading, "Thread") as thread:
             cmd._start_sync(mock.Mock())
         thread.assert_not_called()
+
+    def _bare_cmd(self):
+        from recorders.management.commands import run_monitor
+
+        cmd = run_monitor.Command()
+        cmd._last_sync_at = None
+        cmd._opencast_status = "off"
+        cmd._insecure_logged = False
+        cmd._sync_thread = None
+        return cmd
+
+    @override_settings(
+        OPENCAST_URL="https://opencast.example.org", OPENCAST_SYNC_SECONDS=3600
+    )
+    def test_requested_sync_runs_before_interval(self):
+        cmd = self._bare_cmd()
+        self.assertTrue(cmd._sync_due())  # first sync
+        self.assertFalse(cmd._sync_due())  # interval not over
+        now = datetime.now(timezone.utc)
+        state = OpencastSyncState.load()
+        state.last_attempt_at = now
+        state.save()
+        self.assertFalse(cmd._sync_due())  # no request
+        state.requested_at = now - timedelta(seconds=5)
+        state.save()
+        self.assertFalse(cmd._sync_due())  # request older than the attempt
+        state.requested_at = now + timedelta(seconds=5)
+        state.save()
+        self.assertTrue(cmd._sync_due())  # request newer than the attempt
+
+    @override_settings(
+        OPENCAST_URL="https://opencast.example.org", OPENCAST_SYNC_SECONDS=3600
+    )
+    def test_request_without_any_attempt_is_due(self):
+        cmd = self._bare_cmd()
+        cmd._last_sync_at = time.monotonic()
+        state = OpencastSyncState.load()
+        state.requested_at = datetime.now(timezone.utc)
+        state.save()
+        self.assertTrue(cmd._sync_due())
+
+    @override_settings(OPENCAST_URL="", OPENCAST_SYNC_SECONDS=3600)
+    def test_request_without_opencast_is_not_due(self):
+        cmd = self._bare_cmd()
+        state = OpencastSyncState.load()
+        state.requested_at = datetime.now(timezone.utc)
+        state.save()
+        self.assertFalse(cmd._sync_due())
+
+    @override_settings(
+        OPENCAST_URL="https://opencast.example.org", OPENCAST_SYNC_SECONDS=3600
+    )
+    def test_request_during_running_sync_is_served_after(self):
+        cmd = self._bare_cmd()
+        started = threading.Event()
+        release = threading.Event()
+        calls = []
+
+        def fake_sync(client, now, lookahead):
+            calls.append(now)
+            state = OpencastSyncState.load()
+            state.last_attempt_at = now
+            state.save()
+            if len(calls) == 1:
+                started.set()
+                release.wait(5)
+
+        with mock.patch(f"{MONITOR}.run_opencast_sync", fake_sync):
+            cmd._start_sync(mock.Mock())
+            self.assertTrue(started.wait(2))
+            first = cmd._sync_thread
+            state = OpencastSyncState.load()
+            state.requested_at = datetime.now(timezone.utc)
+            state.save()
+            cmd._start_sync(mock.Mock())  # still running: no second thread
+            self.assertIs(cmd._sync_thread, first)
+            self.assertEqual(len(calls), 1)
+            release.set()
+            first.join(5)
+            cmd._start_sync(mock.Mock())  # follow-up for the request
+            self.assertIsNot(cmd._sync_thread, first)
+            cmd._sync_thread.join(5)
+            self.assertEqual(len(calls), 2)
+            cmd._start_sync(mock.Mock())  # served: nothing more
+            self.assertEqual(len(calls), 2)
 
     @override_settings(OPENCAST_URL="http://opencast.example.org", DEBUG=False)
     def test_run_monitor_refuses_plain_http_without_debug(self):
