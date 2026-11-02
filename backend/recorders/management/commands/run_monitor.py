@@ -16,6 +16,7 @@ from django.utils import timezone
 from opencast.client import OpencastClient, OpencastError
 from opencast.models import OpencastSyncState
 from opencast.sync import opencast_sync_enabled, run_opencast_sync
+from recorders.incidents import update_incidents
 from recorders.models import MonitorSettings, RecorderStatus
 from recorders.monitor import run_cycle
 from streams.sources import HlsStreamSource
@@ -174,7 +175,13 @@ class Command(BaseCommand):
         try:
             # Reload each cycle so template changes apply without a restart.
             source = HlsStreamSource(MonitorSettings.load().url_template, client)
-            checked = run_cycle(source, timezone.now())
+            now = timezone.now()
+            checked = run_cycle(source, now)
+            try:
+                update_incidents(now)
+            except Exception:
+                # Incident bookkeeping must never stop the stream cycle.
+                logger.exception("updating incidents failed")
             counts = {
                 state: RecorderStatus.objects.filter(
                     state=state, recorder__active=True

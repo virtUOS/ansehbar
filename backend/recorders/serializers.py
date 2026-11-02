@@ -6,6 +6,7 @@ from datetime import timedelta
 from django.utils import timezone
 from rest_framework import serializers
 
+from recorders.missing import missing_since
 from recorders.models import MonitorSettings, Recorder, RecorderStatus
 
 
@@ -124,18 +125,18 @@ class RecorderSerializer(serializers.ModelSerializer):
         return None
 
     def get_missing_since(self, obj):
-        if not obj.active or obj.status.state != RecorderStatus.OFFLINE:
-            return None
-        current = self._current(obj)
-        if current is None:
-            return None
         now = self.context.get("now") or timezone.now()
         grace = timedelta(minutes=self.context.get("grace_minutes", 0))
-        threshold = current.start + grace
-        if now < threshold:
+        since = missing_since(
+            obj.active,
+            obj.status.state,
+            obj.status.offline_since,
+            self._current(obj),
+            now,
+            grace,
+        )
+        if since is None:
             return None
-        offline_since = obj.status.offline_since
-        since = max(threshold, offline_since) if offline_since else threshold
         return serializers.DateTimeField().to_representation(since)
 
 

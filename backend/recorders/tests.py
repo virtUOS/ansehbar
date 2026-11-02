@@ -22,7 +22,7 @@ from django.test.utils import CaptureQueriesContext
 from opencast.client import Agent, OpencastError
 from opencast.models import IgnoredAgent, OpencastSyncState, ScheduledEvent
 from opencast.sync import sync_agents
-from recorders.models import MonitorSettings, Recorder, RecorderStatus
+from recorders.models import Incident, MonitorSettings, Recorder, RecorderStatus
 from recorders.monitor import run_cycle
 from streams.sources import Probe
 
@@ -1139,3 +1139,137 @@ class RecorderEventApiTests(TestCase):
         self.assertEqual(
             self.client.get("/api/settings/monitor/").json()["missing_grace_minutes"], 0
         )
+
+
+class UpdateIncidentsTests(TestCase):
+    def setUp(self):
+        from recorders.incidents import update_incidents
+
+        self.update = update_incidents
+        Recorder.objects.all().delete()
+        MonitorSettings.objects.update_or_create(
+            pk=1, defaults={"missing_grace_minutes": 3}
+        )
+        self.recorder = Recorder.objects.create(room_name="A", stream_name="rec-a")
+        self.status, _ = RecorderStatus.objects.get_or_create(recorder=self.recorder)
+        self.start = datetime(2026, 11, 2, 10, 0, tzinfo=timezone.utc)
+        self.end = datetime(2026, 11, 2, 12, 0, tzinfo=timezone.utc)
+        self.event = ScheduledEvent.objects.create(
+            identifier="ev-1", recorder=self.recorder, title="T",
+            start=self.start, end=self.end,
+        )
+
+    def at(self, hour, minute):
+        return datetime(2026, 11, 2, hour, minute, tzinfo=timezone.utc)
+
+    def set_state(self, state, offline_since=None):
+        self.status.state = state
+        self.status.offline_since = offline_since
+        self.status.save()
+
+    def incidents(self):
+        return list(Incident.objects.order_by("started_at", "pk"))
+
+    def test_incident_opened_after_grace(self):
+        self.set_state("offline", self.at(9, 50))
+        self.update(self.at(10, 2))
+        self.assertEqual(self.incidents(), [])
+        self.update(self.at(10, 5))
+        (incident,) = self.incidents()
+        self.assertEqual(incident.started_at, self.at(10, 3))
+        self.assertIsNone(incident.ended_at)
+        self.assertEqual(incident.kind, "stream_missing")
+        self.assertEqual(incident.event, self.event)
+        self.assertEqual(incident.recorder, self.recorder)
+
+    def test_incident_closed_when_live(self):
+        self.set_state("offline", self.at(9, 50))
+        self.update(self.at(10, 5))
+        self.set_state("live")
+        self.update(self.at(10, 10))
+        (incident,) = self.incidents()
+        self.assertEqual(incident.ended_at, self.at(10, 10))
+
+    def test_incident_closed_at_event_end(self):
+        self.set_state("offline", self.at(9, 50))
+        self.update(self.at(11, 59))
+        self.assertIsNone(self.incidents()[0].ended_at)
+        self.update(self.at(12, 5))
+        (incident,) = self.incidents()
+        self.assertEqual(incident.ended_at, self.end)
+
+    def test_incident_not_duplicated_across_cycles_and_restart(self):
+        self.set_state("offline", self.at(9, 50))
+        for minute in (5, 6, 7):
+            self.update(self.at(10, minute))
+        self.assertEqual(len(self.incidents()), 1)
+
+    def test_unknown_keeps_incident_open(self):
+        self.set_state("offline", self.at(9, 50))
+        self.update(self.at(10, 5))
+        self.set_state("unknown", self.at(9, 50))
+        self.update(self.at(10, 6))
+        self.assertIsNone(self.incidents()[0].ended_at)
+        self.set_state("live")
+        self.update(self.at(10, 7))
+        (incident,) = self.incidents()
+        self.assertEqual(incident.ended_at, self.at(10, 7))
+
+    def test_second_gap_same_event_new_incident(self):
+        self.set_state("offline", self.at(9, 50))
+        self.update(self.at(10, 5))
+        self.set_state("live")
+        self.update(self.at(10, 10))
+        self.set_state("offline", self.at(10, 20))
+        self.update(self.at(10, 21))
+        first, second = self.incidents()
+        self.assertEqual(first.ended_at, self.at(10, 10))
+        self.assertEqual(second.started_at, self.at(10, 20))
+        self.assertIsNone(second.ended_at)
+
+    def test_inactive_recorder_no_incident(self):
+        self.recorder.active = False
+        self.recorder.save()
+        self.set_state("offline", self.at(9, 50))
+        self.update(self.at(10, 5))
+        self.assertEqual(self.incidents(), [])
+
+    def test_no_incident_without_running_event(self):
+        self.set_state("offline", self.at(9, 0))
+        self.update(self.at(9, 30))
+        self.update(self.at(12, 30))
+        self.assertEqual(self.incidents(), [])
+
+    def test_query_count_independent_of_recorder_count(self):
+        def count():
+            with CaptureQueriesContext(connection) as ctx:
+                self.update(self.at(10, 5))
+            return len(ctx)
+
+        self.set_state("offline", self.at(9, 50))
+        base = count()
+        for i in range(5):
+            r = Recorder.objects.create(room_name=f"B{i}", stream_name=f"rec-b{i}")
+            RecorderStatus.objects.update_or_create(
+                recorder=r,
+                defaults={"state": "offline", "offline_since": self.at(9, 50)},
+            )
+            ScheduledEvent.objects.create(
+                identifier=f"ev-b{i}", recorder=r, start=self.start, end=self.end
+            )
+        self.assertEqual(count(), base + 0)  # inserts happen in bulk
+
+
+class RunMonitorIncidentTests(TestCase):
+    def test_update_incidents_error_does_not_stop_cycle(self):
+        Recorder.objects.all().delete()
+        recorder = Recorder.objects.create(room_name="A", stream_name="rec-a")
+        source = FakeSource({"rec-a": Probe(True, True, 100, 6.0)})
+        with mock.patch(f"{MONITOR}.HlsStreamSource", return_value=source), \
+                mock.patch(f"{MONITOR}.update_incidents", side_effect=RuntimeError("x")), \
+                self.assertLogs(MONITOR, level="ERROR") as logs:
+            call_command("run_monitor", "--once")
+        recorder.status.refresh_from_db()
+        self.assertIsNotNone(recorder.status.checked_at)
+        self.assertTrue(any("incidents" in m for m in logs.output))
+        self.assertFalse(any("monitor cycle failed" in m for m in logs.output))
