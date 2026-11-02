@@ -66,7 +66,16 @@ export interface MonitorHealth {
   last_check: string | null;
   now: string;
   interval_seconds: number;
-  opencast: { enabled: boolean; last_success: string | null; sync_seconds: number };
+  opencast: {
+    enabled: boolean;
+    last_success: string | null;
+    sync_seconds: number;
+    last_attempt: string | null;
+    /** "" | "unreachable" | "auth" | "forbidden" | "timeout" | "server" | "invalid" | "no_events" */
+    error_kind: string;
+    /** A manual sync was requested and has not run yet. */
+    requested: boolean;
+  };
 }
 
 export interface Invitation {
@@ -160,6 +169,10 @@ export const api = {
   },
   monitor: {
     health: () => request<MonitorHealth>("/api/monitor/health/"),
+  },
+  opencast: {
+    /** Asks the monitor for an immediate (read-only) sync. */
+    sync: () => request<{ requested_at: string }>("/api/opencast/sync/", { method: "POST" }),
   },
   invitations: {
     list: () => request<Invitation[]>("/api/invitations/"),

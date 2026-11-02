@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useAppContext } from "./appContext";
 import { ApiError, api, type Recorder } from "./api";
-import { mergeRecorders, monitorStale, opencastStale } from "./recorders";
+import { mergeRecorders, monitorStale, opencastNotice, opencastStale } from "./recorders";
 
 export function useRecorders(intervalMs = 8000, onForbidden?: () => void) {
   const [recorders, setRecorders] = useState<Recorder[]>([]);
@@ -20,6 +20,9 @@ export function useRecorders(intervalMs = 8000, onForbidden?: () => void) {
   const [ocEnabled, setOcEnabled] = useState(false);
   const [ocStale, setOcStale] = useState(false);
   const [ocLastSuccess, setOcLastSuccess] = useState<string | null>(null);
+  const [ocErrorKind, setOcErrorKind] = useState("");
+  const [ocNotice, setOcNotice] = useState<{ level: "error" | "hint" | null; key: string | null }>({ level: null, key: null });
+  const [ocRequested, setOcRequested] = useState(false);
   // Outside the app shell the context is undefined: fall back to a no-op.
   const ctx = useAppContext();
   const forbidden = useRef<(() => void) | undefined>();
@@ -47,6 +50,10 @@ export function useRecorders(intervalMs = 8000, onForbidden?: () => void) {
           setOcEnabled(health.opencast.enabled);
           setOcStale(opencastStale(health));
           setOcLastSuccess(health.opencast.last_success);
+          const notice = opencastNotice(health);
+          setOcNotice((prev) => (prev.level === notice.level && prev.key === notice.key ? prev : notice));
+          setOcRequested(health.opencast.requested);
+          setOcErrorKind(health.opencast.error_kind);
         } catch {
           /* heartbeat unavailable: keep the last known verdict */
         }
@@ -93,5 +100,8 @@ export function useRecorders(intervalMs = 8000, onForbidden?: () => void) {
     opencastEnabled: ocEnabled,
     opencastStale: ocStale,
     opencastLastSuccess: ocLastSuccess,
+    opencastErrorKind: ocErrorKind,
+    opencastNotice: ocNotice,
+    opencastRequested: ocRequested,
   };
 }

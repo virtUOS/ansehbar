@@ -3,8 +3,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Link } from "react-router-dom";
-import { Search } from "lucide-react";
+import { CalendarX2, HelpCircle, Search, VideoOff } from "lucide-react";
 import { useRecorders } from "../useRecorders";
 import {
   displayName,
@@ -19,10 +18,9 @@ import {
   sortForOverview,
   type OverviewMode,
 } from "../recorders";
-import type { Recorder } from "../api";
 import { RecorderTile } from "../components/RecorderTile";
 import { RoomList } from "../components/RoomList";
-import { RoomName } from "../components/RoomName";
+import { RoomPills } from "../components/RoomPills";
 import { UpcomingList } from "../components/UpcomingList";
 import { MonitorBanner } from "../components/MonitorBanner";
 import { AudioUnlockButton } from "../media/AudioUnlockButton";
@@ -54,6 +52,8 @@ export function Overview() {
     opencastEnabled,
     opencastStale,
     opencastLastSuccess,
+    opencastNotice,
+    opencastRequested,
   } = useRecorders();
   const [mode, setMode] = useState<OverviewMode>("now");
   const [query, setQuery] = useState("");
@@ -154,6 +154,8 @@ export function Overview() {
         lastCheck={monitorLastCheck}
         opencastStale={opencastStale}
         opencastLastSuccess={opencastLastSuccess}
+        opencastNotice={opencastNotice}
+        opencastRequested={opencastRequested}
       />
       <p aria-live="polite" className="sr-only">
         <span key={announcement.seq}>{announcement.text}</span>
@@ -178,11 +180,9 @@ export function Overview() {
             className="w-full rounded-full border border-slate-300 bg-white py-1.5 pl-9 pr-3 text-sm placeholder:text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:placeholder:text-slate-300"
           />
         </label>
-        {wide ? (
-          <div className="ml-auto">
-            <AudioUnlockButton />
-          </div>
-        ) : null}
+        <div className="sm:ml-auto">
+          <AudioUnlockButton />
+        </div>
       </div>
 
       {error ? (
@@ -232,43 +232,23 @@ export function Overview() {
       {effMode !== "all" ? (
         <>
           <UpcomingList recorders={upcoming} />
-          <RoomLinks
-            label={t("Currently without stream")}
+          <RoomPills
+            title={t("Currently without stream")}
+            icon={VideoOff}
             recorders={outside.offline}
           />
-          <RoomLinks
-            label={t("No recording today")}
+          <RoomPills
+            title={t("No recording today")}
+            icon={CalendarX2}
             recorders={outside.quiet}
           />
-          <RoomLinks label={t("Status unknown")} recorders={outside.unknown} />
+          <RoomPills
+            title={t("Status unknown")}
+            icon={HelpCircle}
+            recorders={outside.unknown}
+          />
         </>
       ) : null}
     </div>
-  );
-}
-
-function RoomLinks({
-  label,
-  recorders,
-}: {
-  label: string;
-  recorders: Recorder[];
-}) {
-  if (recorders.length === 0) return null;
-  return (
-    <p className="text-sm text-slate-700 dark:text-slate-300">
-      <span className="font-bold">{label}:</span>{" "}
-      {recorders.map((r, i) => (
-        <span key={r.id}>
-          {i > 0 ? ", " : ""}
-          <Link
-            to={`/raum/${r.id}`}
-            className="underline hover:text-brand-700 dark:hover:text-brand-300"
-          >
-            <RoomName recorder={r} />
-          </Link>
-        </span>
-      ))}
-    </p>
   );
 }

@@ -11,6 +11,7 @@ import { RoomName } from "./RoomName";
 import { HlsPlayer } from "../media/HlsPlayer";
 import { LevelMeter } from "../media/LevelMeter";
 import { useAudio } from "../media/AudioContextProvider";
+import { OpencastIcon } from "./OpencastIcon";
 import { StatusBadge } from "./StatusBadge";
 import { StreamPlaceholder } from "./StreamPlaceholder";
 import { PlaybackOverlay, usePlayback } from "./PlaybackOverlay";
@@ -136,8 +137,9 @@ function RecorderTileInner({
               })}
             </p>
           ) : null}
-          <p className="truncate text-xs text-slate-600 dark:text-slate-300">
-            {recorder.stream_name}
+          <p className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300">
+            {recorder.agent_id ? <OpencastIcon /> : null}
+            <span className="truncate">{recorder.stream_name}</span>
           </p>
         </div>
         {live ? (

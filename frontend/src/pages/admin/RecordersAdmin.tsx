@@ -8,6 +8,7 @@ import { ApiError, api, type Recorder } from "../../api";
 import { useAppContext } from "../../appContext";
 import { Field, FormErrorSummary, inputCls } from "../../components/FormParts";
 import { StatusBadge } from "../../components/StatusBadge";
+import { OpencastIcon } from "../../components/OpencastIcon";
 import { RoomName } from "../../components/RoomName";
 import { AgentStateText } from "../../components/AgentStateText";
 import { displayName, sortForAdmin } from "../../recorders";
@@ -119,7 +120,7 @@ export function RecordersAdmin() {
                   <td className="px-3 py-2 font-mono">
                     {r.agent_id ? (
                       <>
-                        {r.agent_id} <span className="font-sans text-xs text-slate-600 dark:text-slate-300">· <AgentStateText state={r.status.agent_state} /></span>
+                        <OpencastIcon className="mr-1.5" />{r.agent_id} <span className="font-sans text-xs text-slate-600 dark:text-slate-300">· <AgentStateText state={r.status.agent_state} /></span>
                       </>
                     ) : (
                       <span className="font-sans text-slate-600 dark:text-slate-300">{t("Not linked")}</span>

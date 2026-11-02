@@ -16,6 +16,7 @@ import {
   newlyMissing,
   quietWithoutRecording,
   monitorStale,
+  opencastNotice,
   opencastStale,
   outsideNow,
   presentation,
@@ -177,7 +178,7 @@ describe("presentation of unknown", () => {
 
 describe("monitorStale", () => {
   const now = "2026-01-01T12:00:00Z";
-  const oc = { enabled: false, last_success: null, sync_seconds: 60 };
+  const oc = { enabled: false, last_success: null, sync_seconds: 60, last_attempt: null, error_kind: "", requested: false };
   it("is fresh within three intervals (server clock)", () => {
     expect(monitorStale({ now, last_check: "2026-01-01T11:59:30Z", interval_seconds: 10, opencast: oc }, true)).toBe(false);
   });
@@ -260,7 +261,7 @@ describe("opencastStale", () => {
     last_check: null,
     now: "2026-01-01T12:00:00Z",
     interval_seconds: 10,
-    opencast: { enabled, last_success, sync_seconds: 60 },
+    opencast: { enabled, last_success, sync_seconds: 60, last_attempt: null, error_kind: "", requested: false },
   });
   it("is false when disabled, true without success", () => {
     expect(opencastStale(h(false, null))).toBe(false);
@@ -324,5 +325,39 @@ describe("sortForAdmin", () => {
     const list = [rec(1, "B"), rec(2, "A")];
     sortForAdmin(list);
     expect(list.map((r) => r.id)).toEqual([1, 2]);
+  });
+});
+
+describe("opencastNotice", () => {
+  const h = (enabled: boolean, error_kind: string): MonitorHealth => ({
+    last_check: null,
+    now: "2026-01-01T12:00:00Z",
+    interval_seconds: 10,
+    opencast: { enabled, last_success: null, sync_seconds: 60, last_attempt: null, error_kind, requested: false },
+  });
+  it("is empty without an error", () => {
+    expect(opencastNotice(h(true, ""))).toEqual({ level: null, key: null });
+  });
+  it("is empty when Opencast is disabled", () => {
+    expect(opencastNotice(h(false, "unreachable"))).toEqual({ level: null, key: null });
+  });
+  it.each([
+    ["unreachable", "Opencast not reachable"],
+    ["auth", "Opencast rejected the login"],
+    ["forbidden", "No permission in Opencast"],
+    ["timeout", "Opencast did not answer in time"],
+    ["server", "Opencast server error"],
+    ["invalid", "Unexpected answer from Opencast"],
+  ])("maps %s to an error", (kind, key) => {
+    expect(opencastNotice(h(true, kind))).toEqual({ level: "error", key });
+  });
+  it("maps no_events to a hint", () => {
+    expect(opencastNotice(h(true, "no_events"))).toEqual({
+      level: "hint",
+      key: "Opencast shows no scheduled recordings – check the account's permissions",
+    });
+  });
+  it("treats an unknown kind as a generic server error", () => {
+    expect(opencastNotice(h(true, "weird"))).toEqual({ level: "error", key: "Opencast server error" });
   });
 });
