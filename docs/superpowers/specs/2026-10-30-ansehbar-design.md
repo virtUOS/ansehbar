@@ -286,6 +286,29 @@ Freigegebene Entwürfe: `.superpowers/brainstorm/*/content/uebersicht-v2.html`
   hilfreich. Er ist aber nicht die Wahrheit über den Stream. Die Wahrheit ist
   die Live-Erkennung.
 
+### 6a Nachträge 2026-11-02
+
+Nachträge aus dem ersten Betrieb mit Opencast.
+
+- **Abgleich auf Knopfdruck:** unter Verwaltung → Rekorder und im Fehlerbanner.
+  Er ist nur lesend.
+- **Verständliche Meldung bei Problemen mit Opencast.** Kategorien:
+  - nicht erreichbar,
+  - Anmeldung abgelehnt,
+  - keine Berechtigung,
+  - Zeitüberschreitung,
+  - Serverfehler,
+  - unerwartete Antwort,
+  - Hinweis „keine Termine sichtbar“.
+  Meldungen nennen nie Zugangsdaten, URLs oder Hostnamen.
+- **Deaktivierte Rekorder endgültig löschen.** Die Termine des Rekorders werden
+  mitgelöscht. Opencast-Rekorder kommen dann auf eine Ignorierliste, die sich
+  rückgängig machen lässt.
+- **Logo:** Rekorder aus Opencast tragen das Opencast-Logo (ECL-2.0, Quelle
+  `opencast/opencast`, Datei `opencast-icon.svg`).
+- **Rechte des API-Kontos:** Ohne Leserecht auf die Events bleibt die Terminliste
+  leer. Übergangsweise gilt `ROLE_ADMIN`; eine engere Rolle ist offen (siehe 10).
+
 ## 7. Stufe 3: Vorfälle, Alarme, Protokoll
 
 ### 7.1 Begriffe
@@ -411,6 +434,7 @@ Jede Stufe ist für sich nutzbar und wird einzeln geplant und gebaut.
 - **Anbindung an den Monitoring-Dienst** (7.4): Schnittstelle und Format
   stehen noch aus (Stand 2026-11-01: keine direkte Matrix-Anbindung, Details
   folgen). Das blockiert erst den zweiten Kanal in Stufe 3, nicht E-Mail.
+- Engere Opencast-Rolle für das ansehBAR-Konto (Kollegen klären).
 
 ## 11. Dem Builder überlassen
 
