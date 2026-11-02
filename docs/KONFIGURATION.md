@@ -249,6 +249,23 @@ funktioniert wie zuvor.
 | `OPENCAST_PASSWORD` | Passwort dieses Benutzers. Docker Compose wertet `$` in `.env`-Werten aus: ein `$` im Passwort als `$$` schreiben | leer |
 | `OPENCAST_SYNC_SECONDS` | Sekunden zwischen zwei Abgleichen (der Monitor gleicht in einem eigenen Thread ab; ein langsames Opencast verzögert die Stream-Prüfung nicht) | `60` |
 | `OPENCAST_LOOKAHEAD_DAYS` | Wie viele Tage Terminplan im Voraus gelesen werden | `7` |
+| `OPENCAST_LOOKBACK_DAYS` | Wie viele Tage zurück nach der letzten Aufzeichnung eines Raums gesucht wird (Hinweis „Letzte Aufzeichnung hatte Probleme“, siehe unten) | `7` |
+
+
+**Hinweis „Letzte Aufzeichnung hatte Probleme“:** Er bezieht sich immer auf den
+zuletzt beendeten Termin des Raums innerhalb von `OPENCAST_LOOKBACK_DAYS` und
+verschwindet nach der nächsten sauberen Aufzeichnung. Er erscheint als gelber
+Kasten in der Raumansicht, in Kachel, Smartphone-Liste und Pillen als kompakte
+Zeile bzw. ⚠-Marker. Quellen und Meldungen:
+
+- ansehBARs eigener Monitor: „Stream fehlte HH:MM–HH:MM (N min)“, nur während
+  eines Termins und nach der Karenzzeit; „Status unbekannt“ zählt nie.
+- Opencast: „Verarbeitung in Opencast fehlgeschlagen“,
+  „Aufzeichnung auf dem Rekorder fehlgeschlagen“.
+- 30-Minuten-Regel: „Aufzeichnung wurde nicht gestartet“ (30 Minuten nach dem
+  Ende noch geplant) und „Aufzeichnung wurde nicht abgeschlossen“ (30 Minuten
+  nach dem Ende noch in Aufnahme oder Übernahme). Laufende Verarbeitung ist
+  kein Problem.
 
 Nach Änderungen an der `.env` die Container neu erzeugen
 (`docker compose -f docker-compose.prod.yml up -d`), denn ein bloßer Neustart
