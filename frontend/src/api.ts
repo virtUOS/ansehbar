@@ -58,6 +58,8 @@ export interface Recorder {
   };
   current_event: EventBrief | null;
   next_event: EventBrief | null;
+  /** First event of the next local day. */
+  next_event_tomorrow: EventBrief | null;
   missing_since: string | null;
 }
 

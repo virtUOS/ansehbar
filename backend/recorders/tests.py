@@ -955,6 +955,47 @@ class RecorderEventApiTests(TestCase):
         ScheduledEvent.objects.filter(title="late").delete()
         self.assertIsNone(self.get(berlin(22))["next_event"])
 
+    def test_next_event_tomorrow_local_day(self):
+        self.event(berlin(14, day=3), berlin(15, day=3), "afternoon")
+        self.event(berlin(8, day=3), berlin(9, day=3), "morning")
+        self.event(berlin(8, day=4), berlin(9, day=4), "day after")
+        body = self.get(berlin(20, day=2))
+        self.assertIsNone(body["next_event"])
+        self.assertEqual(body["next_event_tomorrow"]["title"], "morning")
+        self.assertEqual(
+            datetime.fromisoformat(body["next_event_tomorrow"]["start"]),
+            berlin(8, day=3),
+        )
+
+    def test_next_event_tomorrow_null_without_events(self):
+        self.event(berlin(8, day=4), berlin(9, day=4), "day after")
+        self.assertIsNone(self.get(berlin(20, day=2))["next_event_tomorrow"])
+
+    def test_next_event_tomorrow_query_count_constant(self):
+        def make(count):
+            for i in range(count):
+                rec = Recorder.objects.create(
+                    room_name=f"T{count}-{i}", stream_name=f"t-{count}-{i}"
+                )
+                self.event(berlin(10, day=3), berlin(12, day=3), recorder=rec)
+
+        def count_queries():
+            with mock.patch(
+                "django.utils.timezone.now", return_value=berlin(20, day=2)
+            ):
+                with CaptureQueriesContext(connection) as ctx:
+                    response = self.client.get("/api/recorders/")
+            self.assertEqual(response.status_code, 200)
+            return len(ctx), response.json()
+
+        make(3)
+        self.client.get("/api/recorders/")  # warm up: creates the settings row
+        small, body = count_queries()
+        self.assertEqual(body[1]["next_event_tomorrow"]["title"], "T")
+        make(7)
+        large, _ = count_queries()
+        self.assertEqual(small, large)
+
     def test_overnight_event_is_current(self):
         self.event(berlin(23), berlin(1, day=11), "night")
         body = self.get(berlin(0, 30, day=11))
