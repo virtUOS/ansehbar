@@ -92,6 +92,13 @@ export interface MonitorSettings {
   missing_grace_minutes: number;
 }
 
+export interface IgnoredAgent {
+  id: number;
+  agent_id: string;
+  created_at: string;
+  created_by: string;
+}
+
 export interface UserHit {
   id: number;
   username: string;
@@ -166,6 +173,11 @@ export const api = {
       request<Recorder>("/api/recorders/", { method: "POST", body: JSON.stringify(data) }),
     update: (id: number, data: Partial<Recorder>) =>
       request<Recorder>(`/api/recorders/${id}/`, { method: "PATCH", body: JSON.stringify(data) }),
+    remove: (id: number) => request<void>(`/api/recorders/${id}/`, { method: "DELETE" }),
+  },
+  ignoredAgents: {
+    list: () => request<IgnoredAgent[]>("/api/ignored-agents/"),
+    remove: (id: number) => request<void>(`/api/ignored-agents/${id}/`, { method: "DELETE" }),
   },
   monitor: {
     health: () => request<MonitorHealth>("/api/monitor/health/"),

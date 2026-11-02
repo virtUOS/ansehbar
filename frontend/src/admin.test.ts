@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import { ApiError } from "./api";
-import { identifierFor, previewUrl, splitErrors, toggleActivePayload } from "./admin";
+import { identifierFor, previewUrl, sortIgnoredAgents, splitErrors, syncWaitDone, toggleActivePayload } from "./admin";
 
 describe("splitErrors", () => {
   it("maps known fields and routes the rest to general", () => {
@@ -45,5 +45,31 @@ describe("toggleActivePayload", () => {
   });
   it("activating changes only active", () => {
     expect(toggleActivePayload({ active: false })).toEqual({ active: true });
+  });
+});
+
+describe("sortIgnoredAgents", () => {
+  it("lists the newest first without mutating the input", () => {
+    const a = { id: 1, agent_id: "A", created_at: "2026-01-01T10:00:00Z", created_by: "x" };
+    const b = { id: 2, agent_id: "B", created_at: "2026-02-01T10:00:00Z", created_by: "y" };
+    const list = [a, b];
+    expect(sortIgnoredAgents(list).map((i) => i.id)).toEqual([2, 1]);
+    expect(list[0]).toBe(a);
+  });
+});
+
+describe("syncWaitDone", () => {
+  it("keeps waiting before the request shows up in the heartbeat", () => {
+    expect(syncWaitDone({ requested: false, seenRequested: false, elapsedMs: 3000 })).toBe(false);
+  });
+  it("is done once the request was seen and is cleared again", () => {
+    expect(syncWaitDone({ requested: true, seenRequested: true, elapsedMs: 3000 })).toBe(false);
+    expect(syncWaitDone({ requested: false, seenRequested: true, elapsedMs: 3000 })).toBe(true);
+  });
+  it("assumes a very fast sync after 10 s without ever seeing the request", () => {
+    expect(syncWaitDone({ requested: false, seenRequested: false, elapsedMs: 10000 })).toBe(true);
+  });
+  it("gives up after 60 s", () => {
+    expect(syncWaitDone({ requested: true, seenRequested: true, elapsedMs: 60000 })).toBe(true);
   });
 });

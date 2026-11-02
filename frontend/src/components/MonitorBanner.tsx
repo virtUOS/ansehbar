@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Universität Osnabrück (virtUOS)
 
-import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Info, TriangleAlert } from "lucide-react";
-import { api } from "../api";
+import { SyncNowButton } from "./SyncNowButton";
 import { formatClock, type OpencastNotice } from "../recorders";
 
 /** Shown when the monitor process stopped delivering (statuses are frozen),
@@ -27,7 +26,6 @@ export function MonitorBanner({
   opencastRequested?: boolean;
 }) {
   const { t, i18n } = useTranslation();
-  const [sending, setSending] = useState(false);
   const showNotice = opencastNotice.level !== null;
   if (!stale && !opencastStale && !showNotice) return null;
   const box =
@@ -44,26 +42,11 @@ export function MonitorBanner({
       "Opencast shows no scheduled recordings – check the account's permissions",
     ),
   };
-  const busy = sending || opencastRequested;
-  const sync = async () => {
-    setSending(true);
-    try {
-      await api.opencast.sync();
-    } catch {
-      /* the next poll shows the outcome */
-    } finally {
-      setSending(false);
-    }
-  };
   const syncButton = (
-    <button
-      type="button"
-      disabled={busy}
-      onClick={() => void sync()}
+    <SyncNowButton
+      requested={opencastRequested}
       className="rounded-full bg-white px-3 py-1 text-sm font-bold text-amber-950 ring-1 ring-amber-700 hover:bg-amber-50 disabled:opacity-70"
-    >
-      {busy ? t("Sync running…") : t("Sync now")}
-    </button>
+    />
   );
   return (
     <div className="space-y-2">

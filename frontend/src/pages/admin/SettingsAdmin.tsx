@@ -88,8 +88,13 @@ export function SettingsAdmin() {
             />
           )}
         </Field>
-        <Field label={t("Stale factor")} errors={errors.fields.stale_factor} hint={t("A stream counts as live while its playlist changed within this many target durations (2–10).")}>
+        <Field
+          label={t("Tolerance until “stream ended”")}
+          errors={errors.fields.stale_factor}
+          hint={t("A live stream delivers a new piece of video every few seconds (usually every 6 s). This many piece lengths may pass without a new one before the stream counts as ended. Default 3 ≈ 18 seconds.")}
+        >
           {(p) => (
+            <span className="flex items-center gap-2">
             <input
               {...p}
               required
@@ -101,6 +106,8 @@ export function SettingsAdmin() {
               onChange={(e) => { setStale(e.target.value); setSaved(false); }}
               className={`${inputCls} max-w-32`}
             />
+            <span className="text-sm">{t("× segment duration")}</span>
+            </span>
           )}
         </Field>
         <Field label={t("Grace period before “stream missing” (minutes)")} errors={errors.fields.missing_grace_minutes}>
