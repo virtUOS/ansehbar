@@ -190,7 +190,8 @@ def run_opencast_sync(
     except OpencastError as exc:
         state.last_error = str(exc)[:300]
         state.last_error_kind = exc.kind
-        state.save()
+        # update_fields: never overwrite requested_at set by a concurrent request.
+        state.save(update_fields=["last_attempt_at", "last_error", "last_error_kind"])
         logger.warning("Opencast sync failed: %s", exc)
         return
     with transaction.atomic():
@@ -199,4 +200,8 @@ def run_opencast_sync(
         state.last_success_at = now
         state.last_error = ""
         state.last_error_kind = "no_events" if agents and not events else ""
-        state.save()
+        state.save(
+            update_fields=[
+                "last_attempt_at", "last_success_at", "last_error", "last_error_kind",
+            ]
+        )

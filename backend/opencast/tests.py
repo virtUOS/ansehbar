@@ -440,6 +440,25 @@ class SyncTests(TestCase):
         self.assertTrue(state.last_error)
         self.assertEqual(Recorder.objects.count(), 0)
 
+    def _request_during(self, fail):
+        class Racing(FakeClient):
+            def agents(inner):
+                state = OpencastSyncState.load()
+                state.requested_at = NOW + timedelta(seconds=1)
+                state.save(update_fields=["requested_at"])
+                if fail:
+                    raise OpencastError("/api/agents: HTTP 401", "auth")
+                return []
+
+        sync.run_opencast_sync(Racing(), NOW, 7)
+        self.assertTrue(OpencastSyncState.load().sync_requested)
+
+    def test_request_during_successful_sync_is_kept(self):
+        self._request_during(fail=False)
+
+    def test_request_during_failed_sync_is_kept(self):
+        self._request_during(fail=True)
+
 
 User = get_user_model()
 
