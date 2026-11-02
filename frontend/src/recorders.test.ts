@@ -22,6 +22,7 @@ import {
   presentation,
   quietToday,
   recordingScheduled,
+  scheduleUnclear,
   roomNameMissing,
   sortForOverview,
   stateTransition,
@@ -282,6 +283,16 @@ describe("recordingScheduled", () => {
     expect(recordingScheduled(r, false, false)).toBe(true);
     expect(recordingScheduled({ ...r, next_event: e }, true, false)).toBe(true);
     expect(recordingScheduled({ ...r, current_event: e }, true, false)).toBe(true);
+  });
+
+  it("makes no claim when Opencast shows no events at all", () => {
+    const r = rec(1, "A");
+    expect(scheduleUnclear(false, "")).toBe(false);
+    expect(scheduleUnclear(false, "server")).toBe(false);
+    expect(scheduleUnclear(true, "")).toBe(true);
+    expect(scheduleUnclear(false, "no_events")).toBe(true);
+    expect(recordingScheduled(r, true, scheduleUnclear(false, "no_events"))).toBe(true);
+    expect(recordingScheduled(r, true, scheduleUnclear(false, ""))).toBe(false);
   });
 });
 

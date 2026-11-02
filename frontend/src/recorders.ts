@@ -202,6 +202,14 @@ export function recordingScheduled(r: Recorder, opencastEnabled: boolean, openca
   return !(opencastEnabled && !opencastStale && !r.current_event && !r.next_event);
 }
 
+/** The Opencast schedule cannot back a "nothing scheduled" claim: the data is
+ *  stale, or the sync works but Opencast shows no events at all (likely
+ *  missing permissions). Pass the result as `opencastStale` to
+ *  `recordingScheduled`. */
+export function scheduleUnclear(opencastStale: boolean, errorKind: string): boolean {
+  return opencastStale || errorKind === "no_events";
+}
+
 /** Whole minutes since the stream went missing, never negative. */
 export function missingMinutes(sinceIso: string, now: Date): number {
   return Math.max(0, Math.floor((now.getTime() - new Date(sinceIso).getTime()) / 60000));

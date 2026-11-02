@@ -15,6 +15,7 @@ import {
   outsideNow,
   presentation,
   quietWithoutRecording,
+  scheduleUnclear,
   sortForOverview,
   type OverviewMode,
 } from "../recorders";
@@ -52,9 +53,13 @@ export function Overview() {
     opencastEnabled,
     opencastStale,
     opencastLastSuccess,
+    opencastErrorKind,
     opencastNotice,
     opencastRequested,
   } = useRecorders();
+  // "No events at all" (likely permissions) cannot back "no recording today".
+  const noEvents = opencastErrorKind === "no_events";
+  const unclearSchedule = scheduleUnclear(opencastStale, opencastErrorKind);
   const [mode, setMode] = useState<OverviewMode>("now");
   const [query, setQuery] = useState("");
   const wide = useMediaQuery("(min-width: 768px)");
@@ -81,20 +86,23 @@ export function Overview() {
     [sorted, effMode, query],
   );
   // Outside the tiles: definite "no stream" (without Opencast), "no recording
-  // today" (with Opencast) and "status unknown" are listed apart.
+  // today" (with Opencast) and "status unknown" are listed apart. When
+  // Opencast shows no events at all, the quiet rooms are listed as "without
+  // stream" instead: "no recording today" would be an unfounded claim.
   const outside = useMemo(() => {
     if (effMode === "all") return { offline: [], unknown: [], quiet: [] };
     const filtered = filterOverview(sorted, "all", query);
     const { offline, unknown } = outsideNow(filtered);
     const tiles = new Set(shown.map((r) => r.id));
+    const quiet = opencastEnabled
+      ? filterOverview(quietWithoutRecording(sorted), "all", query)
+      : [];
     return {
-      offline: opencastEnabled ? [] : offline,
+      offline: !opencastEnabled ? offline : noEvents ? quiet : [],
       unknown: unknown.filter((r) => !tiles.has(r.id)),
-      quiet: opencastEnabled
-        ? filterOverview(quietWithoutRecording(sorted), "all", query)
-        : [],
+      quiet: noEvents ? [] : quiet,
     };
-  }, [sorted, shown, effMode, query, opencastEnabled]);
+  }, [sorted, shown, effMode, query, opencastEnabled, noEvents]);
   const upcoming = useMemo(
     () =>
       opencastEnabled && effMode === "now"
@@ -222,7 +230,7 @@ export function Overview() {
           }}
         >
           {shown.map((r) => (
-            <RecorderTile key={r.id} recorder={r} opencast={opencastEnabled} opencastStale={opencastStale} />
+            <RecorderTile key={r.id} recorder={r} opencast={opencastEnabled} opencastStale={unclearSchedule} />
           ))}
         </div>
       ) : (

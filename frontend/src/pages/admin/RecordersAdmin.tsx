@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { Pencil, Power, PowerOff, Trash2 } from "lucide-react";
+import { Info, Pencil, Power, PowerOff, Trash2 } from "lucide-react";
 import { sortIgnoredAgents, splitErrors, toggleActivePayload, type FormErrors } from "../../admin";
 import { ApiError, api, type IgnoredAgent, type Recorder } from "../../api";
 import { useAppContext } from "../../appContext";
@@ -61,10 +61,10 @@ export function RecordersAdmin() {
     void loadIgnored();
   }, [loadHealth, loadIgnored]);
 
-  // Poll the heartbeat only while a sync is pending.
+  // Keep the Opencast status current while the page is open; poll faster
+  // while a requested sync is pending.
   useEffect(() => {
-    if (!syncPolling) return;
-    const id = window.setInterval(() => void loadHealth(), 2000);
+    const id = window.setInterval(() => void loadHealth(), syncPolling ? 2000 : 10000);
     return () => window.clearInterval(id);
   }, [syncPolling, loadHealth]);
 
@@ -111,10 +111,14 @@ export function RecordersAdmin() {
     try {
       await api.recorders.remove(r.id);
       setRecorders((list) => list.filter((x) => x.id !== r.id));
-      setMessage(t("Saved."));
+      setMessage(t("Deleted."));
+      // The row (and its delete button) is gone: move focus somewhere stable.
+      setTimeout(() => addBtn.current?.focus(), 0);
       await loadIgnored();
     } catch (e) {
       setRowError(splitErrors(e, []).general.join(" "));
+      // E.g. 404: deleted elsewhere meanwhile – show the current list.
+      void reload();
     }
   };
 
@@ -171,8 +175,8 @@ export function RecordersAdmin() {
               : t("No sync yet")}
           </span>
           {noticeText ? (
-            <span role="status" className="font-bold text-amber-900 dark:text-amber-300">
-              <span aria-hidden>⚠ </span>
+            <span role="status" className="inline-flex items-center gap-1 font-bold text-amber-900 dark:text-amber-300">
+              {notice.level === "hint" ? <Info aria-hidden className="h-4 w-4 shrink-0" /> : <span aria-hidden>⚠</span>}
               {noticeText}
             </span>
           ) : null}

@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Maximize, Volume2, VolumeX } from "lucide-react";
 import { useRecorders } from "../useRecorders";
-import { displayName, formatClock, formatDuration, presentation, recordingScheduled, stateTransition } from "../recorders";
+import { displayName, formatClock, formatDuration, presentation, recordingScheduled, scheduleUnclear, stateTransition } from "../recorders";
 import { RoomName } from "../components/RoomName";
 import { AgentStateText } from "../components/AgentStateText";
 import { StatusBadge } from "../components/StatusBadge";
@@ -47,7 +47,7 @@ export function RoomView() {
   const navigate = useNavigate();
   const params = useParams();
   const id = Number(params.id);
-  const { recorders, error, loading, lastUpdated, monitorStale, monitorLastCheck, opencastEnabled: opencast, opencastStale, opencastLastSuccess, opencastNotice, opencastRequested } = useRecorders();
+  const { recorders, error, loading, lastUpdated, monitorStale, monitorLastCheck, opencastEnabled: opencast, opencastStale, opencastLastSuccess, opencastErrorKind, opencastNotice, opencastRequested } = useRecorders();
   const { unlocked, unlock, audibleId, setAudible } = useAudio();
   const container = useRef<HTMLDivElement>(null);
   // Each announcement gets a new seq, so the live region node is recreated and
@@ -236,7 +236,7 @@ export function RoomView() {
           <StreamPlaceholder
             kind={shown}
             missingSince={recorder.missing_since}
-            scheduled={recordingScheduled(recorder, opencast, opencastStale)}
+            scheduled={recordingScheduled(recorder, opencast, scheduleUnclear(opencastStale, opencastErrorKind))}
           >
             {recorder.status.checked_at && shown !== "inactive" ? (
               <span className="rounded bg-white/80 px-2 py-1 text-xs dark:bg-slate-900/80">
