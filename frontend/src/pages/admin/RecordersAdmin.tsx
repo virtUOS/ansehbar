@@ -164,7 +164,7 @@ export function RecordersAdmin() {
       </div>
       {health?.opencast.enabled ? (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
-          <SyncNowButton label={t("Sync Opencast now")} requested={health.opencast.requested} onStart={() => setSyncPolling(true)} onDone={syncDone} />
+          <SyncNowButton label={t("Sync Opencast now")} requested={health.opencast.requested} onStart={() => setSyncPolling(true)} onDone={syncDone} onError={() => setSyncPolling(false)} />
           <span className="text-slate-700 dark:text-slate-300">
             {health.opencast.last_success
               ? t("Last sync: {{time}}", { time: formatClock(health.opencast.last_success, i18n.language) })

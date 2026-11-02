@@ -14,12 +14,15 @@ export function SyncNowButton({
   requested,
   onStart,
   onDone,
+  onError,
   className = "btn-secondary",
   label,
 }: {
   requested: boolean;
   onStart?: () => void;
   onDone?: () => void;
+  /** The request could not be started; nothing is pending any more. */
+  onError?: () => void;
   className?: string;
   /** Idle label; defaults to "Sync now". */
   label?: string;
@@ -54,6 +57,7 @@ export function SyncNowButton({
       await api.opencast.sync();
     } catch (e) {
       setStartedAt(null);
+      onError?.();
       setError(e instanceof ApiError && e.message && !e.message.startsWith("HTTP ") ? e.message : t("Sync could not be started"));
     }
   };
