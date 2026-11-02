@@ -1123,6 +1123,149 @@ class RecorderEventApiTests(TestCase):
         self.assertEqual(len(body), 11)
         self.assertEqual(small, large)
 
+    def ended(self, status="", **kw):
+        event = self.event(berlin(10, day=9), berlin(12, day=9), **kw)
+        ScheduledEvent.objects.filter(pk=event.pk).update(opencast_status=status)
+        return event
+
+    def problems(self, now):
+        body = self.get(now)
+        return body["last_recording"]["problems"]
+
+    def test_last_recording_none(self):
+        self.assertIsNone(self.get(berlin(13, day=9))["last_recording"])
+        # Running or future events are not "last recording".
+        self.event(berlin(10, day=10), berlin(12, day=10))
+        self.assertIsNone(self.get(berlin(11, day=10))["last_recording"])
+
+    def test_last_recording_picks_latest_ended(self):
+        self.event(berlin(8, day=8), berlin(9, day=8), "older")
+        self.event(berlin(10, day=9), berlin(12, day=9), "latest")
+        self.event(berlin(14, day=9), berlin(16, day=9), "running")
+        body = self.get(berlin(15, day=9))
+        last = body["last_recording"]
+        self.assertEqual(last["title"], "latest")
+        self.assertEqual(datetime.fromisoformat(last["start"]), berlin(10, day=9))
+        self.assertEqual(datetime.fromisoformat(last["end"]), berlin(12, day=9))
+        self.assertEqual(last["opencast_status"], "")
+        self.assertEqual(last["problems"], [])
+
+    def test_last_recording_ignores_events_before_window(self):
+        self.event(berlin(10, day=2), berlin(12, day=2), "too old")
+        with override_settings(OPENCAST_LOOKBACK_DAYS=7):
+            # Window starts 2026-11-03 00:00 local for now on 2026-11-10.
+            self.assertIsNone(self.get(berlin(13, day=10))["last_recording"])
+        self.event(berlin(10, day=3), berlin(12, day=3), "in window")
+        self.assertEqual(
+            self.get(berlin(13, day=10))["last_recording"]["title"], "in window"
+        )
+
+    def test_last_recording_stream_missing_problems(self):
+        event = self.ended()
+        other = self.event(berlin(14, day=9), berlin(15, day=9), "other")
+        Incident.objects.create(
+            recorder=self.recorder, event=event, kind="stream_missing",
+            started_at=berlin(10, 30, day=9), ended_at=berlin(10, 45, day=9),
+        )
+        Incident.objects.create(
+            recorder=self.recorder, event=event, kind="stream_missing",
+            started_at=berlin(11, 0, day=9), ended_at=berlin(11, 0, day=9) + timedelta(seconds=10),
+        )
+        Incident.objects.create(
+            recorder=self.recorder, event=other, kind="stream_missing",
+            started_at=berlin(14, 10, day=9), ended_at=berlin(14, 20, day=9),
+        )
+        problems = self.problems(berlin(13, day=9))
+        self.assertEqual([p["kind"] for p in problems], ["stream_missing"] * 2)
+        self.assertEqual(problems[0]["minutes"], 15)
+        self.assertEqual(
+            datetime.fromisoformat(problems[0]["from"]), berlin(10, 30, day=9)
+        )
+        self.assertEqual(
+            datetime.fromisoformat(problems[0]["to"]), berlin(10, 45, day=9)
+        )
+        self.assertEqual(problems[1]["minutes"], 1)
+
+    def test_open_incident_uses_event_end(self):
+        event = self.ended()
+        Incident.objects.create(
+            recorder=self.recorder, event=event, kind="stream_missing",
+            started_at=berlin(11, 30, day=9), ended_at=None,
+        )
+        problem = self.problems(berlin(13, day=9))[0]
+        self.assertEqual(datetime.fromisoformat(problem["to"]), berlin(12, day=9))
+        self.assertEqual(problem["minutes"], 30)
+
+    def test_processing_failure_problem(self):
+        self.ended("EVENTS.EVENTS.STATUS.PROCESSING_FAILURE")
+        self.assertEqual(
+            self.problems(berlin(12, 1, day=9)), [{"kind": "processing_failed"}]
+        )
+
+    def test_recording_failure_problem(self):
+        self.ended("EVENTS.EVENTS.STATUS.RECORDING_FAILURE")
+        self.assertEqual(
+            self.problems(berlin(12, 1, day=9)), [{"kind": "recording_failed"}]
+        )
+
+    def test_processing_is_not_a_problem(self):
+        for status in [
+            "EVENTS.EVENTS.STATUS.PROCESSING",
+            "EVENTS.EVENTS.STATUS.PROCESSED",
+            "",
+            "EVENTS.EVENTS.STATUS.SOMETHING_NEW",
+        ]:
+            with self.subTest(status=status):
+                ScheduledEvent.objects.all().delete()
+                self.ended(status)
+                self.assertEqual(self.problems(berlin(15, day=9)), [])
+
+    def test_scheduled_after_end_is_not_started(self):
+        self.ended("EVENTS.EVENTS.STATUS.SCHEDULED")
+        self.assertEqual(self.problems(berlin(12, 29, day=9)), [])
+        self.assertEqual(
+            self.problems(berlin(12, 31, day=9)), [{"kind": "not_started"}]
+        )
+
+    def test_recording_after_end_is_not_finished(self):
+        for status in ["RECORDING", "INGESTING"]:
+            with self.subTest(status=status):
+                ScheduledEvent.objects.all().delete()
+                self.ended(f"EVENTS.EVENTS.STATUS.{status}")
+                self.assertEqual(self.problems(berlin(12, 29, day=9)), [])
+                self.assertEqual(
+                    self.problems(berlin(12, 31, day=9)), [{"kind": "not_finished"}]
+                )
+
+    def test_list_query_count_constant_with_last_recording(self):
+        def make(count):
+            for i in range(count):
+                rec = Recorder.objects.create(
+                    room_name=f"L{count}-{i}", stream_name=f"l-{count}-{i}"
+                )
+                event = self.event(berlin(10, day=9), berlin(12, day=9), recorder=rec)
+                Incident.objects.create(
+                    recorder=rec, event=event, kind="stream_missing",
+                    started_at=berlin(11, day=9), ended_at=berlin(11, 5, day=9),
+                )
+
+        def count_queries():
+            with mock.patch(
+                "django.utils.timezone.now", return_value=berlin(13, day=9)
+            ):
+                with CaptureQueriesContext(connection) as ctx:
+                    response = self.client.get("/api/recorders/")
+            self.assertEqual(response.status_code, 200)
+            return len(ctx), response.json()
+
+        make(3)
+        self.client.get("/api/recorders/")  # warm up
+        small, body = count_queries()
+        self.assertEqual(body[1]["last_recording"]["problems"][0]["minutes"], 5)
+        make(7)
+        large, _ = count_queries()
+        self.assertEqual(small, large)
+
     def test_settings_grace_bounds(self):
         for value, code in [(31, 400), (-1, 400), (30, 200), (0, 200)]:
             with self.subTest(value=value):

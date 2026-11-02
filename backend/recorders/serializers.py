@@ -29,6 +29,7 @@ class RecorderSerializer(serializers.ModelSerializer):
     next_event = serializers.SerializerMethodField()
     next_event_tomorrow = serializers.SerializerMethodField()
     missing_since = serializers.SerializerMethodField()
+    last_recording = serializers.SerializerMethodField()
 
     class Meta:
         model = Recorder
@@ -45,6 +46,7 @@ class RecorderSerializer(serializers.ModelSerializer):
             "next_event",
             "next_event_tomorrow",
             "missing_since",
+            "last_recording",
         ]
 
     def validate_agent_id(self, value):
@@ -123,6 +125,44 @@ class RecorderSerializer(serializers.ModelSerializer):
             if day_start <= event.start < day_end:
                 return self._event_data(event)
         return None
+
+    def get_last_recording(self, obj):
+        """Latest ended event of the lookback window with its problems."""
+        event = self.context.get("last_events", {}).get(obj.pk)
+        if event is None:
+            return None
+        now = self.context.get("now") or timezone.now()
+        to_iso = serializers.DateTimeField().to_representation
+        problems = []
+        for incident in self.context.get("incidents_by_event", {}).get(event.pk, []):
+            # An incident still open on an ended event stops at the event end.
+            ended = incident.ended_at or event.end
+            seconds = (ended - incident.started_at).total_seconds()
+            problems.append(
+                {
+                    "kind": "stream_missing",
+                    "from": to_iso(incident.started_at),
+                    "to": to_iso(ended),
+                    "minutes": max(1, round(seconds / 60)),
+                }
+            )
+        status = event.opencast_status
+        overdue = now >= event.end + timedelta(minutes=30)
+        if status.endswith("PROCESSING_FAILURE"):
+            problems.append({"kind": "processing_failed"})
+        elif status.endswith("RECORDING_FAILURE"):
+            problems.append({"kind": "recording_failed"})
+        elif overdue and status.endswith("SCHEDULED"):
+            problems.append({"kind": "not_started"})
+        elif overdue and status.endswith(("RECORDING", "INGESTING")):
+            problems.append({"kind": "not_finished"})
+        return {
+            "title": event.title,
+            "start": to_iso(event.start),
+            "end": to_iso(event.end),
+            "opencast_status": status,
+            "problems": problems,
+        }
 
     def get_missing_since(self, obj):
         now = self.context.get("now") or timezone.now()
