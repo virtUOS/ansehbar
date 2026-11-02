@@ -4,7 +4,7 @@
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import type { Recorder } from "../api";
-import { formatClock, presentation, showTomorrow } from "../recorders";
+import { formatClock, hasLastRecordingProblems, presentation, showTomorrow } from "../recorders";
 import { useNow } from "../useNow";
 import { RoomName } from "./RoomName";
 import { StatusBadge } from "./StatusBadge";
@@ -49,6 +49,12 @@ export function RoomList({ recorders }: { recorders: Recorder[] }) {
               </span>
               <span className="order-first min-w-0 basis-full break-words text-lg font-bold sm:order-none sm:flex-1 sm:basis-0">
                 <RoomName recorder={r} />
+                {hasLastRecordingProblems(r) ? (
+                  <span className="ml-2 whitespace-nowrap text-sm font-semibold text-amber-900 dark:text-amber-200">
+                    <span aria-hidden>⚠</span>
+                    <span className="sr-only">{t("Last recording had problems")}</span>
+                  </span>
+                ) : null}
               </span>
               {time ? (
                 <span className="shrink-0 text-base font-bold tabular-nums">
