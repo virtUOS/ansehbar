@@ -6,11 +6,13 @@ import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Maximize, Volume2, VolumeX } from "lucide-react";
 import { useRecorders } from "../useRecorders";
-import { displayName, formatClock, formatDuration, presentation, recordingScheduled, stateTransition } from "../recorders";
+import { displayName, formatClock, formatDuration, presentation, recordingScheduled, scheduleUnclear, stateTransition } from "../recorders";
 import { RoomName } from "../components/RoomName";
 import { AgentStateText } from "../components/AgentStateText";
 import { StatusBadge } from "../components/StatusBadge";
 import { StreamPlaceholder } from "../components/StreamPlaceholder";
+import { OpencastIcon } from "../components/OpencastIcon";
+import { AudioUnlockButton } from "../media/AudioUnlockButton";
 import { MonitorBanner } from "../components/MonitorBanner";
 import { PlaybackOverlay, usePlayback } from "../components/PlaybackOverlay";
 import { HlsPlayer } from "../media/HlsPlayer";
@@ -45,7 +47,7 @@ export function RoomView() {
   const navigate = useNavigate();
   const params = useParams();
   const id = Number(params.id);
-  const { recorders, error, loading, lastUpdated, monitorStale, monitorLastCheck, opencastEnabled: opencast, opencastStale } = useRecorders();
+  const { recorders, error, loading, lastUpdated, monitorStale, monitorLastCheck, opencastEnabled: opencast, opencastStale, opencastLastSuccess, opencastErrorKind, opencastNotice, opencastRequested } = useRecorders();
   const { unlocked, unlock, audibleId, setAudible } = useAudio();
   const container = useRef<HTMLDivElement>(null);
   // Each announcement gets a new seq, so the live region node is recreated and
@@ -136,7 +138,14 @@ export function RoomView() {
 
   const notice = (
     <>
-      <MonitorBanner stale={monitorStale} lastCheck={monitorLastCheck} />
+      <MonitorBanner
+        stale={monitorStale}
+        lastCheck={monitorLastCheck}
+        opencastStale={opencastStale}
+        opencastLastSuccess={opencastLastSuccess}
+        opencastNotice={opencastNotice}
+        opencastRequested={opencastRequested}
+      />
       {error ? (
         <p role="status" className="rounded-lg bg-amber-100 px-3 py-2 text-sm text-amber-950">
           {t("Status could not be updated – last update {{time}}", {
@@ -203,6 +212,8 @@ export function RoomView() {
         </label>
       </div>
 
+      <AudioUnlockButton />
+
       <div ref={container} className="relative aspect-video overflow-hidden rounded-2xl bg-slate-900">
         {live ? (
           <div className="absolute inset-0 flex">
@@ -225,7 +236,7 @@ export function RoomView() {
           <StreamPlaceholder
             kind={shown}
             missingSince={recorder.missing_since}
-            scheduled={recordingScheduled(recorder, opencast, opencastStale)}
+            scheduled={recordingScheduled(recorder, opencast, scheduleUnclear(opencastStale, opencastErrorKind))}
           >
             {recorder.status.checked_at && shown !== "inactive" ? (
               <span className="rounded bg-white/80 px-2 py-1 text-xs dark:bg-slate-900/80">
@@ -264,6 +275,7 @@ export function RoomView() {
         {!opencast ? null : recorder.agent_id ? (
           <>
             {" · "}
+            <OpencastIcon className="mr-1" />
             {t("Opencast agent")}: <span className="font-mono">{recorder.agent_id}</span> · <AgentStateText state={recorder.status.agent_state} />
           </>
         ) : (

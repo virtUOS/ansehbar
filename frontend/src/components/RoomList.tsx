@@ -4,12 +4,15 @@
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import type { Recorder } from "../api";
-import { formatClock, presentation } from "../recorders";
+import { formatClock, presentation, showTomorrow } from "../recorders";
+import { useNow } from "../useNow";
 import { RoomName } from "./RoomName";
 import { StatusBadge } from "./StatusBadge";
 
 export function RoomList({ recorders }: { recorders: Recorder[] }) {
   const { t, i18n } = useTranslation();
+  const now = useNow(30000);
+  const tomorrow = showTomorrow(recorders, now);
   const when = (r: Recorder, p: ReturnType<typeof presentation>): string | null => {
     if (p === "missing") {
       const from = r.current_event?.start ?? r.missing_since;
@@ -21,6 +24,10 @@ export function RoomList({ recorders }: { recorders: Recorder[] }) {
     if (r.next_event)
       return t("today from {{time}}", {
         time: formatClock(r.next_event.start, i18n.language),
+      });
+    if (tomorrow && r.next_event_tomorrow)
+      return t("tomorrow from {{time}}", {
+        time: formatClock(r.next_event_tomorrow.start, i18n.language),
       });
     return null;
   };

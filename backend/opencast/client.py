@@ -14,7 +14,14 @@ import httpx
 
 
 class OpencastError(Exception):
-    """Request or response problem. Never contains credentials."""
+    """Request or response problem. Never contains credentials.
+
+    `kind` is one of: unreachable, auth, forbidden, timeout, server, invalid.
+    """
+
+    def __init__(self, message: str, kind: str):
+        super().__init__(message)
+        self.kind = kind
 
 
 @dataclass(frozen=True)
@@ -83,16 +90,30 @@ class OpencastClient:
                 headers={"Accept": "application/json"},
                 timeout=timeout,
             )
+        except httpx.TimeoutException as exc:
+            raise OpencastError(f"{path}: {type(exc).__name__}", "timeout") from None
         except httpx.HTTPError as exc:
-            raise OpencastError(f"{path}: {type(exc).__name__}") from None
-        if response.status_code != 200:
-            raise OpencastError(f"{path}: HTTP {response.status_code}")
+            raise OpencastError(f"{path}: {type(exc).__name__}", "unreachable") from None
+        status = response.status_code
+        if status == 401:
+            raise OpencastError(f"{path}: HTTP 401", "auth")
+        if status == 403:
+            raise OpencastError(f"{path}: HTTP 403", "forbidden")
+        if status >= 500:
+            raise OpencastError(f"{path}: HTTP {status}", "server")
+        # Opencast answers forbidden pages with an HTML page, sometimes with
+        # HTTP 200 and a JSON content type: detect it before parsing.
+        text = response.text
+        if text.lstrip().startswith("<") or "Opencast :: Forbidden" in text:
+            raise OpencastError(f"{path}: forbidden (HTML response)", "forbidden")
+        if status != 200:
+            raise OpencastError(f"{path}: HTTP {status}", "invalid")
         try:
             data = response.json()
         except ValueError:
-            raise OpencastError(f"{path}: invalid JSON") from None
+            raise OpencastError(f"{path}: invalid JSON", "invalid") from None
         if not isinstance(data, list):
-            raise OpencastError(f"{path}: unexpected response shape")
+            raise OpencastError(f"{path}: unexpected response shape", "invalid")
         return data
 
     def _get_all(self, path: str, params: dict | None = None) -> list:
@@ -101,7 +122,7 @@ class OpencastClient:
         for page in range(self.max_pages):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise OpencastError(f"{path}: timeout")
+                raise OpencastError(f"{path}: timeout", "timeout")
             query = dict(params or {})
             query["limit"] = self.page_size
             query["offset"] = page * self.page_size
@@ -109,7 +130,7 @@ class OpencastClient:
             items.extend(chunk)
             if len(chunk) < self.page_size:
                 return items
-        raise OpencastError(f"{path}: more than {self.max_pages} pages")
+        raise OpencastError(f"{path}: more than {self.max_pages} pages", "invalid")
 
     def agents(self) -> list[Agent]:
         result = []

@@ -26,6 +26,7 @@ class RecorderSerializer(serializers.ModelSerializer):
     playback_url = serializers.SerializerMethodField()
     current_event = serializers.SerializerMethodField()
     next_event = serializers.SerializerMethodField()
+    next_event_tomorrow = serializers.SerializerMethodField()
     missing_since = serializers.SerializerMethodField()
 
     class Meta:
@@ -41,6 +42,7 @@ class RecorderSerializer(serializers.ModelSerializer):
             "status",
             "current_event",
             "next_event",
+            "next_event_tomorrow",
             "missing_since",
         ]
 
@@ -106,6 +108,18 @@ class RecorderSerializer(serializers.ModelSerializer):
         day_end = self.context.get("day_end")
         for event in self._events(obj):
             if event.start > now and (day_end is None or event.start < day_end):
+                return self._event_data(event)
+        return None
+
+    def get_next_event_tomorrow(self, obj):
+        """First event starting within the next local day (events are ordered
+        by start); the view loads them in the same query as today's."""
+        day_start = self.context.get("day_end")
+        day_end = self.context.get("tomorrow_end")
+        if day_start is None or day_end is None:
+            return None
+        for event in self._events(obj):
+            if day_start <= event.start < day_end:
                 return self._event_data(event)
         return None
 

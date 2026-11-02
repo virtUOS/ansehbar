@@ -15,7 +15,7 @@ from django.utils import timezone
 
 from opencast.client import OpencastClient, OpencastError
 from opencast.models import OpencastSyncState
-from opencast.sync import run_opencast_sync
+from opencast.sync import opencast_sync_enabled, run_opencast_sync
 from recorders.models import MonitorSettings, RecorderStatus
 from recorders.monitor import run_cycle
 from streams.sources import HlsStreamSource
@@ -78,11 +78,10 @@ class Command(BaseCommand):
 
     def _sync_due(self):
         """True if Opencast is enabled, safely configured and a sync is due."""
-        url = settings.OPENCAST_URL
-        if not url:
+        if not settings.OPENCAST_URL:
             self._opencast_status = "off"
             return False
-        if url.lower().startswith("http://") and not settings.DEBUG:
+        if not opencast_sync_enabled():
             # Basic auth over plain HTTP would expose the credentials.
             if not self._insecure_logged:
                 self._insecure_logged = True
@@ -96,10 +95,20 @@ class Command(BaseCommand):
         if (
             self._last_sync_at is not None
             and now - self._last_sync_at < settings.OPENCAST_SYNC_SECONDS
+            and not self._sync_requested()
         ):
             return False
         self._last_sync_at = now
         return True
+
+    def _sync_requested(self):
+        """True if "sync now" was pressed after the last sync attempt."""
+        try:
+            state = OpencastSyncState.objects.filter(pk=1).first()
+            return bool(state and state.sync_requested)
+        except Exception:
+            logger.exception("could not read the opencast sync request")
+            return False
 
     def _start_sync(self, http_client):
         """Start a sync thread if due; skip while the previous one still runs."""
@@ -129,6 +138,7 @@ class Command(BaseCommand):
 
     def _run_sync(self, http_client):
         """One Opencast sync; never raises."""
+        now = timezone.now()
         try:
             oc = OpencastClient(
                 settings.OPENCAST_URL,
@@ -136,7 +146,7 @@ class Command(BaseCommand):
                 settings.OPENCAST_PASSWORD,
                 http_client,
             )
-            run_opencast_sync(oc, timezone.now(), settings.OPENCAST_LOOKAHEAD_DAYS)
+            run_opencast_sync(oc, now, settings.OPENCAST_LOOKAHEAD_DAYS)
             # run_opencast_sync swallows OpencastError and records it in the state.
             error = OpencastSyncState.load().last_error
             self._opencast_status = "error" if error else "ok"
@@ -150,9 +160,13 @@ class Command(BaseCommand):
             logger.exception("opencast sync failed unexpectedly")
             try:
                 state = OpencastSyncState.load()
-                state.last_attempt_at = timezone.now()
+                # The attempt's start time, like run_opencast_sync records it.
+                state.last_attempt_at = now
                 state.last_error = type(exc).__name__[:300]
-                state.save(update_fields=["last_attempt_at", "last_error"])
+                state.last_error_kind = "invalid"
+                state.save(
+                    update_fields=["last_attempt_at", "last_error", "last_error_kind"]
+                )
             except Exception:
                 logger.exception("could not record opencast sync failure")
 

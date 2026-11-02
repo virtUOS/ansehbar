@@ -3,14 +3,22 @@
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { splitErrors, toggleActivePayload, type FormErrors } from "../../admin";
-import { ApiError, api, type Recorder } from "../../api";
+import { Info, Pencil, Power, PowerOff, Trash2 } from "lucide-react";
+import { sortIgnoredAgents, splitErrors, toggleActivePayload, type FormErrors } from "../../admin";
+import { ApiError, api, type IgnoredAgent, type Recorder } from "../../api";
 import { useAppContext } from "../../appContext";
 import { Field, FormErrorSummary, inputCls } from "../../components/FormParts";
 import { StatusBadge } from "../../components/StatusBadge";
+import { OpencastIcon } from "../../components/OpencastIcon";
 import { RoomName } from "../../components/RoomName";
 import { AgentStateText } from "../../components/AgentStateText";
-import { displayName, sortForAdmin } from "../../recorders";
+import { ConfirmDialog } from "../../components/ConfirmDialog";
+import { SyncNowButton } from "../../components/SyncNowButton";
+import { displayName, formatClock, opencastNotice, sortForAdmin } from "../../recorders";
+import type { MonitorHealth } from "../../api";
+
+const iconBtn =
+  "inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-900 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800 dark:focus-visible:outline-slate-100";
 
 const FIELDS = ["room_name", "stream_name", "agent_id", "active"];
 const NO_ERRORS: FormErrors = { fields: {}, general: [] };
@@ -19,7 +27,7 @@ const NO_ERRORS: FormErrors = { fields: {}, general: [] };
 type Editing = number | "new" | null;
 
 export function RecordersAdmin() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const refreshWhoami = useAppContext()?.refreshWhoami;
   const [recorders, setRecorders] = useState<Recorder[]>([]);
   const [loading, setLoading] = useState(true);
@@ -27,7 +35,46 @@ export function RecordersAdmin() {
   const [editing, setEditing] = useState<Editing>(null);
   const [message, setMessage] = useState("");
   const [rowError, setRowError] = useState("");
+  const [ignored, setIgnored] = useState<IgnoredAgent[]>([]);
+  const [toDelete, setToDelete] = useState<Recorder | null>(null);
+  const [health, setHealth] = useState<MonitorHealth | null>(null);
+  const [syncPolling, setSyncPolling] = useState(false);
   const addBtn = useRef<HTMLButtonElement>(null);
+
+  const loadHealth = useCallback(async () => {
+    try {
+      setHealth(await api.monitor.health());
+    } catch {
+      /* the page works without the heartbeat */
+    }
+  }, []);
+  const loadIgnored = useCallback(async () => {
+    try {
+      setIgnored(await api.ignoredAgents.list());
+    } catch {
+      /* optional section */
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadHealth();
+    void loadIgnored();
+  }, [loadHealth, loadIgnored]);
+
+  // Keep the Opencast status current while the page is open; poll faster
+  // while a requested sync is pending.
+  useEffect(() => {
+    const id = window.setInterval(() => void loadHealth(), syncPolling ? 2000 : 10000);
+    return () => window.clearInterval(id);
+  }, [syncPolling, loadHealth]);
+
+  const syncDone = useCallback(() => {
+    setSyncPolling(false);
+    void loadHealth();
+    void reload();
+    void loadIgnored();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadHealth, loadIgnored]);
 
   const reload = useCallback(async () => {
     try {
@@ -56,11 +103,56 @@ export function RecordersAdmin() {
     }
   };
 
+  const confirmDelete = async () => {
+    const r = toDelete;
+    setToDelete(null);
+    if (!r) return;
+    setRowError("");
+    try {
+      await api.recorders.remove(r.id);
+      setRecorders((list) => list.filter((x) => x.id !== r.id));
+      setMessage(t("Deleted."));
+      // The row (and its delete button) is gone: move focus somewhere stable.
+      setTimeout(() => addBtn.current?.focus(), 0);
+      await loadIgnored();
+    } catch (e) {
+      setRowError(splitErrors(e, []).general.join(" "));
+      // E.g. 404: deleted elsewhere meanwhile – show the current list.
+      void reload();
+    }
+  };
+
+  const allowAgain = async (i: IgnoredAgent) => {
+    setRowError("");
+    try {
+      await api.ignoredAgents.remove(i.id);
+      setIgnored((list) => list.filter((x) => x.id !== i.id));
+      setMessage(t("Saved."));
+    } catch (e) {
+      setRowError(splitErrors(e, []).general.join(" "));
+    }
+  };
+
   const closeForm = () => {
     setEditing(null);
     // Return focus to the control that opened the form.
     setTimeout(() => addBtn.current?.focus(), 0);
   };
+
+  const notice = health ? opencastNotice(health) : { level: null, key: null };
+  // Literal keys, so check:i18n sees them.
+  const noticeTexts: Record<string, string> = {
+    "Opencast not reachable": t("Opencast not reachable"),
+    "Opencast rejected the login": t("Opencast rejected the login"),
+    "No permission in Opencast": t("No permission in Opencast"),
+    "Opencast did not answer in time": t("Opencast did not answer in time"),
+    "Opencast server error": t("Opencast server error"),
+    "Unexpected answer from Opencast": t("Unexpected answer from Opencast"),
+    "Opencast shows no scheduled recordings – check the account's permissions": t(
+      "Opencast shows no scheduled recordings – check the account's permissions",
+    ),
+  };
+  const noticeText = notice.key ? noticeTexts[notice.key] : "";
 
   const current = typeof editing === "number" ? recorders.find((r) => r.id === editing) : undefined;
 
@@ -74,6 +166,22 @@ export function RecordersAdmin() {
           {t("Add recorder")}
         </button>
       </div>
+      {health?.opencast.enabled ? (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
+          <SyncNowButton label={t("Sync Opencast now")} requested={health.opencast.requested} onStart={() => setSyncPolling(true)} onDone={syncDone} onError={() => setSyncPolling(false)} />
+          <span className="text-slate-700 dark:text-slate-300">
+            {health.opencast.last_success
+              ? t("Last sync: {{time}}", { time: formatClock(health.opencast.last_success, i18n.language) })
+              : t("No sync yet")}
+          </span>
+          {noticeText ? (
+            <span role="status" className="inline-flex items-center gap-1 font-bold text-amber-900 dark:text-amber-300">
+              {notice.level === "hint" ? <Info aria-hidden className="h-4 w-4 shrink-0" /> : <span aria-hidden>⚠</span>}
+              {noticeText}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
       <p role="status" className="min-h-5 text-sm text-slate-700 dark:text-slate-300">
         {message}
       </p>
@@ -119,7 +227,7 @@ export function RecordersAdmin() {
                   <td className="px-3 py-2 font-mono">
                     {r.agent_id ? (
                       <>
-                        {r.agent_id} <span className="font-sans text-xs text-slate-600 dark:text-slate-300">· <AgentStateText state={r.status.agent_state} /></span>
+                        <OpencastIcon className="mr-1.5" />{r.agent_id} <span className="font-sans text-xs text-slate-600 dark:text-slate-300">· <AgentStateText state={r.status.agent_state} /></span>
                       </>
                     ) : (
                       <span className="font-sans text-slate-600 dark:text-slate-300">{t("Not linked")}</span>
@@ -133,22 +241,37 @@ export function RecordersAdmin() {
                     ) : null}
                   </td>
                   <td className="whitespace-nowrap px-3 py-2 text-right">
-                    <button
-                      type="button"
-                      className="btn-secondary mr-2"
-                      aria-label={t("Edit {{room}}", { room: displayName(r) })}
-                      onClick={() => { setMessage(""); setEditing(r.id); }}
-                    >
-                      {t("Edit")}
-                    </button>
-                    <button
-                      type="button"
-                      className="btn-secondary"
-                      aria-label={`${r.active ? t("Deactivate") : t("Activate")}: ${displayName(r)}`}
-                      onClick={() => void toggleActive(r)}
-                    >
-                      {r.active ? t("Deactivate") : t("Activate")}
-                    </button>
+                    <span className="inline-flex gap-2">
+                      <button
+                        type="button"
+                        className={iconBtn}
+                        title={t("Edit")}
+                        aria-label={t("Edit {{room}}", { room: displayName(r) })}
+                        onClick={() => { setMessage(""); setEditing(r.id); }}
+                      >
+                        <Pencil aria-hidden className="h-5 w-5" />
+                      </button>
+                      <button
+                        type="button"
+                        className={iconBtn}
+                        title={r.active ? t("Deactivate") : t("Activate")}
+                        aria-label={r.active ? t("Deactivate {{room}}", { room: displayName(r) }) : t("Activate {{room}}", { room: displayName(r) })}
+                        onClick={() => void toggleActive(r)}
+                      >
+                        {r.active ? <PowerOff aria-hidden className="h-5 w-5" /> : <Power aria-hidden className="h-5 w-5" />}
+                      </button>
+                      {!r.active ? (
+                        <button
+                          type="button"
+                          className={iconBtn}
+                          title={t("Delete")}
+                          aria-label={t("Delete {{room}}", { room: displayName(r) })}
+                          onClick={() => setToDelete(r)}
+                        >
+                          <Trash2 aria-hidden className="h-5 w-5" />
+                        </button>
+                      ) : null}
+                    </span>
                   </td>
                 </tr>
               ))}
@@ -161,6 +284,47 @@ export function RecordersAdmin() {
           </table>
         </div>
       )}
+
+      {ignored.length ? (
+        <section aria-labelledby="ign-h" className="space-y-2">
+          <h3 id="ign-h" className="text-lg font-bold">{t("Ignored Opencast agents")}</h3>
+          <p className="text-sm text-slate-700 dark:text-slate-300">{t("At the next sync the agent returns as “New – please check”.")}</p>
+          <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
+            <table className="w-full min-w-[32rem] text-left text-sm">
+              <caption className="sr-only">{t("Ignored Opencast agents")}</caption>
+              <thead className="bg-slate-100 dark:bg-slate-800">
+                <tr>
+                  <th scope="col" className="px-3 py-2">{t("Agent")}</th>
+                  <th scope="col" className="px-3 py-2">{t("Date")}</th>
+                  <th scope="col" className="px-3 py-2">{t("By")}</th>
+                  <th scope="col" className="px-3 py-2"><span className="sr-only">{t("Actions")}</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortIgnoredAgents(ignored).map((i) => (
+                  <tr key={i.id} className="border-t border-slate-200 dark:border-slate-800">
+                    <th scope="row" className="px-3 py-2 font-mono font-medium">{i.agent_id}</th>
+                    <td className="px-3 py-2">{new Date(i.created_at).toLocaleDateString(i18n.language)}</td>
+                    <td className="px-3 py-2">{i.created_by}</td>
+                    <td className="px-3 py-2 text-right">
+                      <button type="button" className="btn-secondary min-h-11" aria-label={t("Allow {{agent}} again", { agent: i.agent_id })} onClick={() => void allowAgain(i)}>
+                        {t("Allow again")}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
+
+      {toDelete ? (
+        <ConfirmDialog title={t("Delete recorder?")} confirmLabel={t("Delete")} onConfirm={() => void confirmDelete()} onCancel={() => setToDelete(null)}>
+          <p>{t("{{room}} will be permanently deleted along with its status and schedule.", { room: displayName(toDelete) })}</p>
+          {toDelete.agent_id ? <p className="mt-2">{t("The Opencast agent {{agent}} will be ignored from now on.", { agent: toDelete.agent_id })}</p> : null}
+        </ConfirmDialog>
+      ) : null}
     </section>
   );
 }

@@ -3,8 +3,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Link } from "react-router-dom";
-import { Search } from "lucide-react";
+import { CalendarX2, HelpCircle, Search, VideoOff } from "lucide-react";
 import { useRecorders } from "../useRecorders";
 import {
   displayName,
@@ -16,13 +15,13 @@ import {
   outsideNow,
   presentation,
   quietWithoutRecording,
+  scheduleUnclear,
   sortForOverview,
   type OverviewMode,
 } from "../recorders";
-import type { Recorder } from "../api";
 import { RecorderTile } from "../components/RecorderTile";
 import { RoomList } from "../components/RoomList";
-import { RoomName } from "../components/RoomName";
+import { RoomPills } from "../components/RoomPills";
 import { UpcomingList } from "../components/UpcomingList";
 import { MonitorBanner } from "../components/MonitorBanner";
 import { AudioUnlockButton } from "../media/AudioUnlockButton";
@@ -54,7 +53,13 @@ export function Overview() {
     opencastEnabled,
     opencastStale,
     opencastLastSuccess,
+    opencastErrorKind,
+    opencastNotice,
+    opencastRequested,
   } = useRecorders();
+  // "No events at all" (likely permissions) cannot back "no recording today".
+  const noEvents = opencastErrorKind === "no_events";
+  const unclearSchedule = scheduleUnclear(opencastStale, opencastErrorKind);
   const [mode, setMode] = useState<OverviewMode>("now");
   const [query, setQuery] = useState("");
   const wide = useMediaQuery("(min-width: 768px)");
@@ -81,24 +86,30 @@ export function Overview() {
     [sorted, effMode, query],
   );
   // Outside the tiles: definite "no stream" (without Opencast), "no recording
-  // today" (with Opencast) and "status unknown" are listed apart.
+  // today" (with Opencast) and "status unknown" are listed apart. When
+  // Opencast shows no events at all, the quiet rooms are listed as "without
+  // stream" instead: "no recording today" would be an unfounded claim.
   const outside = useMemo(() => {
     if (effMode === "all") return { offline: [], unknown: [], quiet: [] };
     const filtered = filterOverview(sorted, "all", query);
     const { offline, unknown } = outsideNow(filtered);
     const tiles = new Set(shown.map((r) => r.id));
+    const quiet = opencastEnabled
+      ? filterOverview(quietWithoutRecording(sorted), "all", query)
+      : [];
     return {
-      offline: opencastEnabled ? [] : offline,
+      offline: !opencastEnabled ? offline : noEvents ? quiet : [],
       unknown: unknown.filter((r) => !tiles.has(r.id)),
-      quiet: opencastEnabled
-        ? filterOverview(quietWithoutRecording(sorted), "all", query)
-        : [],
+      quiet: noEvents ? [] : quiet,
     };
-  }, [sorted, shown, effMode, query, opencastEnabled]);
+  }, [sorted, shown, effMode, query, opencastEnabled, noEvents]);
+  // Rows for "Still scheduled today" and "Tomorrow" (events today or tomorrow).
   const upcoming = useMemo(
     () =>
       opencastEnabled && effMode === "now"
-        ? filterOverview(sorted, "all", query).filter((r) => r.next_event)
+        ? filterOverview(sorted, "all", query).filter(
+            (r) => r.next_event || r.next_event_tomorrow,
+          )
         : [],
     [sorted, effMode, query, opencastEnabled],
   );
@@ -154,6 +165,8 @@ export function Overview() {
         lastCheck={monitorLastCheck}
         opencastStale={opencastStale}
         opencastLastSuccess={opencastLastSuccess}
+        opencastNotice={opencastNotice}
+        opencastRequested={opencastRequested}
       />
       <p aria-live="polite" className="sr-only">
         <span key={announcement.seq}>{announcement.text}</span>
@@ -178,11 +191,9 @@ export function Overview() {
             className="w-full rounded-full border border-slate-300 bg-white py-1.5 pl-9 pr-3 text-sm placeholder:text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:placeholder:text-slate-300"
           />
         </label>
-        {wide ? (
-          <div className="ml-auto">
-            <AudioUnlockButton />
-          </div>
-        ) : null}
+        <div className="sm:ml-auto">
+          <AudioUnlockButton />
+        </div>
       </div>
 
       {error ? (
@@ -222,7 +233,7 @@ export function Overview() {
           }}
         >
           {shown.map((r) => (
-            <RecorderTile key={r.id} recorder={r} opencast={opencastEnabled} opencastStale={opencastStale} />
+            <RecorderTile key={r.id} recorder={r} opencast={opencastEnabled} opencastStale={unclearSchedule} />
           ))}
         </div>
       ) : (
@@ -231,44 +242,24 @@ export function Overview() {
 
       {effMode !== "all" ? (
         <>
-          <UpcomingList recorders={upcoming} />
-          <RoomLinks
-            label={t("Currently without stream")}
+          <UpcomingList recorders={upcoming} allActive={sorted} />
+          <RoomPills
+            title={t("Currently without stream")}
+            icon={VideoOff}
             recorders={outside.offline}
           />
-          <RoomLinks
-            label={t("No recording today")}
+          <RoomPills
+            title={t("No recording today")}
+            icon={CalendarX2}
             recorders={outside.quiet}
           />
-          <RoomLinks label={t("Status unknown")} recorders={outside.unknown} />
+          <RoomPills
+            title={t("Status unknown")}
+            icon={HelpCircle}
+            recorders={outside.unknown}
+          />
         </>
       ) : null}
     </div>
-  );
-}
-
-function RoomLinks({
-  label,
-  recorders,
-}: {
-  label: string;
-  recorders: Recorder[];
-}) {
-  if (recorders.length === 0) return null;
-  return (
-    <p className="text-sm text-slate-700 dark:text-slate-300">
-      <span className="font-bold">{label}:</span>{" "}
-      {recorders.map((r, i) => (
-        <span key={r.id}>
-          {i > 0 ? ", " : ""}
-          <Link
-            to={`/raum/${r.id}`}
-            className="underline hover:text-brand-700 dark:hover:text-brand-300"
-          >
-            <RoomName recorder={r} />
-          </Link>
-        </span>
-      ))}
-    </p>
   );
 }

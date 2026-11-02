@@ -5,7 +5,8 @@
 import json
 import tempfile
 import threading
-from datetime import datetime, timezone
+import time
+from datetime import datetime, timedelta, timezone
 from io import StringIO
 from pathlib import Path
 from unittest import mock
@@ -14,12 +15,13 @@ from zoneinfo import ZoneInfo
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.management import CommandError, call_command
-from django.db import connection
+from django.db import IntegrityError, connection
 from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 
-from opencast.client import OpencastError
-from opencast.models import OpencastSyncState, ScheduledEvent
+from opencast.client import Agent, OpencastError
+from opencast.models import IgnoredAgent, OpencastSyncState, ScheduledEvent
+from opencast.sync import sync_agents
 from recorders.models import MonitorSettings, Recorder, RecorderStatus
 from recorders.monitor import run_cycle
 from streams.sources import Probe
@@ -142,11 +144,38 @@ class RecorderApiTests(TestCase):
         self.client.force_login(outsider)
         self.assertEqual(self.client.get("/api/recorders/").status_code, 403)
 
-    def test_delete_not_allowed(self):
+    def test_delete_active_recorder_refused(self):
         rec = Recorder.objects.create(room_name="A", stream_name="rec-a")
         response = self.client.delete(f"/api/recorders/{rec.pk}/")
-        self.assertEqual(response.status_code, 405)
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(
+            response.json(), {"detail": "Only deactivated recorders can be deleted."}
+        )
+        self.assertTrue(Recorder.objects.filter(pk=rec.pk).exists())
 
+    def test_delete_inactive_recorder_cascades(self):
+        rec = Recorder.objects.create(room_name="A", stream_name="rec-a", active=False)
+        now = datetime(2026, 11, 4, 8, 0, tzinfo=timezone.utc)
+        ScheduledEvent.objects.create(
+            identifier="e1", recorder=rec, start=now, end=now + timedelta(hours=1)
+        )
+        response = self.client.delete(f"/api/recorders/{rec.pk}/")
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(Recorder.objects.filter(pk=rec.pk).exists())
+        self.assertFalse(RecorderStatus.objects.filter(recorder_id=rec.pk).exists())
+        self.assertFalse(ScheduledEvent.objects.exists())
+        self.assertFalse(IgnoredAgent.objects.exists())
+
+    def test_delete_opencast_recorder_ignores_agent(self):
+        rec = Recorder.objects.create(
+            room_name="A", stream_name="rec-a", agent_id="rec-a", active=False
+        )
+        self.assertEqual(self.client.delete(f"/api/recorders/{rec.pk}/").status_code, 204)
+        ignored = IgnoredAgent.objects.get(agent_id="rec-a")
+        self.assertEqual(ignored.created_by, "member")
+        result = sync_agents([Agent("rec-a", "idle", None)], datetime.now(timezone.utc))
+        self.assertEqual(result.created, 0)
+        self.assertFalse(Recorder.objects.exists())
     def test_signal_creates_status(self):
         rec = Recorder.objects.create(room_name="A", stream_name="rec-a")
         self.assertEqual(rec.status.state, RecorderStatus.UNKNOWN)
@@ -220,7 +249,39 @@ class MonitorSettingsApiTests(TestCase):
         self.assertEqual(
             datetime.fromisoformat(block["last_success"].replace("Z", "+00:00")), ok
         )
-        self.assertEqual(set(block), {"enabled", "last_success", "sync_seconds"})
+        self.assertEqual(
+            set(block),
+            {"enabled", "last_success", "sync_seconds", "last_attempt", "error_kind", "requested"},
+        )
+
+    @override_settings(OPENCAST_URL="https://opencast.example.org")
+    def test_health_reports_request_and_error_kind(self):
+        t1 = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+        t2 = datetime(2026, 1, 1, 12, 5, tzinfo=timezone.utc)
+        block = self.client.get("/api/monitor/health/").json()["opencast"]
+        self.assertIsNone(block["last_attempt"])
+        self.assertEqual(block["error_kind"], "")
+        self.assertFalse(block["requested"])
+        state = OpencastSyncState.load()
+        state.last_attempt_at = t1
+        state.last_error_kind = "forbidden"
+        state.last_error = "/api/agents: forbidden"
+        state.save()
+        block = self.client.get("/api/monitor/health/").json()["opencast"]
+        self.assertEqual(
+            datetime.fromisoformat(block["last_attempt"].replace("Z", "+00:00")), t1
+        )
+        self.assertEqual(block["error_kind"], "forbidden")
+        self.assertFalse(block["requested"])
+        state.requested_at = t2
+        state.save()
+        self.assertTrue(self.client.get("/api/monitor/health/").json()["opencast"]["requested"])
+        state.last_attempt_at = t2
+        state.save()
+        self.assertFalse(self.client.get("/api/monitor/health/").json()["opencast"]["requested"])
+        state.last_attempt_at = None
+        state.save()
+        self.assertTrue(self.client.get("/api/monitor/health/").json()["opencast"]["requested"])
 
     def test_requires_access(self):
         outsider = User.objects.create_user(username="out")
@@ -341,6 +402,47 @@ class RunCycleTests(TestCase):
         self.assertEqual(r.status.agent_state, "capturing")
         self.assertEqual(r.status.agent_updated_at, NOW)
 
+    def test_run_cycle_survives_recorder_deleted_during_cycle(self):
+        # An admin may delete a recorder while the probes run; the other
+        # recorders must still get their status.
+        a = Recorder.objects.create(room_name="A", stream_name="rec-a")
+        b = Recorder.objects.create(room_name="B", stream_name="rec-b")
+        from recorders import monitor
+
+        real_evaluate = monitor.evaluate
+        deleted = []
+
+        def evaluate_after_delete(*args, **kwargs):
+            if not deleted:
+                deleted.append(True)
+                Recorder.objects.filter(pk=a.pk).delete()
+            return real_evaluate(*args, **kwargs)
+
+        source = FakeSource(
+            {"rec-a": Probe(True, True, 1, 6.0), "rec-b": Probe(True, True, 2, 6.0)}
+        )
+        with mock.patch.object(monitor, "evaluate", evaluate_after_delete):
+            self.assertEqual(run_cycle(source, NOW), 2)
+        self.assertFalse(Recorder.objects.filter(pk=a.pk).exists())
+        b.status.refresh_from_db()
+        self.assertEqual(b.status.state, "live")
+        self.assertEqual(b.status.checked_at, NOW)
+
+    def test_run_cycle_survives_failing_status_create(self):
+        # Creating the missing status of a recorder deleted meanwhile fails
+        # (FK); the cycle skips that recorder and goes on.
+        a = Recorder.objects.create(room_name="A", stream_name="rec-a")
+        b = Recorder.objects.create(room_name="B", stream_name="rec-b", active=False)
+        RecorderStatus.objects.filter(recorder=a).delete()
+        source = FakeSource({})
+        with mock.patch.object(
+            RecorderStatus.objects, "create", side_effect=IntegrityError("fk")
+        ):
+            self.assertEqual(run_cycle(source, NOW), 0)
+        self.assertEqual(source.probed, [])
+        b.status.refresh_from_db()
+        self.assertEqual(b.status.detail, "Recorder inactive")
+
     def _step(self, recorder, probe, at):
         run_cycle(FakeSource({recorder.stream_name: probe}), at)
         recorder.status.refresh_from_db()
@@ -434,8 +536,25 @@ class RunMonitorOpencastTests(TestCase):
         self.assertIn("opencast=error", text)
 
     @override_settings(OPENCAST_URL="https://opencast.example.org")
+    def test_unexpected_sync_error_records_kind_and_attempt_start(self):
+        started = []
+
+        def failing_sync(client, now, lookahead):
+            started.append(now)
+            raise RuntimeError("boom")
+
+        state = OpencastSyncState.load()
+        state.last_error_kind = ""
+        state.save()
+        with self.assertLogs(MONITOR, level="DEBUG"):
+            self._run(mock.Mock(side_effect=failing_sync))
+        state = OpencastSyncState.load()
+        self.assertEqual(state.last_error_kind, "invalid")
+        self.assertEqual(state.last_attempt_at, started[0])
+
+    @override_settings(OPENCAST_URL="https://opencast.example.org")
     def test_run_monitor_logs_opencast_error_without_traceback(self):
-        sync = mock.Mock(side_effect=OpencastError("/x: HTTP 500"))
+        sync = mock.Mock(side_effect=OpencastError("/x: HTTP 500", "server"))
         with self.assertLogs(MONITOR, level="DEBUG") as logs:
             self._run(sync)
         self.assertTrue(any(r.levelname == "WARNING" for r in logs.records))
@@ -475,6 +594,7 @@ class RunMonitorOpencastTests(TestCase):
         self.source.probe = probe
         state = mock.Mock()
         state.load.return_value.last_error = ""
+        state.objects.filter.return_value.first.return_value = None
         with override_settings(OPENCAST_URL="https://opencast.example.org"), \
                 mock.patch(f"{MONITOR}.HlsStreamSource", return_value=self.source), \
                 mock.patch(f"{MONITOR}.run_opencast_sync", blocking_sync), \
@@ -501,6 +621,91 @@ class RunMonitorOpencastTests(TestCase):
             cmd._start_sync(mock.Mock())
         thread.assert_not_called()
 
+    def _bare_cmd(self):
+        from recorders.management.commands import run_monitor
+
+        cmd = run_monitor.Command()
+        cmd._last_sync_at = None
+        cmd._opencast_status = "off"
+        cmd._insecure_logged = False
+        cmd._sync_thread = None
+        return cmd
+
+    @override_settings(
+        OPENCAST_URL="https://opencast.example.org", OPENCAST_SYNC_SECONDS=3600
+    )
+    def test_requested_sync_runs_before_interval(self):
+        cmd = self._bare_cmd()
+        self.assertTrue(cmd._sync_due())  # first sync
+        self.assertFalse(cmd._sync_due())  # interval not over
+        now = datetime.now(timezone.utc)
+        state = OpencastSyncState.load()
+        state.last_attempt_at = now
+        state.save()
+        self.assertFalse(cmd._sync_due())  # no request
+        state.requested_at = now - timedelta(seconds=5)
+        state.save()
+        self.assertFalse(cmd._sync_due())  # request older than the attempt
+        state.requested_at = now + timedelta(seconds=5)
+        state.save()
+        self.assertTrue(cmd._sync_due())  # request newer than the attempt
+
+    @override_settings(
+        OPENCAST_URL="https://opencast.example.org", OPENCAST_SYNC_SECONDS=3600
+    )
+    def test_request_without_any_attempt_is_due(self):
+        cmd = self._bare_cmd()
+        cmd._last_sync_at = time.monotonic()
+        state = OpencastSyncState.load()
+        state.requested_at = datetime.now(timezone.utc)
+        state.save()
+        self.assertTrue(cmd._sync_due())
+
+    @override_settings(OPENCAST_URL="", OPENCAST_SYNC_SECONDS=3600)
+    def test_request_without_opencast_is_not_due(self):
+        cmd = self._bare_cmd()
+        state = OpencastSyncState.load()
+        state.requested_at = datetime.now(timezone.utc)
+        state.save()
+        self.assertFalse(cmd._sync_due())
+
+    @override_settings(
+        OPENCAST_URL="https://opencast.example.org", OPENCAST_SYNC_SECONDS=3600
+    )
+    def test_request_during_running_sync_is_served_after(self):
+        cmd = self._bare_cmd()
+        started = threading.Event()
+        release = threading.Event()
+        calls = []
+
+        def fake_sync(client, now, lookahead):
+            calls.append(now)
+            state = OpencastSyncState.load()
+            state.last_attempt_at = now
+            state.save()
+            if len(calls) == 1:
+                started.set()
+                release.wait(5)
+
+        with mock.patch(f"{MONITOR}.run_opencast_sync", fake_sync):
+            cmd._start_sync(mock.Mock())
+            self.assertTrue(started.wait(2))
+            first = cmd._sync_thread
+            state = OpencastSyncState.load()
+            state.requested_at = datetime.now(timezone.utc)
+            state.save()
+            cmd._start_sync(mock.Mock())  # still running: no second thread
+            self.assertIs(cmd._sync_thread, first)
+            self.assertEqual(len(calls), 1)
+            release.set()
+            first.join(5)
+            cmd._start_sync(mock.Mock())  # follow-up for the request
+            self.assertIsNot(cmd._sync_thread, first)
+            cmd._sync_thread.join(5)
+            self.assertEqual(len(calls), 2)
+            cmd._start_sync(mock.Mock())  # served: nothing more
+            self.assertEqual(len(calls), 2)
+
     @override_settings(OPENCAST_URL="http://opencast.example.org", DEBUG=False)
     def test_run_monitor_refuses_plain_http_without_debug(self):
         from recorders.management.commands import run_monitor
@@ -517,6 +722,12 @@ class RunMonitorOpencastTests(TestCase):
         self.assertEqual(cmd._opencast_status, "error")
         errors = [r for r in logs.records if r.levelname == "ERROR"]
         self.assertEqual(len(errors), 1)
+
+    @override_settings(OPENCAST_URL="http://opencast.example.org", DEBUG=False)
+    def test_health_reports_plain_http_without_debug_as_disabled(self):
+        self.client.force_login(User.objects.create_user(username="h", is_superuser=True))
+        block = self.client.get("/api/monitor/health/").json()["opencast"]
+        self.assertFalse(block["enabled"])
 
     @override_settings(OPENCAST_URL="http://opencast.example.org", DEBUG=True)
     def test_run_monitor_allows_plain_http_in_debug(self):
@@ -743,6 +954,47 @@ class RecorderEventApiTests(TestCase):
         self.set_status("live")
         ScheduledEvent.objects.filter(title="late").delete()
         self.assertIsNone(self.get(berlin(22))["next_event"])
+
+    def test_next_event_tomorrow_local_day(self):
+        self.event(berlin(14, day=3), berlin(15, day=3), "afternoon")
+        self.event(berlin(8, day=3), berlin(9, day=3), "morning")
+        self.event(berlin(8, day=4), berlin(9, day=4), "day after")
+        body = self.get(berlin(20, day=2))
+        self.assertIsNone(body["next_event"])
+        self.assertEqual(body["next_event_tomorrow"]["title"], "morning")
+        self.assertEqual(
+            datetime.fromisoformat(body["next_event_tomorrow"]["start"]),
+            berlin(8, day=3),
+        )
+
+    def test_next_event_tomorrow_null_without_events(self):
+        self.event(berlin(8, day=4), berlin(9, day=4), "day after")
+        self.assertIsNone(self.get(berlin(20, day=2))["next_event_tomorrow"])
+
+    def test_next_event_tomorrow_query_count_constant(self):
+        def make(count):
+            for i in range(count):
+                rec = Recorder.objects.create(
+                    room_name=f"T{count}-{i}", stream_name=f"t-{count}-{i}"
+                )
+                self.event(berlin(10, day=3), berlin(12, day=3), recorder=rec)
+
+        def count_queries():
+            with mock.patch(
+                "django.utils.timezone.now", return_value=berlin(20, day=2)
+            ):
+                with CaptureQueriesContext(connection) as ctx:
+                    response = self.client.get("/api/recorders/")
+            self.assertEqual(response.status_code, 200)
+            return len(ctx), response.json()
+
+        make(3)
+        self.client.get("/api/recorders/")  # warm up: creates the settings row
+        small, body = count_queries()
+        self.assertEqual(body[1]["next_event_tomorrow"]["title"], "T")
+        make(7)
+        large, _ = count_queries()
+        self.assertEqual(small, large)
 
     def test_overnight_event_is_current(self):
         self.event(berlin(23), berlin(1, day=11), "night")

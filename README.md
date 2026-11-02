@@ -32,7 +32,8 @@ Keycloak, Opencast oder an den Rekordern — es beobachtet nur.
 **Stand:** Stufe 2 — Monitor mit gepflegter Rekorderliste und
 Live-Erkennung der HLS-Streams (derzeit ein HLS-Streaming-Server) sowie
 optionaler Anbindung an Opencast (geplante Aufzeichnungen, „Stream fehlt“,
-„Heute noch geplant“; nur lesend). Geplant sind Alarme per E-Mail und über den Monitoring-Dienst mit Ausfallprotokoll
+„Heute noch geplant“; nur lesend), mit verständlichen Fehlermeldungen, Abgleich
+auf Knopfdruck und Löschen deaktivierter Rekorder. Geplant sind Alarme per E-Mail und über den Monitoring-Dienst mit Ausfallprotokoll
 (Stufe 3) und lernende Toleranzen (Stufe 4); Details im
 [Design-Dokument](docs/superpowers/specs/2026-10-30-ansehbar-design.md).
 

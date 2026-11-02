@@ -8,11 +8,12 @@ from unittest import mock
 from urllib.parse import parse_qs
 
 import httpx
-from django.test import SimpleTestCase, TestCase
+from django.contrib.auth import get_user_model
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from opencast import sync
 from opencast.client import Agent, Event, OpencastClient, OpencastError
-from opencast.models import OpencastSyncState, ScheduledEvent
+from opencast.models import IgnoredAgent, OpencastSyncState, ScheduledEvent
 from recorders.models import Recorder
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -135,6 +136,73 @@ class AgentsTests(SimpleTestCase):
         self.assertEqual({r.method for r in requests}, {"GET"})
 
 
+class ErrorKindTests(SimpleTestCase):
+    def kind(self, handler, **kwargs):
+        client, _ = make_client(handler, **kwargs)
+        with self.assertRaises(OpencastError) as ctx:
+            client.agents()
+        self.assertNotIn(PASSWORD, str(ctx.exception))
+        self.assertNotIn("opencast.example.org", str(ctx.exception))
+        return ctx.exception.kind
+
+    def test_html_forbidden_with_200_is_forbidden_error(self):
+        body = (
+            "<!DOCTYPE html>\n<html><head><title>Opencast :: Forbidden</title>"
+            "</head><body>Forbidden</body></html>"
+        )
+        handler = lambda r: httpx.Response(  # noqa: E731
+            200, text=body, headers={"Content-Type": "application/json"}
+        )
+        self.assertEqual(self.kind(handler), "forbidden")
+
+    def test_forbidden_text_without_markup_is_forbidden(self):
+        handler = lambda r: httpx.Response(200, text="Opencast :: Forbidden")  # noqa: E731
+        self.assertEqual(self.kind(handler), "forbidden")
+
+    def test_http_403_is_forbidden(self):
+        self.assertEqual(self.kind(lambda r: httpx.Response(403)), "forbidden")
+
+    def test_http_401_is_auth(self):
+        self.assertEqual(self.kind(lambda r: httpx.Response(401)), "auth")
+
+    def test_http_503_is_server(self):
+        self.assertEqual(self.kind(lambda r: httpx.Response(503)), "server")
+
+    def test_connect_error_is_unreachable(self):
+        def boom(request):
+            raise httpx.ConnectError("refused", request=request)
+
+        self.assertEqual(self.kind(boom), "unreachable")
+
+    def test_request_timeout_is_timeout(self):
+        def boom(request):
+            raise httpx.ReadTimeout("slow", request=request)
+
+        self.assertEqual(self.kind(boom), "timeout")
+
+    def test_total_timeout_is_timeout(self):
+        row = fixture("agents.json")[0]
+        clock = [0.0]
+
+        def slow(request):
+            clock[0] += 20
+            return json_response([row, row])
+
+        with mock.patch("opencast.client.time.monotonic", lambda: clock[0]):
+            self.assertEqual(self.kind(slow, page_size=2, total_timeout=45), "timeout")
+
+    def test_invalid_json_is_invalid(self):
+        self.assertEqual(self.kind(lambda r: httpx.Response(200, text="{")), "invalid")
+
+    def test_wrong_shape_is_invalid(self):
+        self.assertEqual(self.kind(lambda r: json_response({"a": 1})), "invalid")
+
+    def test_max_pages_is_invalid(self):
+        row = fixture("agents.json")[0]
+        handler = lambda r: json_response([row, row])  # noqa: E731
+        self.assertEqual(self.kind(handler, page_size=2, max_pages=2), "invalid")
+
+
 class EventsTests(SimpleTestCase):
     def window(self):
         return (
@@ -181,7 +249,7 @@ class FakeClient:
 
     def scheduled_events(self, start, end):
         if self.fail_events:
-            raise OpencastError("/api/events/: HTTP 500")
+            raise OpencastError("/api/events/: HTTP 500", "server")
         return self._events
 
 
@@ -339,3 +407,194 @@ class SyncTests(TestCase):
         self.assertEqual(state.last_success_at, NOW)
         self.assertEqual(state.last_error, "")
         self.assertEqual(ScheduledEvent.objects.count(), 1)
+
+    def test_sync_sets_no_events_hint(self):
+        client = FakeClient(agents=[self.agent("rec-hall"), self.agent("rec-b")])
+        sync.run_opencast_sync(client, NOW, 7)
+        state = OpencastSyncState.load()
+        self.assertEqual(state.last_success_at, NOW)
+        self.assertEqual(state.last_error, "")
+        self.assertEqual(state.last_error_kind, "no_events")
+        self.assertEqual(Recorder.objects.count(), 2)
+
+    def test_sync_without_agents_and_events_has_no_hint(self):
+        sync.run_opencast_sync(FakeClient(), NOW, 7)
+        self.assertEqual(OpencastSyncState.load().last_error_kind, "")
+
+    def test_sync_success_clears_error_kind(self):
+        state = OpencastSyncState.load()
+        state.last_error_kind = "auth"
+        state.save()
+        client = FakeClient(agents=[self.agent("rec-hall")], events=[self.event("a")])
+        sync.run_opencast_sync(client, NOW, 7)
+        self.assertEqual(OpencastSyncState.load().last_error_kind, "")
+
+    def test_sync_error_kind_recorded(self):
+        class Failing(FakeClient):
+            def agents(self):
+                raise OpencastError("/api/agents: HTTP 401", "auth")
+
+        sync.run_opencast_sync(Failing(), NOW, 7)
+        state = OpencastSyncState.load()
+        self.assertEqual(state.last_error_kind, "auth")
+        self.assertTrue(state.last_error)
+        self.assertEqual(Recorder.objects.count(), 0)
+
+    def _request_during(self, fail):
+        class Racing(FakeClient):
+            def agents(inner):
+                state = OpencastSyncState.load()
+                state.requested_at = NOW + timedelta(seconds=1)
+                state.save(update_fields=["requested_at"])
+                if fail:
+                    raise OpencastError("/api/agents: HTTP 401", "auth")
+                return []
+
+        sync.run_opencast_sync(Racing(), NOW, 7)
+        self.assertTrue(OpencastSyncState.load().sync_requested)
+
+    def test_request_during_successful_sync_is_kept(self):
+        self._request_during(fail=False)
+
+    def test_request_during_failed_sync_is_kept(self):
+        self._request_during(fail=True)
+
+
+User = get_user_model()
+
+
+class SyncRequestApiTests(TestCase):
+    def setUp(self):
+        self.client.force_login(User.objects.create_user(username="m", is_superuser=True))
+
+    @override_settings(OPENCAST_URL="https://opencast.example.org")
+    def test_sync_request_endpoint(self):
+        response = self.client.post("/api/opencast/sync/")
+        self.assertEqual(response.status_code, 202)
+        state = OpencastSyncState.load()
+        self.assertIsNotNone(state.requested_at)
+        self.assertEqual(
+            datetime.fromisoformat(response.json()["requested_at"].replace("Z", "+00:00")),
+            state.requested_at,
+        )
+
+    @override_settings(OPENCAST_URL="")
+    def test_sync_request_without_opencast_is_409(self):
+        response = self.client.post("/api/opencast/sync/")
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json(), {"detail": "Opencast is not configured."})
+        self.assertIsNone(OpencastSyncState.load().requested_at)
+
+    @override_settings(OPENCAST_URL="http://opencast.example.org", DEBUG=False)
+    def test_sync_request_with_plain_http_without_debug_is_409(self):
+        response = self.client.post("/api/opencast/sync/")
+        self.assertEqual(response.status_code, 409)
+        self.assertIsNone(OpencastSyncState.load().requested_at)
+
+    @override_settings(OPENCAST_URL="http://opencast.example.org", DEBUG=True)
+    def test_sync_request_with_plain_http_in_debug_is_accepted(self):
+        self.assertEqual(self.client.post("/api/opencast/sync/").status_code, 202)
+
+    @override_settings(OPENCAST_URL="https://opencast.example.org")
+    def test_sync_request_requires_access(self):
+        self.client.force_login(User.objects.create_user(username="outsider"))
+        self.assertEqual(self.client.post("/api/opencast/sync/").status_code, 403)
+        self.assertIsNone(OpencastSyncState.load().requested_at)
+
+    @override_settings(OPENCAST_URL="https://opencast.example.org")
+    def test_sync_request_rejects_get(self):
+        self.assertEqual(self.client.get("/api/opencast/sync/").status_code, 405)
+
+
+class IgnoredAgentTests(TestCase):
+    def setUp(self):
+        sync._logged.clear()
+        self.client.force_login(User.objects.create_user(username="m", is_superuser=True))
+
+    def test_ignored_agent_is_skipped_silently(self):
+        IgnoredAgent.objects.create(agent_id="cap-90-R12")
+        Recorder.objects.all().delete()
+        with self.assertNoLogs("opencast.sync", level="WARNING"):
+            result = sync.sync_agents([Agent("cap-90-R12", "idle", NOW)], NOW)
+        self.assertEqual((result.created, result.linked, result.skipped), (0, 0, []))
+        self.assertFalse(Recorder.objects.exists())
+
+    def test_ignored_agent_is_not_linked_to_stream_name(self):
+        IgnoredAgent.objects.create(agent_id="rec-hall")
+        rec = Recorder.objects.create(stream_name="rec-hall", room_name="Hall")
+        sync.sync_agents([Agent("rec-hall", "idle", NOW)], NOW)
+        rec.refresh_from_db()
+        self.assertIsNone(rec.agent_id)
+
+    def test_ignored_agent_still_updates_linked_recorder(self):
+        # Linked by hand to an ignored agent: state and "gone" still apply.
+        IgnoredAgent.objects.create(agent_id="cap-90-R12")
+        Recorder.objects.all().delete()
+        rec = Recorder.objects.create(
+            stream_name="rec-hall", room_name="Hall", agent_id="cap-90-R12"
+        )
+        sync.sync_agents([Agent("cap-90-R12", "capturing", NOW)], NOW)
+        rec.status.refresh_from_db()
+        self.assertEqual(rec.status.agent_state, "capturing")
+        self.assertEqual(rec.status.agent_updated_at, NOW)
+        result = sync.sync_agents([], NOW)
+        self.assertEqual(result.gone, 1)
+        rec.status.refresh_from_db()
+        self.assertEqual(rec.status.agent_state, "unknown")
+
+    def test_agent_ignored_during_sync_is_not_created(self):
+        # The recorder is deleted (and its agent ignored) after the ignore
+        # list was read: the re-check before creating honours it.
+        Recorder.objects.all().delete()
+        real_filter = Recorder.objects.filter
+
+        def filter_then_ignore(*args, **kwargs):
+            if "stream_name" in kwargs:
+                IgnoredAgent.objects.get_or_create(agent_id="cap-90-R12")
+            return real_filter(*args, **kwargs)
+
+        with mock.patch.object(Recorder.objects, "filter", filter_then_ignore):
+            result = sync.sync_agents([Agent("cap-90-R12", "idle", NOW)], NOW)
+        self.assertEqual(result.created, 0)
+        self.assertFalse(Recorder.objects.exists())
+
+    def test_events_of_ignored_agent_skipped_silently(self):
+        IgnoredAgent.objects.create(agent_id="cap-90-R12")
+        start = datetime(2026, 11, 4, 8, 0, tzinfo=timezone.utc)
+        event = Event("e1", "cap-90-R12", "T", "S", start, start + timedelta(hours=1))
+        ws, we = sync.sync_window(NOW, 7)
+        with self.assertNoLogs("opencast.sync", level="WARNING"):
+            result = sync.sync_events([event], ws, we, {"cap-90-R12"})
+        self.assertEqual(result.unmatched, 0)
+        self.assertFalse(ScheduledEvent.objects.exists())
+
+    def test_run_sync_passes_ignored_agents_to_events(self):
+        IgnoredAgent.objects.create(agent_id="cap-90-R12")
+        Recorder.objects.all().delete()
+        start = datetime(2026, 11, 4, 8, 0, tzinfo=timezone.utc)
+        event = Event("e1", "cap-90-R12", "T", "S", start, start + timedelta(hours=1))
+        client = FakeClient([Agent("cap-90-R12", "idle", NOW)], [event])
+        with self.assertNoLogs("opencast.sync", level="WARNING"):
+            sync.run_opencast_sync(client, NOW, 7)
+        self.assertFalse(ScheduledEvent.objects.exists())
+
+    def test_unignore_lets_agent_return(self):
+        ignored = IgnoredAgent.objects.create(agent_id="cap-90-R12", created_by="X")
+        listing = self.client.get("/api/ignored-agents/").json()
+        self.assertEqual(listing[0]["agent_id"], "cap-90-R12")
+        self.assertEqual(
+            set(listing[0]), {"id", "agent_id", "created_at", "created_by"}
+        )
+        response = self.client.delete(f"/api/ignored-agents/{ignored.pk}/")
+        self.assertEqual(response.status_code, 204)
+        sync.sync_agents([Agent("cap-90-R12", "idle", NOW)], NOW)
+        self.assertTrue(Recorder.objects.get(agent_id="cap-90-R12").needs_review)
+
+    def test_ignored_agents_requires_access(self):
+        ignored = IgnoredAgent.objects.create(agent_id="a")
+        self.client.force_login(User.objects.create_user(username="outsider"))
+        self.assertEqual(self.client.get("/api/ignored-agents/").status_code, 403)
+        self.assertEqual(
+            self.client.delete(f"/api/ignored-agents/{ignored.pk}/").status_code, 403
+        )
+        self.assertTrue(IgnoredAgent.objects.filter(pk=ignored.pk).exists())

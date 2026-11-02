@@ -18,6 +18,7 @@ function same(a: Recorder, b: Recorder): boolean {
     a.status.agent_updated_at === b.status.agent_updated_at &&
     sameEvent(a.current_event, b.current_event) &&
     sameEvent(a.next_event, b.next_event) &&
+    sameEvent(a.next_event_tomorrow, b.next_event_tomorrow) &&
     a.room_name === b.room_name &&
     a.stream_name === b.stream_name &&
     a.active === b.active &&
@@ -115,6 +116,23 @@ export function upcomingToday(list: Recorder[], _now: Date): Recorder[] {
     .sort((a, b) => new Date(a.next_event!.start).getTime() - new Date(b.next_event!.start).getTime());
 }
 
+/** Active recorders with an event tomorrow, soonest first. */
+export function upcomingTomorrow(list: Recorder[]): Recorder[] {
+  return list
+    .filter((r) => r.active && r.next_event_tomorrow)
+    .sort(
+      (a, b) =>
+        new Date(a.next_event_tomorrow!.start).getTime() - new Date(b.next_event_tomorrow!.start).getTime(),
+    );
+}
+
+/** Tomorrow's schedule is shown from 17:00 local time, or earlier when
+ *  nothing is running or left today. */
+export function showTomorrow(list: Recorder[], now: Date): boolean {
+  if (now.getHours() >= 17) return true;
+  return !list.some((r) => r.active && (r.current_event || r.next_event));
+}
+
 /** Active recorders that "today" would not show. */
 export function quietToday(list: Recorder[]): Recorder[] {
   const shown = new Set(filterOverview(list, "today", "").map((r) => r.id));
@@ -174,10 +192,40 @@ export function opencastStale(health: MonitorHealth): boolean {
   return age > 3 * oc.sync_seconds * 1000;
 }
 
+export type OpencastNotice = { level: "error" | "hint" | null; key: string | null };
+
+const OPENCAST_ERRORS: Record<string, string> = {
+  unreachable: "Opencast not reachable",
+  auth: "Opencast rejected the login",
+  forbidden: "No permission in Opencast",
+  timeout: "Opencast did not answer in time",
+  server: "Opencast server error",
+  invalid: "Unexpected answer from Opencast",
+};
+
+/** Immediate Opencast message: an error for a failed sync, a hint when the
+ *  sync works but shows no scheduled recordings. Unknown kinds count as a
+ *  server error; nothing when Opencast is off or the last sync was fine. */
+export function opencastNotice(health: MonitorHealth): OpencastNotice {
+  const { enabled, error_kind: kind } = health.opencast;
+  if (!enabled || !kind) return { level: null, key: null };
+  if (kind === "no_events")
+    return { level: "hint", key: "Opencast shows no scheduled recordings – check the account's permissions" };
+  return { level: "error", key: OPENCAST_ERRORS[kind] ?? OPENCAST_ERRORS.server };
+}
+
 /** false only when fresh Opencast data says nothing is scheduled today for
  *  this recorder; without Opencast or with stale sync data no claim is made. */
 export function recordingScheduled(r: Recorder, opencastEnabled: boolean, opencastStale: boolean): boolean {
   return !(opencastEnabled && !opencastStale && !r.current_event && !r.next_event);
+}
+
+/** The Opencast schedule cannot back a "nothing scheduled" claim: the data is
+ *  stale, or the sync works but Opencast shows no events at all (likely
+ *  missing permissions). Pass the result as `opencastStale` to
+ *  `recordingScheduled`. */
+export function scheduleUnclear(opencastStale: boolean, errorKind: string): boolean {
+  return opencastStale || errorKind === "no_events";
 }
 
 /** Whole minutes since the stream went missing, never negative. */

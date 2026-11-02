@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Universität Osnabrück (virtUOS)
 
-/** App shell: header (navigation, preferences, login/logout) and the access
+/** App shell: header (navigation, account menu / login) and the access
  *  gate (Landing / NoAccess / app). */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { NavLink, Outlet } from "react-router-dom";
-import { LogIn, LogOut } from "lucide-react";
 import {
   PreferencesMenu,
   setDefaultContentLang,
@@ -17,7 +16,8 @@ import { AppContext } from "./appContext";
 import { AudioContextProvider } from "./media/AudioContextProvider";
 import Landing from "./pages/Landing";
 import NoAccess from "./pages/NoAccess";
-import { api, loginUrl, logoutUrl, type Whoami } from "./api";
+import UserMenu from "./components/UserMenu";
+import { api, loginUrl, type Whoami } from "./api";
 
 export default function App() {
   const { t } = useTranslation();
@@ -66,30 +66,18 @@ export default function App() {
             ) : null}
           </div>
           <div className="flex items-center gap-1">
-            {/* Language + appearance from @basicbar/ui. Once the tool has an
-                account menu for signed-in users, move LanguageOptions and
-                AppearanceControl in there (see the @basicbar/ui README). */}
-            <PreferencesMenu
-              onLanguageChange={(lang) => {
-                if (whoami?.authenticated) void api.setLanguage(lang).catch(() => {});
-              }}
-            />
             {whoami?.authenticated ? (
-              <a
-                href={logoutUrl}
-                aria-label={t("Sign out")}
-                className="flex items-center rounded-full p-2 transition-colors hover:bg-slate-100 dark:hover:bg-slate-800"
-              >
-                <LogOut aria-hidden className="h-5 w-5 text-slate-500 dark:text-slate-400" />
-              </a>
+              <UserMenu whoami={whoami} />
             ) : (
-              <a
-                href={loginUrl}
-                aria-label={t("Sign in")}
-                className="flex items-center rounded-full p-2 transition-colors hover:bg-slate-100 dark:hover:bg-slate-800"
-              >
-                <LogIn aria-hidden className="h-5 w-5 text-slate-500 dark:text-slate-400" />
-              </a>
+              <>
+                <a
+                  href={loginUrl}
+                  className="rounded-full bg-brand-400 px-4 py-1.5 text-sm font-semibold text-slate-900 transition-colors hover:bg-brand-300"
+                >
+                  {t("Sign in")}
+                </a>
+                <PreferencesMenu />
+              </>
             )}
           </div>
         </div>

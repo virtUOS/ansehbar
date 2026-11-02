@@ -2,11 +2,16 @@
 # Copyright 2026 Universität Osnabrück (virtUOS)
 
 """One monitoring cycle: probe active recorders, persist their status."""
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
+from django.db import DatabaseError, transaction
+
 from recorders.models import MonitorSettings, Recorder, RecorderStatus
 from streams.sources import LiveState, Probe, StreamSource, evaluate
+
+logger = logging.getLogger(__name__)
 
 # Status fields written by the monitor cycle; agent_* belong to the Opencast sync.
 CYCLE_FIELDS = [
@@ -38,6 +43,17 @@ def _safe_probe(source: StreamSource, stream_name: str) -> Probe:
         return Probe(False, False, None, None, f"{type(exc).__name__}: {exc}")
 
 
+def _save(status: RecorderStatus, fields: list[str]) -> None:
+    """Save a status; a recorder deleted meanwhile must not abort the cycle."""
+    try:
+        # Savepoint: a failed write must not break an outer transaction.
+        with transaction.atomic():
+            status.save(update_fields=fields)
+    except DatabaseError:
+        # save(update_fields=...) raises if the row is gone (recorder deleted).
+        logger.info("status of recorder %s not saved (deleted?)", status.recorder_id)
+
+
 def run_cycle(source: StreamSource, now: datetime, max_workers: int = 8) -> int:
     """Probe all active recorders in parallel and write their statuses.
 
@@ -48,7 +64,13 @@ def run_cycle(source: StreamSource, now: datetime, max_workers: int = 8) -> int:
     recorders = list(Recorder.objects.select_related("status"))
     for recorder in recorders:
         if not hasattr(recorder, "status"):
-            recorder.status = RecorderStatus.objects.create(recorder=recorder)
+            try:
+                with transaction.atomic():
+                    recorder.status = RecorderStatus.objects.create(recorder=recorder)
+            except DatabaseError:
+                # Deleted since loading (or the sync created the status first).
+                logger.info("no status for recorder %s (deleted?)", recorder.pk)
+    recorders = [r for r in recorders if hasattr(r, "status")]
 
     active = [r for r in recorders if r.active]
     for recorder in recorders:
@@ -58,7 +80,7 @@ def run_cycle(source: StreamSource, now: datetime, max_workers: int = 8) -> int:
             status.live_since = None
             status.offline_since = None
             status.detail = "Recorder inactive"
-            status.save(update_fields=["state", "live_since", "offline_since", "detail"])
+            _save(status, ["state", "live_since", "offline_since", "detail"])
 
     if not active:
         return 0
@@ -84,5 +106,5 @@ def run_cycle(source: StreamSource, now: datetime, max_workers: int = 8) -> int:
         status.checked_at = now
         # Only the fields the cycle owns: the Opencast sync (own thread) may
         # have written agent_state/agent_updated_at since the statuses were loaded.
-        status.save(update_fields=CYCLE_FIELDS)
+        _save(status, CYCLE_FIELDS)
     return len(active)

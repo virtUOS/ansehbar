@@ -58,6 +58,8 @@ export interface Recorder {
   };
   current_event: EventBrief | null;
   next_event: EventBrief | null;
+  /** First event of the next local day. */
+  next_event_tomorrow: EventBrief | null;
   missing_since: string | null;
 }
 
@@ -66,7 +68,16 @@ export interface MonitorHealth {
   last_check: string | null;
   now: string;
   interval_seconds: number;
-  opencast: { enabled: boolean; last_success: string | null; sync_seconds: number };
+  opencast: {
+    enabled: boolean;
+    last_success: string | null;
+    sync_seconds: number;
+    last_attempt: string | null;
+    /** "" | "unreachable" | "auth" | "forbidden" | "timeout" | "server" | "invalid" | "no_events" */
+    error_kind: string;
+    /** A manual sync was requested and has not run yet. */
+    requested: boolean;
+  };
 }
 
 export interface Invitation {
@@ -81,6 +92,13 @@ export interface MonitorSettings {
   url_template: string;
   stale_factor: number;
   missing_grace_minutes: number;
+}
+
+export interface IgnoredAgent {
+  id: number;
+  agent_id: string;
+  created_at: string;
+  created_by: string;
 }
 
 export interface UserHit {
@@ -157,9 +175,18 @@ export const api = {
       request<Recorder>("/api/recorders/", { method: "POST", body: JSON.stringify(data) }),
     update: (id: number, data: Partial<Recorder>) =>
       request<Recorder>(`/api/recorders/${id}/`, { method: "PATCH", body: JSON.stringify(data) }),
+    remove: (id: number) => request<void>(`/api/recorders/${id}/`, { method: "DELETE" }),
+  },
+  ignoredAgents: {
+    list: () => request<IgnoredAgent[]>("/api/ignored-agents/"),
+    remove: (id: number) => request<void>(`/api/ignored-agents/${id}/`, { method: "DELETE" }),
   },
   monitor: {
     health: () => request<MonitorHealth>("/api/monitor/health/"),
+  },
+  opencast: {
+    /** Asks the monitor for an immediate (read-only) sync. */
+    sync: () => request<{ requested_at: string }>("/api/opencast/sync/", { method: "POST" }),
   },
   invitations: {
     list: () => request<Invitation[]>("/api/invitations/"),
