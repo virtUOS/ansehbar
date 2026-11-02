@@ -284,31 +284,34 @@ export function hasLastRecordingProblems(r: Recorder): boolean {
 export type ProblemText = { key: string; params: Record<string, string | number> };
 
 /** Texts for the problems of the last recording: literal i18n keys (so
- *  check:i18n sees them) plus their interpolation params. */
+ *  check:i18n sees them) plus their interpolation params. Kinds this client
+ *  does not know (newer backend) are skipped. */
 export function problemTexts(
   lr: LastRecording | null,
   locale: string,
 ): ProblemText[] {
   if (!lr) return [];
-  return lr.problems.map((p): ProblemText => {
+  return lr.problems.flatMap((p): ProblemText[] => {
     switch (p.kind) {
       case "stream_missing":
-        return {
+        return [{
           key: "Stream missing {{from}}–{{to}} ({{minutes}} min)",
           params: {
             from: p.from ? formatClock(p.from, locale) : "",
             to: p.to ? formatClock(p.to, locale) : "",
             minutes: p.minutes ?? 0,
           },
-        };
+        }];
       case "processing_failed":
-        return { key: "Processing in Opencast failed", params: {} };
+        return [{ key: "Processing in Opencast failed", params: {} }];
       case "recording_failed":
-        return { key: "Recording failed on the recorder", params: {} };
+        return [{ key: "Recording failed on the recorder", params: {} }];
       case "not_started":
-        return { key: "Recording did not start", params: {} };
+        return [{ key: "Recording did not start", params: {} }];
       case "not_finished":
-        return { key: "Recording did not finish", params: {} };
+        return [{ key: "Recording did not finish", params: {} }];
+      default:
+        return [];
     }
   });
 }

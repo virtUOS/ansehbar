@@ -460,6 +460,15 @@ describe("problemTexts", () => {
     expect(x.params).toEqual({ from: formatClock(from, "de"), to: formatClock(to, "de"), minutes: 15 });
   });
 
+  it("skips unknown kinds instead of failing", () => {
+    const unknown = { kind: "something_new" } as unknown as LastRecording["problems"][number];
+    const texts = problemTexts(lr([unknown, { kind: "not_started" }]), "de");
+    expect(texts.map((x) => x.key)).toEqual(["Recording did not start"]);
+    expect(problemTexts(lr([unknown]), "de")).toEqual([]);
+    // Still a problem: the warning shows its heading without detail lines.
+    expect(hasLastRecordingProblems({ ...rec(1, "a"), last_recording: lr([unknown]) })).toBe(true);
+  });
+
   it("returns nothing without problems or recording", () => {
     expect(problemTexts(null, "de")).toEqual([]);
     expect(problemTexts(lr([]), "de")).toEqual([]);

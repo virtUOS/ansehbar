@@ -21,13 +21,14 @@ export function LastRecordingWarning({ recorder, compact = false }: { recorder: 
     "Recording did not start": () => t("Recording did not start"),
     "Recording did not finish": () => t("Recording did not finish"),
   };
-  const lines = problemTexts(lr, lang).map((x) => texts[x.key](x.params));
+  // Unknown kinds yield no line; the heading still shows (problems exist).
+  const lines = problemTexts(lr, lang).flatMap((x) => (texts[x.key] ? [texts[x.key](x.params)] : []));
   const ref = t("{{title}}, {{day}} {{from}}–{{to}}", lastRecordingRef(lr, lang));
   if (compact) {
     return (
       <p
         role="note"
-        title={`${ref}\n${lines.join("\n")}`}
+        title={[ref, ...lines].join("\n")}
         className="mt-1 flex items-center gap-1.5 rounded-md bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-950 dark:bg-amber-950 dark:text-amber-100"
       >
         <AlertTriangle aria-hidden className="h-4 w-4 shrink-0" />
@@ -44,11 +45,13 @@ export function LastRecordingWarning({ recorder, compact = false }: { recorder: 
       <div className="min-w-0">
         <p className="font-semibold">{t("Last recording had problems")}</p>
         <p className="break-words">{ref}</p>
-        <ul className="list-disc pl-5">
-          {lines.map((l, i) => (
-            <li key={i}>{l}</li>
-          ))}
-        </ul>
+        {lines.length > 0 && (
+          <ul className="list-disc pl-5">
+            {lines.map((l, i) => (
+              <li key={i}>{l}</li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );
