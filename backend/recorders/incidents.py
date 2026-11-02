@@ -15,8 +15,9 @@ from recorders.models import Incident, MonitorSettings, Recorder, RecorderStatus
 def update_incidents(now: datetime) -> None:
     """Open, close and finish incidents from the statuses the cycle just wrote.
 
-    Two queries for events/incidents plus one for recorders, independent of
-    the number of recorders.
+    Reads settings, active recorders with status, running events and open
+    incidents with their events (four queries, independent of the number of
+    recorders); closing writes one update per incident, opening one bulk insert.
     """
     grace = timedelta(minutes=MonitorSettings.load().missing_grace_minutes)
     recorders = list(
@@ -32,6 +33,7 @@ def update_incidents(now: datetime) -> None:
     state_by_recorder = {
         r.pk: r.status.state for r in recorders if hasattr(r, "status")
     }
+    active_ids = {r.pk for r in recorders}
     open_keys = set()
     with transaction.atomic():
         for incident in open_incidents:
@@ -41,6 +43,9 @@ def update_incidents(now: datetime) -> None:
                 incident.ended_at = now
             elif event.end <= now:
                 incident.ended_at = event.end
+            elif incident.recorder_id not in active_ids:
+                # Recorder deactivated: no longer monitored, the gap ends now.
+                incident.ended_at = now
             elif state_by_recorder.get(incident.recorder_id) == RecorderStatus.LIVE:
                 incident.ended_at = now
             else:

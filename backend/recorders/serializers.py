@@ -135,19 +135,29 @@ class RecorderSerializer(serializers.ModelSerializer):
         to_iso = serializers.DateTimeField().to_representation
         problems = []
         for incident in self.context.get("incidents_by_event", {}).get(event.pk, []):
-            # An incident still open on an ended event stops at the event end.
-            ended = incident.ended_at or event.end
-            seconds = (ended - incident.started_at).total_seconds()
+            # Only the part within the event counts; an incident still open
+            # on an ended event stops at the event end.
+            began = max(incident.started_at, event.start)
+            ended = min(incident.ended_at or event.end, event.end)
+            if ended <= began:
+                continue
+            seconds = (ended - began).total_seconds()
             problems.append(
                 {
                     "kind": "stream_missing",
-                    "from": to_iso(incident.started_at),
+                    "from": to_iso(began),
                     "to": to_iso(ended),
                     "minutes": max(1, round(seconds / 60)),
                 }
             )
         status = event.opencast_status
-        overdue = now >= event.end + timedelta(minutes=30)
+        deadline = event.end + timedelta(minutes=30)
+        # "Did not start/finish" only from a status Opencast confirmed after
+        # the deadline; a stored status from before may simply be stale.
+        confirmed_at = self.context.get("opencast_confirmed_at")
+        overdue = (
+            now >= deadline and confirmed_at is not None and confirmed_at >= deadline
+        )
         if status.endswith("PROCESSING_FAILURE"):
             problems.append({"kind": "processing_failed"})
         elif status.endswith("RECORDING_FAILURE"):

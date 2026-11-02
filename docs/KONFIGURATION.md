@@ -264,8 +264,9 @@ Zeile bzw. ⚠-Marker. Quellen und Meldungen:
   „Aufzeichnung auf dem Rekorder fehlgeschlagen“.
 - 30-Minuten-Regel: „Aufzeichnung wurde nicht gestartet“ (30 Minuten nach dem
   Ende noch geplant) und „Aufzeichnung wurde nicht abgeschlossen“ (30 Minuten
-  nach dem Ende noch in Aufnahme oder Übernahme). Laufende Verarbeitung ist
-  kein Problem.
+  nach dem Ende noch in Aufnahme oder Übernahme). Beides nur, wenn ein
+  erfolgreicher Opencast-Abgleich nach diesen 30 Minuten den Status bestätigt
+  hat. Laufende Verarbeitung ist kein Problem.
 
 Nach Änderungen an der `.env` die Container neu erzeugen
 (`docker compose -f docker-compose.prod.yml up -d`), denn ein bloßer Neustart

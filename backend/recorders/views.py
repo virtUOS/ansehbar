@@ -80,7 +80,7 @@ class RecorderViewSet(
             events_by_recorder[event.recorder_id].append(event)
         # Latest ended event per recorder within the lookback window, plus
         # their incidents: two more queries, independent of the row count.
-        window_start, _ = sync_window(now, 0, settings.OPENCAST_LOOKBACK_DAYS)
+        window_start = sync_window(now, 0, settings.OPENCAST_LOOKBACK_DAYS)[0]
         last_events = {}
         for event in ScheduledEvent.objects.filter(
             end__lte=now, end__gte=window_start
@@ -92,6 +92,12 @@ class RecorderViewSet(
             kind=Incident.STREAM_MISSING,
         ):
             incidents_by_event[incident.event_id].append(incident)
+        # When Opencast last confirmed the stored statuses (one more query;
+        # filter().first(): a GET must not create the singleton row).
+        sync_state = OpencastSyncState.objects.filter(pk=1).first()
+        context["opencast_confirmed_at"] = (
+            sync_state.last_success_at if sync_state else None
+        )
         context["last_events"] = last_events
         context["incidents_by_event"] = incidents_by_event
         context["now"] = now

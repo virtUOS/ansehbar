@@ -1220,8 +1220,15 @@ class RecorderEventApiTests(TestCase):
                 self.ended(status)
                 self.assertEqual(self.problems(berlin(15, day=9)), [])
 
+    def confirmed(self, at):
+        """Opencast sync last succeeded at `at`."""
+        OpencastSyncState.objects.update_or_create(
+            pk=1, defaults={"last_success_at": at}
+        )
+
     def test_scheduled_after_end_is_not_started(self):
         self.ended("EVENTS.EVENTS.STATUS.SCHEDULED")
+        self.confirmed(berlin(13, day=9))
         self.assertEqual(self.problems(berlin(12, 29, day=9)), [])
         self.assertEqual(
             self.problems(berlin(12, 31, day=9)), [{"kind": "not_started"}]
@@ -1232,10 +1239,64 @@ class RecorderEventApiTests(TestCase):
             with self.subTest(status=status):
                 ScheduledEvent.objects.all().delete()
                 self.ended(f"EVENTS.EVENTS.STATUS.{status}")
+                self.confirmed(berlin(13, day=9))
                 self.assertEqual(self.problems(berlin(12, 29, day=9)), [])
                 self.assertEqual(
                     self.problems(berlin(12, 31, day=9)), [{"kind": "not_finished"}]
                 )
+
+    def test_not_started_needs_status_confirmed_after_deadline(self):
+        self.ended("EVENTS.EVENTS.STATUS.SCHEDULED")  # ends 12:00
+        now = berlin(12, 31, day=9)
+        # No successful sync at all: the stored status is not confirmed.
+        self.assertEqual(self.problems(now), [])
+        # Last sync 12:10: before end + 30 min, the status may be stale.
+        self.confirmed(berlin(12, 10, day=9))
+        self.assertEqual(self.problems(now), [])
+        self.confirmed(berlin(12, 31, day=9))
+        self.assertEqual(self.problems(now), [{"kind": "not_started"}])
+
+    def test_not_finished_needs_status_confirmed_after_deadline(self):
+        self.ended("EVENTS.EVENTS.STATUS.RECORDING")
+        self.confirmed(berlin(12, 10, day=9))
+        self.assertEqual(self.problems(berlin(12, 31, day=9)), [])
+        self.confirmed(berlin(12, 30, day=9))
+        self.assertEqual(
+            self.problems(berlin(12, 31, day=9)), [{"kind": "not_finished"}]
+        )
+
+    def test_failure_kinds_do_not_need_confirmation(self):
+        self.ended("EVENTS.EVENTS.STATUS.RECORDING_FAILURE")
+        self.confirmed(None)
+        self.assertEqual(
+            self.problems(berlin(12, 1, day=9)), [{"kind": "recording_failed"}]
+        )
+
+    def test_incident_interval_clamped_to_event(self):
+        event = self.ended()  # 10:00-12:00
+        # Started (per offline_since) before the event, ended after it.
+        Incident.objects.create(
+            recorder=self.recorder, event=event, kind="stream_missing",
+            started_at=berlin(9, 50, day=9), ended_at=berlin(10, 20, day=9),
+        )
+        Incident.objects.create(
+            recorder=self.recorder, event=event, kind="stream_missing",
+            started_at=berlin(11, 50, day=9), ended_at=berlin(12, 30, day=9),
+        )
+        # Entirely outside the event: dropped.
+        Incident.objects.create(
+            recorder=self.recorder, event=event, kind="stream_missing",
+            started_at=berlin(9, 0, day=9), ended_at=berlin(9, 30, day=9),
+        )
+        problems = self.problems(berlin(13, day=9))
+        self.assertEqual(len(problems), 2)
+        first, second = sorted(problems, key=lambda p: p["from"])
+        self.assertEqual(datetime.fromisoformat(first["from"]), berlin(10, day=9))
+        self.assertEqual(datetime.fromisoformat(first["to"]), berlin(10, 20, day=9))
+        self.assertEqual(first["minutes"], 20)
+        self.assertEqual(datetime.fromisoformat(second["from"]), berlin(11, 50, day=9))
+        self.assertEqual(datetime.fromisoformat(second["to"]), berlin(12, day=9))
+        self.assertEqual(second["minutes"], 10)
 
     def test_list_query_count_constant_with_last_recording(self):
         def make(count):
@@ -1376,6 +1437,24 @@ class UpdateIncidentsTests(TestCase):
         self.set_state("offline", self.at(9, 50))
         self.update(self.at(10, 5))
         self.assertEqual(self.incidents(), [])
+
+    def test_incident_of_deactivated_recorder_closed_now(self):
+        self.set_state("offline", self.at(9, 50))
+        self.update(self.at(10, 5))
+        self.recorder.active = False
+        self.recorder.save()
+        self.update(self.at(10, 30))
+        (incident,) = self.incidents()
+        self.assertEqual(incident.ended_at, self.at(10, 30))
+
+    def test_incident_of_deleted_event_closed_now(self):
+        self.set_state("offline", self.at(9, 50))
+        self.update(self.at(10, 5))
+        self.event.delete()
+        self.update(self.at(10, 30))
+        (incident,) = self.incidents()
+        self.assertIsNone(incident.event)
+        self.assertEqual(incident.ended_at, self.at(10, 30))
 
     def test_no_incident_without_running_event(self):
         self.set_state("offline", self.at(9, 0))

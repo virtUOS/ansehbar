@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from opencast.client import Agent, Event, OpencastClient, OpencastError
@@ -142,9 +143,18 @@ def sync_events(
     window_start: datetime,
     window_end: datetime,
     ignored: set[str] | frozenset[str] = frozenset(),
+    *,
+    now: datetime,
 ) -> EventSyncResult:
     """Store the events of known agents; events of ignored agents are
-    skipped silently (no "unknown agent" warning)."""
+    skipped silently (no "unknown agent" warning).
+
+    Stored events missing from the fetch are deleted only if they have not
+    ended yet or start at/after yesterday's local midnight. Ended events of
+    the older lookback days are only upserted, never deleted, so an empty or
+    partial answer cannot remove past events (and orphan their incidents).
+    If Opencast returned no events at all, nothing is deleted.
+    """
     result = EventSyncResult()
     recorders = {
         r.agent_id: r for r in Recorder.objects.filter(agent_id__isnull=False)
@@ -182,17 +192,23 @@ def sync_events(
         # longer maps to a recorder are removed from their old recorder below.
         fetched.add(event.identifier)
         result.upserted += 1
-    stale = ScheduledEvent.objects.filter(
-        start__gte=window_start, start__lt=window_end
-    ).exclude(identifier__in=fetched)
+    yesterday = sync_window(now, 0, 1)[0]
+    stale = (
+        ScheduledEvent.objects.filter(start__gte=window_start, start__lt=window_end)
+        .filter(Q(end__gt=now) | Q(start__gte=yesterday))
+        .exclude(identifier__in=fetched)
+    )
+    if not events:
+        kept = stale.count()
+        if kept:
+            logger.warning(
+                "Opencast returned no events in the sync window; kept %d stored "
+                "events (check the Opencast user's access rights)",
+                kept,
+            )
+        return result
     result.deleted = stale.count()
     stale.delete()
-    if not events and result.deleted:
-        logger.warning(
-            "Opencast returned no events in the sync window; deleted %d stored "
-            "events (check the Opencast user's access rights)",
-            result.deleted,
-        )
     return result
 
 
@@ -230,7 +246,7 @@ def run_opencast_sync(
     with transaction.atomic():
         sync_agents(agents, now)
         ignored = set(IgnoredAgent.objects.values_list("agent_id", flat=True))
-        sync_events(events, window_start, window_end, ignored)
+        sync_events(events, window_start, window_end, ignored, now=now)
         state.last_success_at = now
         state.last_error = ""
         state.last_error_kind = "no_events" if agents and not events else ""
