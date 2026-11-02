@@ -380,11 +380,14 @@ Nachträge aus dem ersten Betrieb mit Opencast.
   mit SMTP-Konfiguration per Env.
 - **Monitoring-Dienst (in Stufe 3).** Keine eigene Matrix-Anbindung: Die
   Kollegen wollen keine direkten Matrix-Nachrichten aus ansehBAR. Es gibt einen
-  bestehenden Monitoring-Dienst, der Meldungen u. a. nach Matrix weiterleitet.
-  ansehBAR übergibt Alarme und Entwarnungen an diesen Dienst. **Offen, wie**
-  (Schnittstelle, Format, Authentifizierung; Details folgen, siehe 10). Der
-  Kanal wird so gebaut, dass er sich ohne Umbau der Vorfall-Logik an diese
-  Schnittstelle anpassen lässt.
+  bestehenden Monitoring-Dienst (Prometheus + Alertmanager mit vorhandener
+  Matrix-Weiterleitung). ansehBAR bietet wie abstimmBAR und ausleihBAR einen
+  tokengeschützten `/metrics`-Endpunkt im Prometheus-Textformat an
+  (Bearer-Token `METRICS_TOKEN`, außerhalb von `/api/`). Alarmregeln (mit
+  `for:`-Verzögerung) liegen in Prometheus, nicht in ansehBAR. **Offen**:
+  Scrape-Konfiguration, Labels, Routing nach Warnung/kritisch (mit den
+  Betreibern zu klären, siehe 10). Der Kanal wird so gebaut, dass er sich
+  ohne Umbau der Vorfall-Logik anpassen lässt.
 - **Später:** Browser-Benachrichtigungen (Web Push), allgemeine Webhooks.
 - **Inhalt einer Meldung** (alles, was man zum Weiterleiten braucht): Raum,
   Rekorder, Typ, Termin (Titel, Serie, geplante Zeit), seit wann, Link zur
@@ -431,9 +434,10 @@ Jede Stufe ist für sich nutzbar und wird einzeln geplant und gebaut.
 
 ## 10. Offen
 
-- **Anbindung an den Monitoring-Dienst** (7.4): Schnittstelle und Format
-  stehen noch aus (Stand 2026-11-01: keine direkte Matrix-Anbindung, Details
-  folgen). Das blockiert erst den zweiten Kanal in Stufe 3, nicht E-Mail.
+- **Anbindung an den Monitoring-Dienst** (7.4): Prometheus + Alertmanager mit
+  Matrix-Weiterleitung, ansehBAR liefert `/metrics` (Token `METRICS_TOKEN`).
+  Offen: Scrape-Konfiguration, Labels, Routing Warnung/kritisch (Stand
+  2026-11-02). Das blockiert erst den zweiten Kanal in Stufe 3, nicht E-Mail.
 - Engere Opencast-Rolle für das ansehBAR-Konto (Kollegen klären).
 
 ## 11. Dem Builder überlassen

@@ -246,7 +246,7 @@ funktioniert wie zuvor.
 | --- | --- | --- |
 | `OPENCAST_URL` | Basisadresse von Opencast, z. B. `https://opencast.example.org`; leer = aus. Nur `https://`: bei `http://` (außer mit `DJANGO_DEBUG=1`) gleicht der Monitor nicht ab und meldet einen ERROR im Log, damit die Zugangsdaten nie unverschlüsselt übertragen werden | leer |
 | `OPENCAST_USER` | Benutzer für die External API | leer |
-| `OPENCAST_PASSWORD` | Passwort dieses Benutzers | leer |
+| `OPENCAST_PASSWORD` | Passwort dieses Benutzers. Docker Compose wertet `$` in `.env`-Werten aus: ein `$` im Passwort als `$$` schreiben | leer |
 | `OPENCAST_SYNC_SECONDS` | Sekunden zwischen zwei Abgleichen (der Monitor gleicht in einem eigenen Thread ab; ein langsames Opencast verzögert die Stream-Prüfung nicht) | `60` |
 | `OPENCAST_LOOKAHEAD_DAYS` | Wie viele Tage Terminplan im Voraus gelesen werden | `7` |
 
@@ -263,10 +263,27 @@ Ein eigenes Konto nur mit Leserechten anlegen, mit den Rollen:
 - `ROLE_API_EVENTS_VIEW`
 - `ROLE_API_EVENTS_SCHEDULING_VIEW`
 
-Außerdem muss das Konto die geplanten Events lesen dürfen. Dafür braucht
-eine seiner Rollen Leserecht in den Event-ACLs, am einfachsten über die
-ACL-Vorlagen, mit denen die Termine angelegt werden. Fehlt das, antwortet
-die API zwar fehlerfrei, die Terminliste bleibt aber leer.
+Außerdem muss das Konto die geplanten Events lesen dürfen. Das ist der
+häufigste Stolperstein: Die External API filtert `/api/events` nach den
+Event-ACLs. Fehlt dem Konto das Leserecht, antwortet die API zwar fehlerfrei,
+die Terminliste ist aber leer oder zeigt nur wenige alte Termine.
+
+- Eine Rolle des Kontos braucht Leserecht in den Event-ACLs, am einfachsten
+  über die ACL-Vorlagen, mit denen die Termine angelegt werden.
+- Rollen der Form `ROLE_CAPTURE_AGENT_<NAME>` helfen **nicht**: Sie stehen
+  nicht in den Event-ACLs.
+- Der Kalender der Capture Agents (`/recordings/calendars`) verlangt in der
+  Standard-Sicherheitskonfiguration `ROLE_CAPTURE_AGENT` oder `ROLE_ADMIN`.
+- Übergangsweise hat sich `ROLE_ADMIN` bewährt (ohne sie sah ein Konto nur
+  vier alte Events). Das ist weitreichend; ansehBAR benutzt trotzdem nur
+  lesende Aufrufe. Eine engere Rolle wird mit den Betreibern geklärt.
+
+Ist die Rechtelage unklar, zeigt ansehBAR einen Hinweis: Sind Agents
+bekannt, aber keine geplanten Termine sichtbar, steht im Banner „Opencast
+zeigt keine geplanten Aufzeichnungen – Rechte des Kontos prüfen“.
+
+Meldet Opencast eine HTML-Seite „Opencast :: Forbidden“, auch mit HTTP-Status
+200, gilt das als „keine Berechtigung“ und nicht als gültige Antwort.
 
 Prüfen von der Kommandozeile (Benutzer und Passwort werden abgefragt):
 
@@ -294,6 +311,25 @@ die geplanten Termine.
   richtigen Rekorder eintragen (eine Agent-ID kann nur an einem Rekorder
   stehen).
 
+### Abgleich auf Knopfdruck
+
+Unter **Verwaltung → Rekorder** löst „Opencast jetzt abgleichen“ sofort
+einen Abgleich aus, im Fehlerbanner heißt der Knopf „Jetzt abgleichen“.
+Er startet nur den lesenden Abgleich (ansehBAR schreibt nie nach Opencast),
+zeigt „Abgleich läuft …“ und danach die Zeit des letzten Abgleichs. Fehler
+erscheinen sofort im Banner, nicht erst nach drei Intervallen.
+
+### Rekorder löschen und Agents ignorieren
+
+- **Nur deaktivierte Rekorder** lassen sich löschen (Papierkorb-Knopf mit
+  Bestätigung). Aktive Rekorder nicht: erst deaktivieren.
+- Beim Löschen verschwinden auch Status und Termine des Rekorders.
+- Stammt der Rekorder aus Opencast, kommt seine Agent-ID auf die Liste
+  „Ignorierte Opencast-Agents“; der Abgleich legt ihn nicht wieder an.
+  „Wieder zulassen“ nimmt sie von der Liste. Der Agent erscheint dann beim
+  nächsten Abgleich als „Neu – bitte prüfen“.
+- Rekorder aus Opencast tragen in der Oberfläche das Opencast-Logo.
+
 Zum Ausprobieren eignet sich der öffentliche Opencast-Testserver; die
 Demo-Zugangsdaten stehen auf seiner Startseite. Nur in die lokale `.env`
 eintragen, nie ins Repository.
@@ -306,8 +342,8 @@ eintragen, nie ins Repository.
    Rekorder lassen sich hier anlegen, bestehende bearbeiten oder
    deaktivieren.
 3. Unter **Verwaltung → Einstellungen** stehen die Stream-URL-Vorlage (mit
-   Vorschau) und der Frische-Faktor. Ein Stream gilt als live, solange
-   sich seine Media-Sequence innerhalb von *Faktor × Segmentdauer* ändert;
+   Vorschau) und die „Toleranz bis „Stream beendet““. Ein Stream gilt als live, solange
+   sich seine Media-Sequence innerhalb von *Toleranz × Segmentdauer* ändert;
    Standard 3, erlaubt 2 bis 10.
 4. Unter **Verwaltung → Einladungen** weitere Personen ohne
    Gruppenmitgliedschaft freischalten.
@@ -326,7 +362,13 @@ eintragen, nie ins Repository.
 | Banner „Monitor liefert keine Daten seit …“ | Der Container `monitor` läuft nicht oder hängt: `docker compose -f docker-compose.prod.yml ps` und `logs monitor`. Ohne Monitor bleibt der zuletzt bekannte Status stehen, das Banner warnt davor. |
 | Pegelanzeige bleibt grau | Der Browser gibt Audio erst nach einem Klick frei: „Pegel & Ton aktivieren“ drücken. Auf Geräten, die HLS nativ abspielen, steht „Pegel nicht verfügbar“. |
 | Banner „Opencast-Daten veraltet“ | Der letzte erfolgreiche Abgleich ist länger als drei Abgleich-Intervalle (`OPENCAST_SYNC_SECONDS`) her, oder es gab noch gar keinen erfolgreichen Abgleich (etwa kurz nach dem Start). Solange das Banner steht, zeigen Kachel und Raumansicht nicht „Kein Stream – keine Aufzeichnung geplant“. `docker compose -f docker-compose.prod.yml logs monitor` zeigt die Fehlerart (`opencast=error`): Adresse, Zugangsdaten und Erreichbarkeit prüfen, mit dem `curl` aus Abschnitt 5 gegenprobieren. Die Stream-Prüfung läuft unabhängig davon weiter. |
-| Termine fehlen, obwohl in Opencast geplant | Meist darf das Konto die Events nicht lesen: Rolle in den Event-ACLs bzw. ACL-Vorlagen ergänzen. Außerdem liegt der Termin vielleicht außerhalb von `OPENCAST_LOOKAHEAD_DAYS`, oder der Agent ist keinem Rekorder zugeordnet. |
+| Banner „Opencast nicht erreichbar“ | Adresse, Netz, DNS oder Firewall prüfen; mit dem `curl` aus Abschnitt 5 gegenprobieren. |
+| Banner „Opencast hat die Anmeldung abgelehnt“ | Benutzer oder Passwort falsch. Enthält das Passwort ein `$`, in der `.env` `$$` schreiben, und Container neu erzeugen. |
+| Banner „Keine Berechtigung in Opencast“ | Dem Konto fehlen API-Rollen oder Rechte; auch Opencasts HTML-Seite „Forbidden“ mit Status 200 wird so gemeldet. Rollen aus „Konto in Opencast“ prüfen. |
+| Banner „Opencast antwortet nicht rechtzeitig“ | Opencast antwortet zu langsam; Last und Netz prüfen. Der nächste Abgleich versucht es erneut. |
+| Banner „Opencast-Serverfehler“ oder „Unerwartete Antwort von Opencast“ | Fehler auf Opencast-Seite oder falsche Adresse (z. B. Proxy-Seite statt API). Logs von Opencast und Monitor prüfen. |
+| Hinweis „Opencast zeigt keine geplanten Aufzeichnungen“ | Agents sind bekannt, aber das Konto sieht keine Termine: Event-ACL-Rechte des Kontos prüfen (siehe „Konto in Opencast“). |
+| Termine fehlen, obwohl in Opencast geplant | Meist darf das Konto die Events nicht lesen: Rolle in den Event-ACLs bzw. ACL-Vorlagen ergänzen (siehe „Konto in Opencast“). Außerdem liegt der Termin vielleicht außerhalb von `OPENCAST_LOOKAHEAD_DAYS`, oder der Agent ist keinem Rekorder zugeordnet. |
 | Agent wird übersprungen | Der Log des Monitors nennt per WARNING den Grund: Die Agent-ID ist kein gültiger Stream-Name (erlaubt sind Buchstaben, Ziffern, `.`, `_`, `-`), oder zu lang (mehr als 100 Zeichen), oder der Stream-Name gehört schon zu einem anderen Agent. `agent_id` beim passenden Rekorder setzen. |
 
 ## 8. Aktualisieren
