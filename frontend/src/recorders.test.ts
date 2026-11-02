@@ -28,6 +28,8 @@ import {
   stateTransition,
   untilParts,
   upcomingToday,
+  upcomingTomorrow,
+  showTomorrow,
 } from "./recorders";
 
 function rec(id: number, room: string, state: Recorder["status"]["state"] = "offline"): Recorder {
@@ -42,6 +44,7 @@ function rec(id: number, room: string, state: Recorder["status"]["state"] = "off
     status: { state, live_since: null, checked_at: null, agent_state: "", agent_updated_at: null },
     current_event: null,
     next_event: null,
+    next_event_tomorrow: null,
     missing_since: null,
   };
 }
@@ -370,5 +373,49 @@ describe("opencastNotice", () => {
   });
   it("treats an unknown kind as a generic server error", () => {
     expect(opencastNotice(h(true, "weird"))).toEqual({ level: "error", key: "Opencast server error" });
+  });
+});
+
+describe("tomorrow preview", () => {
+  const tom = (id: number, start: string, extra: Partial<Recorder> = {}): Recorder => ({
+    ...rec(id, `R${id}`),
+    next_event_tomorrow: ev("T", start),
+    ...extra,
+  });
+  const at = (h: number, m = 0) => new Date(2026, 10, 2, h, m);
+  const today = { ...rec(1, "A"), next_event: ev("L", "2026-11-02T15:00:00Z") };
+
+  it("upcomingTomorrow sorts by start and skips inactive", () => {
+    const list = [
+      tom(1, "2026-11-03T09:00:00Z"),
+      tom(2, "2026-11-03T07:00:00Z"),
+      tom(3, "2026-11-03T06:00:00Z", { active: false }),
+      rec(4, "D"),
+    ];
+    expect(upcomingTomorrow(list).map((r) => r.id)).toEqual([2, 1]);
+  });
+
+  it("is hidden before 17:00 while recordings remain today", () => {
+    expect(showTomorrow([today, tom(2, "2026-11-03T07:00:00Z")], at(16, 59))).toBe(false);
+  });
+
+  it("shows from 17:00", () => {
+    expect(showTomorrow([today, tom(2, "2026-11-03T07:00:00Z")], at(17))).toBe(true);
+  });
+
+  it("shows earlier when nothing is left today", () => {
+    expect(showTomorrow([rec(1, "A"), tom(2, "2026-11-03T07:00:00Z")], at(10))).toBe(true);
+  });
+
+  it("stays hidden while a recording is running", () => {
+    const running = { ...rec(1, "A"), current_event: ev("C", "2026-11-02T09:00:00Z") };
+    expect(showTomorrow([running, tom(2, "2026-11-03T07:00:00Z")], at(10))).toBe(false);
+  });
+
+  it("merge detects a changed next_event_tomorrow", () => {
+    const a = tom(1, "2026-11-03T07:00:00Z");
+    const prev = [a];
+    expect(mergeRecorders(prev, [{ ...a, next_event_tomorrow: { ...a.next_event_tomorrow! } }])).toBe(prev);
+    expect(mergeRecorders(prev, [{ ...a, next_event_tomorrow: ev("T", "2026-11-03T08:00:00Z") }])).not.toBe(prev);
   });
 });

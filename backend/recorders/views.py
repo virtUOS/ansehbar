@@ -73,11 +73,14 @@ class RecorderViewSet(
         day_end = (local_now + timedelta(days=1)).replace(
             hour=0, minute=0, second=0, microsecond=0
         )
+        # The same query also covers tomorrow (local), for the preview.
+        tomorrow_end = day_end + timedelta(days=1)
         events_by_recorder = defaultdict(list)
-        for event in ScheduledEvent.objects.filter(end__gt=now, start__lt=day_end):
+        for event in ScheduledEvent.objects.filter(end__gt=now, start__lt=tomorrow_end):
             events_by_recorder[event.recorder_id].append(event)
         context["now"] = now
         context["day_end"] = day_end
+        context["tomorrow_end"] = tomorrow_end
         context["events_by_recorder"] = events_by_recorder
         return context
 

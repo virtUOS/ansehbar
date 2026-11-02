@@ -103,10 +103,13 @@ export function Overview() {
       quiet: noEvents ? [] : quiet,
     };
   }, [sorted, shown, effMode, query, opencastEnabled, noEvents]);
+  // Rows for "Still scheduled today" and "Tomorrow" (events today or tomorrow).
   const upcoming = useMemo(
     () =>
       opencastEnabled && effMode === "now"
-        ? filterOverview(sorted, "all", query).filter((r) => r.next_event)
+        ? filterOverview(sorted, "all", query).filter(
+            (r) => r.next_event || r.next_event_tomorrow,
+          )
         : [],
     [sorted, effMode, query, opencastEnabled],
   );
@@ -239,7 +242,7 @@ export function Overview() {
 
       {effMode !== "all" ? (
         <>
-          <UpcomingList recorders={upcoming} />
+          <UpcomingList recorders={upcoming} allActive={sorted} />
           <RoomPills
             title={t("Currently without stream")}
             icon={VideoOff}

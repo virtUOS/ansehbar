@@ -18,6 +18,7 @@ function same(a: Recorder, b: Recorder): boolean {
     a.status.agent_updated_at === b.status.agent_updated_at &&
     sameEvent(a.current_event, b.current_event) &&
     sameEvent(a.next_event, b.next_event) &&
+    sameEvent(a.next_event_tomorrow, b.next_event_tomorrow) &&
     a.room_name === b.room_name &&
     a.stream_name === b.stream_name &&
     a.active === b.active &&
@@ -113,6 +114,23 @@ export function upcomingToday(list: Recorder[], _now: Date): Recorder[] {
   return list
     .filter((r) => r.active && r.next_event)
     .sort((a, b) => new Date(a.next_event!.start).getTime() - new Date(b.next_event!.start).getTime());
+}
+
+/** Active recorders with an event tomorrow, soonest first. */
+export function upcomingTomorrow(list: Recorder[]): Recorder[] {
+  return list
+    .filter((r) => r.active && r.next_event_tomorrow)
+    .sort(
+      (a, b) =>
+        new Date(a.next_event_tomorrow!.start).getTime() - new Date(b.next_event_tomorrow!.start).getTime(),
+    );
+}
+
+/** Tomorrow's schedule is shown from 17:00 local time, or earlier when
+ *  nothing is running or left today. */
+export function showTomorrow(list: Recorder[], now: Date): boolean {
+  if (now.getHours() >= 17) return true;
+  return !list.some((r) => r.active && (r.current_event || r.next_event));
 }
 
 /** Active recorders that "today" would not show. */

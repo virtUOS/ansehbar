@@ -200,6 +200,8 @@ Freigegebene Entwürfe: `.superpowers/brainstorm/*/content/uebersicht-v2.html`
 - Videos starten **stumm** und automatisch. Der Ton ist pro Kachel einschaltbar.
   *Meine Wahl:* Es läuft immer nur ein Ton zur Zeit. Wer einen anderen
   einschaltet, schaltet den vorherigen stumm.
+- Am Abend (ab 17 Uhr) oder wenn heute nichts mehr ansteht: zusätzlich „Morgen“
+  mit den Terminen des nächsten Tages (*meine Wahl*).
 - Die Statusdaten aktualisieren sich selbst (Polling alle ~5–10 s, *meine
   Wahl*). Kacheln erscheinen und verschwinden ohne Neuladen. Laufende Player
   werden dabei nicht neu gestartet.

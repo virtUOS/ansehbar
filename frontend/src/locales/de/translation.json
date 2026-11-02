@@ -127,6 +127,8 @@
   "Opencast data not available yet": "Opencast-Daten noch nicht verfügbar",
   "Stream missing in {{room}}": "Stream fehlt in {{room}}",
   "today from {{time}}": "heute ab {{time}}",
+  "tomorrow from {{time}}": "morgen ab {{time}}",
+  "Tomorrow, {{date}}": "Morgen, {{date}}",
   "Opencast agent": "Opencast-Agent",
   "Not linked": "nicht verknüpft",
   "idle": "bereit",
