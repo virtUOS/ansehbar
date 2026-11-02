@@ -147,7 +147,9 @@ class Command(BaseCommand):
                 settings.OPENCAST_PASSWORD,
                 http_client,
             )
-            run_opencast_sync(oc, now, settings.OPENCAST_LOOKAHEAD_DAYS)
+            run_opencast_sync(
+                oc, now, settings.OPENCAST_LOOKAHEAD_DAYS, settings.OPENCAST_LOOKBACK_DAYS
+            )
             # run_opencast_sync swallows OpencastError and records it in the state.
             error = OpencastSyncState.load().last_error
             self._opencast_status = "error" if error else "ok"

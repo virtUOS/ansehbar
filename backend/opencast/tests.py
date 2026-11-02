@@ -233,6 +233,50 @@ class EventsTests(SimpleTestCase):
         self.assertEqual(second.agent_id, "rec-hall")
         self.assertEqual(second.start, datetime(2026, 11, 1, 9, 0, tzinfo=timezone.utc))
 
+    def test_event_status_parsed(self):
+        raw = [
+            {
+                "identifier": "s1", "title": "T", "status": "EVENTS.EVENTS.STATUS.PROCESSED",
+                "scheduling": {"agent_id": "a1", "start": "2026-11-01T08:00:00Z",
+                               "end": "2026-11-01T09:00:00Z"},
+            },
+            {
+                "identifier": "s2", "title": "T",
+                "scheduling": {"agent_id": "a1", "start": "2026-11-01T08:00:00Z",
+                               "end": "2026-11-01T09:00:00Z"},
+            },
+        ]
+        client, _ = make_client(lambda r: json_response(raw))
+        first, second = client.scheduled_events(*self.window())
+        self.assertEqual(first.status, "EVENTS.EVENTS.STATUS.PROCESSED")
+        self.assertEqual(second.status, "")
+
+    def test_processed_event_without_scheduling_uses_location_and_duration(self):
+        raw = [{
+            "identifier": "p1", "title": "Done", "series": "S", "location": "cap-90-R12",
+            "start": "2026-11-01T08:00:00Z", "duration": 5400000,
+            "status": "EVENTS.EVENTS.STATUS.PROCESSED", "scheduling": {},
+        }]
+        client, _ = make_client(lambda r: json_response(raw))
+        (event,) = client.scheduled_events(*self.window())
+        self.assertEqual(event.agent_id, "cap-90-R12")
+        self.assertEqual(event.start, datetime(2026, 11, 1, 8, 0, tzinfo=timezone.utc))
+        self.assertEqual(event.end, datetime(2026, 11, 1, 9, 30, tzinfo=timezone.utc))
+        self.assertEqual(event.status, "EVENTS.EVENTS.STATUS.PROCESSED")
+
+    def test_event_without_scheduling_and_location_skipped(self):
+        base = {"title": "T", "start": "2026-11-01T08:00:00Z", "duration": 1000,
+                "scheduling": {}}
+        raw = [
+            {**base, "identifier": "u1", "location": ""},
+            {**base, "identifier": "u2"},
+            {**base, "identifier": "u3", "location": "a1", "duration": 0},
+            {**base, "identifier": "u4", "location": "a1", "duration": None},
+            {**base, "identifier": "u5", "location": "a1", "start": "bad"},
+        ]
+        client, _ = make_client(lambda r: json_response(raw))
+        self.assertEqual(client.scheduled_events(*self.window()), [])
+
 
 def utc(*args):
     return datetime(*args, tzinfo=timezone.utc)
@@ -385,9 +429,34 @@ class SyncTests(TestCase):
         self.assertEqual(ScheduledEvent.objects.count(), 0)
 
     def test_sync_window_local_midnight(self):
-        ws, we = sync.sync_window(utc(2026, 11, 1, 23, 30), 7)
+        ws, we = sync.sync_window(utc(2026, 11, 1, 23, 30), 7, lookback_days=1)
         self.assertEqual(ws, utc(2026, 10, 31, 23, 0))
         self.assertEqual(we, utc(2026, 11, 9, 23, 0))
+
+    def test_sync_window_lookback(self):
+        ws, we = sync.sync_window(utc(2026, 11, 1, 23, 30), 7)
+        self.assertEqual(ws, utc(2026, 10, 25, 23, 0))
+        self.assertEqual(we, utc(2026, 11, 9, 23, 0))
+        ws, _ = sync.sync_window(utc(2026, 11, 1, 23, 30), 7, lookback_days=3)
+        self.assertEqual(ws, utc(2026, 10, 29, 23, 0))
+
+    def test_sync_stores_opencast_status(self):
+        Recorder.objects.create(
+            stream_name="rec-hall", room_name="Hall", agent_id="rec-hall"
+        )
+        ws, we = sync.sync_window(NOW, 7)
+        ev = self.event("a")
+        ev = Event(
+            ev.identifier, ev.agent_id, ev.title, ev.series, ev.start, ev.end,
+            status="EVENTS.EVENTS.STATUS.PROCESSED",
+        )
+        sync.sync_events([ev], ws, we)
+        self.assertEqual(
+            ScheduledEvent.objects.get(identifier="a").opencast_status,
+            "EVENTS.EVENTS.STATUS.PROCESSED",
+        )
+        sync.sync_events([self.event("a")], ws, we)
+        self.assertEqual(ScheduledEvent.objects.get(identifier="a").opencast_status, "")
 
     def test_run_sync_applies_nothing_on_error(self):
         client = FakeClient(agents=[self.agent()], fail_events=True)

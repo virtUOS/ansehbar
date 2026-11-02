@@ -539,7 +539,7 @@ class RunMonitorOpencastTests(TestCase):
     def test_unexpected_sync_error_records_kind_and_attempt_start(self):
         started = []
 
-        def failing_sync(client, now, lookahead):
+        def failing_sync(client, now, lookahead, lookback):
             started.append(now)
             raise RuntimeError("boom")
 
@@ -678,7 +678,7 @@ class RunMonitorOpencastTests(TestCase):
         release = threading.Event()
         calls = []
 
-        def fake_sync(client, now, lookahead):
+        def fake_sync(client, now, lookahead, lookback):
             calls.append(now)
             state = OpencastSyncState.load()
             state.last_attempt_at = now

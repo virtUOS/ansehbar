@@ -17,6 +17,8 @@ class ScheduledEvent(models.Model):
     series = models.CharField(max_length=300, blank=True)
     start = models.DateTimeField()
     end = models.DateTimeField()
+    # Raw Opencast status, e.g. "EVENTS.EVENTS.STATUS.PROCESSED".
+    opencast_status = models.CharField(max_length=60, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

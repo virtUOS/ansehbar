@@ -49,6 +49,7 @@ class EventSyncResult:
 
 
 AGENT_STATE_MAX = RecorderStatus._meta.get_field("agent_state").max_length
+STATUS_MAX = ScheduledEvent._meta.get_field("opencast_status").max_length
 EVENT_ID_MAX = ScheduledEvent._meta.get_field("identifier").max_length
 
 
@@ -174,6 +175,7 @@ def sync_events(
                 "series": event.series[:300],
                 "start": event.start,
                 "end": event.end,
+                "opencast_status": event.status[:STATUS_MAX],
             },
         )
         # Only stored events count as fetched: events of an agent that no
@@ -194,11 +196,13 @@ def sync_events(
     return result
 
 
-def sync_window(now: datetime, lookahead_days: int) -> tuple[datetime, datetime]:
-    """Local midnight yesterday up to local midnight after the lookahead."""
+def sync_window(
+    now: datetime, lookahead_days: int, lookback_days: int = 7
+) -> tuple[datetime, datetime]:
+    """Local midnight `lookback_days` ago up to local midnight after the lookahead."""
     today = timezone.localtime(now).date()
     return (
-        _local_midnight(today - timedelta(days=1)),
+        _local_midnight(today - timedelta(days=lookback_days)),
         _local_midnight(today + timedelta(days=lookahead_days + 1)),
     )
 
@@ -208,11 +212,11 @@ def _local_midnight(day) -> datetime:
 
 
 def run_opencast_sync(
-    client: OpencastClient, now: datetime, lookahead_days: int
+    client: OpencastClient, now: datetime, lookahead_days: int, lookback_days: int = 7
 ) -> None:
     state = OpencastSyncState.load()
     state.last_attempt_at = now
-    window_start, window_end = sync_window(now, lookahead_days)
+    window_start, window_end = sync_window(now, lookahead_days, lookback_days)
     try:
         agents = client.agents()
         events = client.scheduled_events(window_start, window_end)

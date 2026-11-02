@@ -174,6 +174,7 @@ OPENCAST_USER = os.environ.get("OPENCAST_USER", "")
 OPENCAST_PASSWORD = os.environ.get("OPENCAST_PASSWORD", "")
 OPENCAST_SYNC_SECONDS = _int_or_default("OPENCAST_SYNC_SECONDS", 60)
 OPENCAST_LOOKAHEAD_DAYS = _int_or_default("OPENCAST_LOOKAHEAD_DAYS", 7)
+OPENCAST_LOOKBACK_DAYS = _int_or_default("OPENCAST_LOOKBACK_DAYS", 7)
 # Local, git-ignored site configuration (recorders, stream URL template);
 # loaded with `manage.py load_site_config`.
 ANSEHBAR_SITE_CONFIG = os.environ.get("ANSEHBAR_SITE_CONFIG") or str(

@@ -8,7 +8,7 @@ Only GET requests are ever sent; ansehBAR never writes to Opencast.
 
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
 
@@ -39,6 +39,8 @@ class Event:
     series: str
     start: datetime
     end: datetime
+    # Raw Opencast status, e.g. "EVENTS.EVENTS.STATUS.PROCESSED"; "" if absent.
+    status: str = ""
 
 
 def _parse_time(value) -> datetime | None:
@@ -159,13 +161,29 @@ class OpencastClient:
         for raw in self._get_all("/api/events/", params):
             if not isinstance(raw, dict):
                 continue
-            scheduling = raw.get("scheduling")
-            if not isinstance(scheduling, dict):
-                continue
             identifier = raw.get("identifier")
-            agent_id = scheduling.get("agent_id")
-            ev_start = _parse_time(scheduling.get("start"))
-            ev_end = _parse_time(scheduling.get("end"))
+            scheduling = raw.get("scheduling")
+            agent_id = ev_start = ev_end = None
+            if isinstance(scheduling, dict) and scheduling.get("agent_id"):
+                agent_id = scheduling.get("agent_id")
+                ev_start = _parse_time(scheduling.get("start"))
+                ev_end = _parse_time(scheduling.get("end"))
+            else:
+                # Processed events may have lost their scheduling data: fall
+                # back to the capture location and the Dublin Core times.
+                location = raw.get("location")
+                duration = raw.get("duration")
+                ev_start = _parse_time(raw.get("start"))
+                if (
+                    isinstance(location, str)
+                    and location
+                    and ev_start
+                    and isinstance(duration, (int, float))
+                    and not isinstance(duration, bool)
+                    and duration > 0
+                ):
+                    agent_id = location
+                    ev_end = ev_start + timedelta(milliseconds=duration)
             if not (identifier and agent_id and ev_start and ev_end):
                 continue
             result.append(
@@ -176,6 +194,7 @@ class OpencastClient:
                     series=str(raw.get("series") or ""),
                     start=ev_start,
                     end=ev_end,
+                    status=str(raw.get("status") or ""),
                 )
             )
         return result
