@@ -10,6 +10,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
@@ -51,6 +52,18 @@ AGENT_STATE_MAX = RecorderStatus._meta.get_field("agent_state").max_length
 EVENT_ID_MAX = ScheduledEvent._meta.get_field("identifier").max_length
 
 
+def opencast_sync_enabled() -> bool:
+    """True if Opencast is configured and may be queried safely.
+
+    Basic auth over plain http:// would expose the credentials, so http://
+    is only accepted with DEBUG on.
+    """
+    url = settings.OPENCAST_URL
+    if not url:
+        return False
+    return not url.lower().startswith("http://") or settings.DEBUG
+
+
 def _set_status(recorder: Recorder, agent: Agent) -> None:
     RecorderStatus.objects.update_or_create(
         recorder=recorder,
@@ -68,10 +81,12 @@ def sync_agents(agents: list[Agent], now: datetime) -> AgentSyncResult:
     ignored = set(IgnoredAgent.objects.values_list("agent_id", flat=True))
     for agent in agents:
         seen.add(agent.agent_id)
-        if agent.agent_id in ignored:
-            continue
+        # A recorder already linked to this agent (e.g. by hand) keeps getting
+        # its agent state; the ignore list only stops creating and linking.
         recorder = Recorder.objects.filter(agent_id=agent.agent_id).first()
         if recorder is None:
+            if agent.agent_id in ignored:
+                continue
             try:
                 validate_stream_name(agent.agent_id)
                 if len(agent.agent_id) > max_len:
@@ -85,6 +100,10 @@ def sync_agents(agents: list[Agent], now: datetime) -> AgentSyncResult:
                 continue
             recorder = Recorder.objects.filter(stream_name=agent.agent_id).first()
             if recorder is None:
+                # Re-check: the admin may have deleted the recorder (and so
+                # ignored the agent) after the ignore list was read above.
+                if IgnoredAgent.objects.filter(agent_id=agent.agent_id).exists():
+                    continue
                 recorder = Recorder.objects.create(
                     stream_name=agent.agent_id,
                     agent_id=agent.agent_id,
@@ -118,8 +137,13 @@ def sync_agents(agents: list[Agent], now: datetime) -> AgentSyncResult:
 
 
 def sync_events(
-    events: list[Event], window_start: datetime, window_end: datetime
+    events: list[Event],
+    window_start: datetime,
+    window_end: datetime,
+    ignored: set[str] | frozenset[str] = frozenset(),
 ) -> EventSyncResult:
+    """Store the events of known agents; events of ignored agents are
+    skipped silently (no "unknown agent" warning)."""
     result = EventSyncResult()
     recorders = {
         r.agent_id: r for r in Recorder.objects.filter(agent_id__isnull=False)
@@ -134,6 +158,8 @@ def sync_events(
             continue
         recorder = recorders.get(event.agent_id)
         if recorder is None:
+            if event.agent_id in ignored:
+                continue
             result.unmatched += 1
             _warn_once(
                 "event", event.agent_id,
@@ -199,7 +225,8 @@ def run_opencast_sync(
         return
     with transaction.atomic():
         sync_agents(agents, now)
-        sync_events(events, window_start, window_end)
+        ignored = set(IgnoredAgent.objects.values_list("agent_id", flat=True))
+        sync_events(events, window_start, window_end, ignored)
         state.last_success_at = now
         state.last_error = ""
         state.last_error_kind = "no_events" if agents and not events else ""

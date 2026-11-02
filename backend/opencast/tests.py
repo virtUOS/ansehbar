@@ -485,6 +485,16 @@ class SyncRequestApiTests(TestCase):
         self.assertEqual(response.json(), {"detail": "Opencast is not configured."})
         self.assertIsNone(OpencastSyncState.load().requested_at)
 
+    @override_settings(OPENCAST_URL="http://opencast.example.org", DEBUG=False)
+    def test_sync_request_with_plain_http_without_debug_is_409(self):
+        response = self.client.post("/api/opencast/sync/")
+        self.assertEqual(response.status_code, 409)
+        self.assertIsNone(OpencastSyncState.load().requested_at)
+
+    @override_settings(OPENCAST_URL="http://opencast.example.org", DEBUG=True)
+    def test_sync_request_with_plain_http_in_debug_is_accepted(self):
+        self.assertEqual(self.client.post("/api/opencast/sync/").status_code, 202)
+
     @override_settings(OPENCAST_URL="https://opencast.example.org")
     def test_sync_request_requires_access(self):
         self.client.force_login(User.objects.create_user(username="outsider"))
@@ -515,6 +525,58 @@ class IgnoredAgentTests(TestCase):
         sync.sync_agents([Agent("rec-hall", "idle", NOW)], NOW)
         rec.refresh_from_db()
         self.assertIsNone(rec.agent_id)
+
+    def test_ignored_agent_still_updates_linked_recorder(self):
+        # Linked by hand to an ignored agent: state and "gone" still apply.
+        IgnoredAgent.objects.create(agent_id="cap-90-R12")
+        Recorder.objects.all().delete()
+        rec = Recorder.objects.create(
+            stream_name="rec-hall", room_name="Hall", agent_id="cap-90-R12"
+        )
+        sync.sync_agents([Agent("cap-90-R12", "capturing", NOW)], NOW)
+        rec.status.refresh_from_db()
+        self.assertEqual(rec.status.agent_state, "capturing")
+        self.assertEqual(rec.status.agent_updated_at, NOW)
+        result = sync.sync_agents([], NOW)
+        self.assertEqual(result.gone, 1)
+        rec.status.refresh_from_db()
+        self.assertEqual(rec.status.agent_state, "unknown")
+
+    def test_agent_ignored_during_sync_is_not_created(self):
+        # The recorder is deleted (and its agent ignored) after the ignore
+        # list was read: the re-check before creating honours it.
+        Recorder.objects.all().delete()
+        real_filter = Recorder.objects.filter
+
+        def filter_then_ignore(*args, **kwargs):
+            if "stream_name" in kwargs:
+                IgnoredAgent.objects.get_or_create(agent_id="cap-90-R12")
+            return real_filter(*args, **kwargs)
+
+        with mock.patch.object(Recorder.objects, "filter", filter_then_ignore):
+            result = sync.sync_agents([Agent("cap-90-R12", "idle", NOW)], NOW)
+        self.assertEqual(result.created, 0)
+        self.assertFalse(Recorder.objects.exists())
+
+    def test_events_of_ignored_agent_skipped_silently(self):
+        IgnoredAgent.objects.create(agent_id="cap-90-R12")
+        start = datetime(2026, 11, 4, 8, 0, tzinfo=timezone.utc)
+        event = Event("e1", "cap-90-R12", "T", "S", start, start + timedelta(hours=1))
+        ws, we = sync.sync_window(NOW, 7)
+        with self.assertNoLogs("opencast.sync", level="WARNING"):
+            result = sync.sync_events([event], ws, we, {"cap-90-R12"})
+        self.assertEqual(result.unmatched, 0)
+        self.assertFalse(ScheduledEvent.objects.exists())
+
+    def test_run_sync_passes_ignored_agents_to_events(self):
+        IgnoredAgent.objects.create(agent_id="cap-90-R12")
+        Recorder.objects.all().delete()
+        start = datetime(2026, 11, 4, 8, 0, tzinfo=timezone.utc)
+        event = Event("e1", "cap-90-R12", "T", "S", start, start + timedelta(hours=1))
+        client = FakeClient([Agent("cap-90-R12", "idle", NOW)], [event])
+        with self.assertNoLogs("opencast.sync", level="WARNING"):
+            sync.run_opencast_sync(client, NOW, 7)
+        self.assertFalse(ScheduledEvent.objects.exists())
 
     def test_unignore_lets_agent_return(self):
         ignored = IgnoredAgent.objects.create(agent_id="cap-90-R12", created_by="X")

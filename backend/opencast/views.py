@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Universität Osnabrück (virtUOS)
 
-from django.conf import settings
 from django.utils import timezone
 from django.utils.translation import gettext as _
 from rest_framework import mixins, serializers, viewsets
@@ -10,6 +9,7 @@ from rest_framework.views import APIView
 
 from accounts.permissions import HasAccess
 from opencast.models import IgnoredAgent, OpencastSyncState
+from opencast.sync import opencast_sync_enabled
 
 
 class OpencastSyncRequestView(APIView):
@@ -18,7 +18,9 @@ class OpencastSyncRequestView(APIView):
     permission_classes = [HasAccess]
 
     def post(self, request):
-        if not settings.OPENCAST_URL:
+        # Same predicate as the monitor: otherwise the request would stay
+        # pending forever (e.g. plain http:// in production).
+        if not opencast_sync_enabled():
             return Response({"detail": _("Opencast is not configured.")}, status=409)
         state = OpencastSyncState.load()
         state.requested_at = timezone.now()

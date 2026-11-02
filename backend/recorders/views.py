@@ -15,6 +15,7 @@ from rest_framework.views import APIView
 
 from accounts.permissions import HasAccess
 from opencast.models import IgnoredAgent, OpencastSyncState, ScheduledEvent
+from opencast.sync import opencast_sync_enabled
 from recorders.models import MonitorSettings, Recorder, RecorderStatus
 from recorders.serializers import MonitorSettingsSerializer, RecorderSerializer
 
@@ -115,7 +116,7 @@ class MonitorHealthView(APIView):
                 "now": timezone.now(),
                 "interval_seconds": settings.MONITOR_INTERVAL_SECONDS,
                 "opencast": {
-                    "enabled": bool(settings.OPENCAST_URL),
+                    "enabled": opencast_sync_enabled(),
                     "last_success": sync_state.last_success_at if sync_state else None,
                     "sync_seconds": settings.OPENCAST_SYNC_SECONDS,
                     "last_attempt": sync_state.last_attempt_at if sync_state else None,

@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.management import CommandError, call_command
-from django.db import connection
+from django.db import IntegrityError, connection
 from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 
@@ -402,6 +402,47 @@ class RunCycleTests(TestCase):
         self.assertEqual(r.status.agent_state, "capturing")
         self.assertEqual(r.status.agent_updated_at, NOW)
 
+    def test_run_cycle_survives_recorder_deleted_during_cycle(self):
+        # An admin may delete a recorder while the probes run; the other
+        # recorders must still get their status.
+        a = Recorder.objects.create(room_name="A", stream_name="rec-a")
+        b = Recorder.objects.create(room_name="B", stream_name="rec-b")
+        from recorders import monitor
+
+        real_evaluate = monitor.evaluate
+        deleted = []
+
+        def evaluate_after_delete(*args, **kwargs):
+            if not deleted:
+                deleted.append(True)
+                Recorder.objects.filter(pk=a.pk).delete()
+            return real_evaluate(*args, **kwargs)
+
+        source = FakeSource(
+            {"rec-a": Probe(True, True, 1, 6.0), "rec-b": Probe(True, True, 2, 6.0)}
+        )
+        with mock.patch.object(monitor, "evaluate", evaluate_after_delete):
+            self.assertEqual(run_cycle(source, NOW), 2)
+        self.assertFalse(Recorder.objects.filter(pk=a.pk).exists())
+        b.status.refresh_from_db()
+        self.assertEqual(b.status.state, "live")
+        self.assertEqual(b.status.checked_at, NOW)
+
+    def test_run_cycle_survives_failing_status_create(self):
+        # Creating the missing status of a recorder deleted meanwhile fails
+        # (FK); the cycle skips that recorder and goes on.
+        a = Recorder.objects.create(room_name="A", stream_name="rec-a")
+        b = Recorder.objects.create(room_name="B", stream_name="rec-b", active=False)
+        RecorderStatus.objects.filter(recorder=a).delete()
+        source = FakeSource({})
+        with mock.patch.object(
+            RecorderStatus.objects, "create", side_effect=IntegrityError("fk")
+        ):
+            self.assertEqual(run_cycle(source, NOW), 0)
+        self.assertEqual(source.probed, [])
+        b.status.refresh_from_db()
+        self.assertEqual(b.status.detail, "Recorder inactive")
+
     def _step(self, recorder, probe, at):
         run_cycle(FakeSource({recorder.stream_name: probe}), at)
         recorder.status.refresh_from_db()
@@ -493,6 +534,23 @@ class RunMonitorOpencastTests(TestCase):
         self.assertEqual(state.last_error, "RuntimeError")
         self.assertIsNotNone(state.last_attempt_at)
         self.assertIn("opencast=error", text)
+
+    @override_settings(OPENCAST_URL="https://opencast.example.org")
+    def test_unexpected_sync_error_records_kind_and_attempt_start(self):
+        started = []
+
+        def failing_sync(client, now, lookahead):
+            started.append(now)
+            raise RuntimeError("boom")
+
+        state = OpencastSyncState.load()
+        state.last_error_kind = ""
+        state.save()
+        with self.assertLogs(MONITOR, level="DEBUG"):
+            self._run(mock.Mock(side_effect=failing_sync))
+        state = OpencastSyncState.load()
+        self.assertEqual(state.last_error_kind, "invalid")
+        self.assertEqual(state.last_attempt_at, started[0])
 
     @override_settings(OPENCAST_URL="https://opencast.example.org")
     def test_run_monitor_logs_opencast_error_without_traceback(self):
@@ -664,6 +722,12 @@ class RunMonitorOpencastTests(TestCase):
         self.assertEqual(cmd._opencast_status, "error")
         errors = [r for r in logs.records if r.levelname == "ERROR"]
         self.assertEqual(len(errors), 1)
+
+    @override_settings(OPENCAST_URL="http://opencast.example.org", DEBUG=False)
+    def test_health_reports_plain_http_without_debug_as_disabled(self):
+        self.client.force_login(User.objects.create_user(username="h", is_superuser=True))
+        block = self.client.get("/api/monitor/health/").json()["opencast"]
+        self.assertFalse(block["enabled"])
 
     @override_settings(OPENCAST_URL="http://opencast.example.org", DEBUG=True)
     def test_run_monitor_allows_plain_http_in_debug(self):
