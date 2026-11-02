@@ -63,6 +63,7 @@ INSTALLED_APPS = [
     "common",
     "accounts",
     "recorders",
+    "opencast",
 ]
 
 AUTH_USER_MODEL = "accounts.User"
@@ -166,6 +167,13 @@ ANSEHBAR_ACCESS_GROUP = os.environ.get("ANSEHBAR_ACCESS_GROUP", "ansehbar-users"
 ANSEHBAR_BOOTSTRAP_USERS = _env_list("ANSEHBAR_BOOTSTRAP_USERS", "")
 ANSEHBAR_ACCESS_CONTACT = os.environ.get("ANSEHBAR_ACCESS_CONTACT", "")
 MONITOR_INTERVAL_SECONDS = _int_or_default("MONITOR_INTERVAL_SECONDS", 10)
+# Opencast External API (read-only). Empty URL = Opencast integration off;
+# code checks bool(settings.OPENCAST_URL) at call time.
+OPENCAST_URL = os.environ.get("OPENCAST_URL", "").rstrip("/")
+OPENCAST_USER = os.environ.get("OPENCAST_USER", "")
+OPENCAST_PASSWORD = os.environ.get("OPENCAST_PASSWORD", "")
+OPENCAST_SYNC_SECONDS = _int_or_default("OPENCAST_SYNC_SECONDS", 60)
+OPENCAST_LOOKAHEAD_DAYS = _int_or_default("OPENCAST_LOOKAHEAD_DAYS", 7)
 # Local, git-ignored site configuration (recorders, stream URL template);
 # loaded with `manage.py load_site_config`.
 ANSEHBAR_SITE_CONFIG = os.environ.get("ANSEHBAR_SITE_CONFIG") or str(

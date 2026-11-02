@@ -1,0 +1,5 @@
+[
+  {"status": "idle", "agent_id": "cap-90-R12", "update": "2026-11-01T19:33:00Z", "url": "http://rec.example.org", "inputs": ["Channel A"]},
+  {"status": "capturing", "agent_id": "rec-hall", "update": "2026-11-01T19:34:30Z", "url": "http://rec.example.org", "inputs": ["Channel A", "Channel B"]},
+  {"status": "offline", "agent_id": "Rec-Annex", "update": "2026-11-01T18:00:00Z", "url": "http://rec.example.org", "inputs": []}
+]

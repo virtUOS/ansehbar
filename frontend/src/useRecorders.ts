@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useAppContext } from "./appContext";
 import { ApiError, api, type Recorder } from "./api";
-import { mergeRecorders, monitorStale } from "./recorders";
+import { mergeRecorders, monitorStale, opencastStale } from "./recorders";
 
 export function useRecorders(intervalMs = 8000, onForbidden?: () => void) {
   const [recorders, setRecorders] = useState<Recorder[]>([]);
@@ -17,6 +17,9 @@ export function useRecorders(intervalMs = 8000, onForbidden?: () => void) {
   // Primitives, so an unchanged heartbeat does not re-render the page.
   const [stale, setStale] = useState(false);
   const [lastCheck, setLastCheck] = useState<string | null>(null);
+  const [ocEnabled, setOcEnabled] = useState(false);
+  const [ocStale, setOcStale] = useState(false);
+  const [ocLastSuccess, setOcLastSuccess] = useState<string | null>(null);
   // Outside the app shell the context is undefined: fall back to a no-op.
   const ctx = useAppContext();
   const forbidden = useRef<(() => void) | undefined>();
@@ -41,6 +44,9 @@ export function useRecorders(intervalMs = 8000, onForbidden?: () => void) {
           if (cancelled || mine !== seq) return;
           setStale(monitorStale(health, next.some((r) => r.active)));
           setLastCheck(health.last_check);
+          setOcEnabled(health.opencast.enabled);
+          setOcStale(opencastStale(health));
+          setOcLastSuccess(health.opencast.last_success);
         } catch {
           /* heartbeat unavailable: keep the last known verdict */
         }
@@ -77,5 +83,15 @@ export function useRecorders(intervalMs = 8000, onForbidden?: () => void) {
   }, [intervalMs]);
 
   /** monitorStale: the monitor has not checked for > 3 intervals (server clock). */
-  return { recorders, error, loading, lastUpdated, monitorStale: stale, monitorLastCheck: lastCheck };
+  return {
+    recorders,
+    error,
+    loading,
+    lastUpdated,
+    monitorStale: stale,
+    monitorLastCheck: lastCheck,
+    opencastEnabled: ocEnabled,
+    opencastStale: ocStale,
+    opencastLastSuccess: ocLastSuccess,
+  };
 }

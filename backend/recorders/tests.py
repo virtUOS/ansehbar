@@ -4,16 +4,22 @@
 """Tests for recorders and monitor settings."""
 import json
 import tempfile
+import threading
 from datetime import datetime, timezone
 from io import StringIO
 from pathlib import Path
 from unittest import mock
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.management import CommandError, call_command
+from django.db import connection
 from django.test import TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 
+from opencast.client import OpencastError
+from opencast.models import OpencastSyncState, ScheduledEvent
 from recorders.models import MonitorSettings, Recorder, RecorderStatus
 from recorders.monitor import run_cycle
 from streams.sources import Probe
@@ -70,7 +76,14 @@ class RecorderApiTests(TestCase):
             "https://streaming.example.org/live/rec-a/playlist.m3u8",
         )
         self.assertEqual(
-            row["status"], {"state": "unknown", "live_since": None, "checked_at": None}
+            row["status"],
+            {
+                "state": "unknown",
+                "live_since": None,
+                "checked_at": None,
+                "agent_state": "",
+                "agent_updated_at": None,
+            },
         )
 
     def test_active_filter(self):
@@ -187,6 +200,28 @@ class MonitorSettingsApiTests(TestCase):
         )
         self.assertEqual(MonitorSettings.load().stale_factor, 10)
 
+    @override_settings(OPENCAST_URL="")  # independent of the local .env
+    def test_health_reports_opencast_block(self):
+        body = self.client.get("/api/monitor/health/").json()
+        self.assertEqual(body["opencast"]["enabled"], False)
+        self.assertIsNone(body["opencast"]["last_success"])
+        ok = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+        state = OpencastSyncState.load()
+        state.last_success_at = ok
+        state.last_error = "secret-looking error"
+        state.save()
+        with override_settings(
+            OPENCAST_URL="https://opencast.example.org", OPENCAST_SYNC_SECONDS=45
+        ):
+            body = self.client.get("/api/monitor/health/").json()
+        block = body["opencast"]
+        self.assertEqual(block["enabled"], True)
+        self.assertEqual(block["sync_seconds"], 45)
+        self.assertEqual(
+            datetime.fromisoformat(block["last_success"].replace("Z", "+00:00")), ok
+        )
+        self.assertEqual(set(block), {"enabled", "last_success", "sync_seconds"})
+
     def test_requires_access(self):
         outsider = User.objects.create_user(username="out")
         self.client.force_login(outsider)
@@ -273,7 +308,7 @@ class RunCycleTests(TestCase):
     def test_run_cycle_sets_inactive_unknown_and_skips_probe(self):
         r = Recorder.objects.create(room_name="A", stream_name="rec-a", active=False)
         RecorderStatus.objects.filter(recorder=r).update(
-            state="live", live_since=NOW
+            state="live", live_since=NOW, offline_since=NOW
         )
         source = FakeSource({})
         self.assertEqual(run_cycle(source, NOW), 0)
@@ -281,7 +316,67 @@ class RunCycleTests(TestCase):
         r.status.refresh_from_db()
         self.assertEqual(r.status.state, "unknown")
         self.assertIsNone(r.status.live_since)
+        self.assertIsNone(r.status.offline_since)
 
+    def test_run_cycle_keeps_agent_fields_written_during_cycle(self):
+        # The Opencast sync (own thread) may commit while the probes run;
+        # the cycle must only write the fields it owns.
+        r = Recorder.objects.create(room_name="A", stream_name="rec-a")
+        RecorderStatus.objects.filter(recorder=r).update(agent_state="idle")
+        from recorders import monitor
+
+        real_evaluate = monitor.evaluate
+
+        def evaluate_after_sync(*args, **kwargs):
+            RecorderStatus.objects.filter(recorder=r).update(
+                agent_state="capturing", agent_updated_at=NOW
+            )
+            return real_evaluate(*args, **kwargs)
+
+        with mock.patch.object(monitor, "evaluate", evaluate_after_sync):
+            run_cycle(FakeSource({"rec-a": Probe(True, True, 100, 6.0)}), NOW)
+        r.status.refresh_from_db()
+        self.assertEqual(r.status.state, "live")
+        self.assertEqual(r.status.checked_at, NOW)
+        self.assertEqual(r.status.agent_state, "capturing")
+        self.assertEqual(r.status.agent_updated_at, NOW)
+
+    def _step(self, recorder, probe, at):
+        run_cycle(FakeSource({recorder.stream_name: probe}), at)
+        recorder.status.refresh_from_db()
+
+    def test_offline_since_set_on_transition_and_kept(self):
+        t0 = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+        t1 = datetime(2026, 1, 1, 12, 1, tzinfo=timezone.utc)
+        t2 = datetime(2026, 1, 1, 12, 2, tzinfo=timezone.utc)
+        t3 = datetime(2026, 1, 1, 12, 3, tzinfo=timezone.utc)
+        r = Recorder.objects.create(room_name="A", stream_name="rec-a")
+        self._step(r, Probe(True, True, 100, 6.0), t0)
+        self.assertIsNone(r.status.offline_since)
+        self._step(r, Probe(True, False, None, None, "HTTP 404"), t1)
+        self.assertEqual(r.status.state, "offline")
+        self.assertEqual(r.status.offline_since, t1)
+        self._step(r, Probe(True, False, None, None, "HTTP 404"), t2)
+        self.assertEqual(r.status.offline_since, t1)
+        self._step(r, Probe(True, True, 200, 6.0), t3)
+        self.assertEqual(r.status.state, "live")
+        self.assertIsNone(r.status.offline_since)
+
+    def test_offline_since_survives_unknown(self):
+        t1 = datetime(2026, 1, 1, 12, 1, tzinfo=timezone.utc)
+        t2 = datetime(2026, 1, 1, 12, 2, tzinfo=timezone.utc)
+        r = Recorder.objects.create(room_name="A", stream_name="rec-a")
+        self._step(r, Probe(True, False, None, None, "HTTP 404"), t1)
+        self.assertEqual(r.status.offline_since, t1)
+        self._step(r, Probe(False, False, None, None, "timeout"), t2)
+        self.assertEqual(r.status.state, "unknown")
+        self.assertEqual(r.status.offline_since, t1)
+        t3 = datetime(2026, 1, 1, 12, 3, tzinfo=timezone.utc)
+        self._step(r, Probe(True, False, None, None, "HTTP 404"), t3)
+        self.assertEqual(r.status.state, "offline")
+        self.assertEqual(r.status.offline_since, t1)
+
+    @override_settings(OPENCAST_URL="")  # independent of the local .env
     def test_run_once_command_exits(self):
         Recorder.objects.create(room_name="A", stream_name="rec-a")
         source = FakeSource({"rec-a": Probe(True, False, None, None, "HTTP 404")})
@@ -291,6 +386,143 @@ class RunCycleTests(TestCase):
         ):
             call_command("run_monitor", "--once")
         self.assertEqual(Recorder.objects.get().status.state, "offline")
+
+
+MONITOR = "recorders.management.commands.run_monitor"
+
+
+class RunMonitorOpencastTests(TestCase):
+    def setUp(self):
+        Recorder.objects.all().delete()
+        self.recorder = Recorder.objects.create(room_name="A", stream_name="rec-a")
+        self.source = FakeSource({"rec-a": Probe(True, True, 100, 6.0)})
+
+    def _run(self, sync):
+        with mock.patch(f"{MONITOR}.HlsStreamSource", return_value=self.source), \
+                mock.patch(f"{MONITOR}.run_opencast_sync", sync):
+            call_command("run_monitor", "--once")
+
+    @override_settings(OPENCAST_URL="https://opencast.example.org")
+    def test_run_monitor_syncs_opencast_when_enabled(self):
+        order = []
+        sync = mock.Mock(side_effect=lambda *a, **k: order.append("sync"))
+        self.source.probe = mock.Mock(
+            side_effect=lambda n: order.append("probe") or Probe(True, True, 1, 6.0)
+        )
+        self._run(sync)
+        sync.assert_called_once()
+        self.assertEqual(order, ["sync", "probe"])
+        self.recorder.status.refresh_from_db()
+        self.assertIsNotNone(self.recorder.status.checked_at)
+
+    @override_settings(
+        OPENCAST_URL="https://opencast.example.org", OPENCAST_PASSWORD="hunter2-pw"
+    )
+    def test_run_monitor_stream_cycle_survives_sync_error(self):
+        sync = mock.Mock(side_effect=RuntimeError("boom"))
+        with self.assertLogs(MONITOR, level="DEBUG") as logs:
+            self._run(sync)
+        self.recorder.status.refresh_from_db()
+        self.assertIsNotNone(self.recorder.status.checked_at)
+        text = "\n".join(
+            logs.output + [r.getMessage() for r in logs.records]
+        )
+        self.assertNotIn("hunter2-pw", text)
+        state = OpencastSyncState.load()
+        self.assertEqual(state.last_error, "RuntimeError")
+        self.assertIsNotNone(state.last_attempt_at)
+        self.assertIn("opencast=error", text)
+
+    @override_settings(OPENCAST_URL="https://opencast.example.org")
+    def test_run_monitor_logs_opencast_error_without_traceback(self):
+        sync = mock.Mock(side_effect=OpencastError("/x: HTTP 500"))
+        with self.assertLogs(MONITOR, level="DEBUG") as logs:
+            self._run(sync)
+        self.assertTrue(any(r.levelname == "WARNING" for r in logs.records))
+        self.assertTrue(all(r.exc_info is None for r in logs.records))
+
+    @override_settings(OPENCAST_URL="")
+    def test_run_monitor_skips_opencast_when_disabled(self):
+        sync = mock.Mock()
+        with self.assertLogs(MONITOR, level="DEBUG") as logs:
+            self._run(sync)
+        sync.assert_not_called()
+        self.assertIn("opencast=off", "\n".join(logs.output))
+        self.recorder.status.refresh_from_db()
+        self.assertIsNotNone(self.recorder.status.checked_at)
+
+
+    def test_loop_mode_blocking_sync_does_not_delay_cycle(self):
+        from recorders.management.commands import run_monitor
+
+        cmd = run_monitor.Command()
+        sync_started = threading.Event()
+        release = threading.Event()
+        seen = {}
+
+        def blocking_sync(*args, **kwargs):
+            sync_started.set()
+            # Inline (blocking) sync would time out here: the cycle never runs.
+            seen["released_by_cycle"] = release.wait(5)
+
+        def probe(name):
+            seen["sync_started"] = sync_started.wait(2)
+            seen["sync_still_running"] = not release.is_set()
+            release.set()
+            cmd._stop.set()
+            return Probe(True, True, 1, 6.0)
+
+        self.source.probe = probe
+        state = mock.Mock()
+        state.load.return_value.last_error = ""
+        with override_settings(OPENCAST_URL="https://opencast.example.org"), \
+                mock.patch(f"{MONITOR}.HlsStreamSource", return_value=self.source), \
+                mock.patch(f"{MONITOR}.run_opencast_sync", blocking_sync), \
+                mock.patch(f"{MONITOR}.OpencastSyncState", state):
+            call_command(cmd)
+        self.assertEqual(
+            seen,
+            {"sync_started": True, "sync_still_running": True, "released_by_cycle": True},
+        )
+        self.recorder.status.refresh_from_db()
+        self.assertIsNotNone(self.recorder.status.checked_at)
+        self.assertFalse(cmd._sync_thread.is_alive())
+
+    def test_start_sync_skips_while_previous_sync_runs(self):
+        from recorders.management.commands import run_monitor
+
+        cmd = run_monitor.Command()
+        cmd._last_sync_at = None
+        cmd._opencast_status = "off"
+        cmd._insecure_logged = False
+        cmd._sync_thread = mock.Mock(is_alive=mock.Mock(return_value=True))
+        with override_settings(OPENCAST_URL="https://opencast.example.org"), \
+                mock.patch.object(run_monitor.threading, "Thread") as thread:
+            cmd._start_sync(mock.Mock())
+        thread.assert_not_called()
+
+    @override_settings(OPENCAST_URL="http://opencast.example.org", DEBUG=False)
+    def test_run_monitor_refuses_plain_http_without_debug(self):
+        from recorders.management.commands import run_monitor
+
+        cmd = run_monitor.Command()
+        cmd._last_sync_at = None
+        cmd._insecure_logged = False
+        sync = mock.Mock()
+        with mock.patch(f"{MONITOR}.run_opencast_sync", sync), \
+                self.assertLogs(MONITOR, level="DEBUG") as logs:
+            cmd._sync_opencast(mock.Mock())
+            cmd._sync_opencast(mock.Mock())
+        sync.assert_not_called()
+        self.assertEqual(cmd._opencast_status, "error")
+        errors = [r for r in logs.records if r.levelname == "ERROR"]
+        self.assertEqual(len(errors), 1)
+
+    @override_settings(OPENCAST_URL="http://opencast.example.org", DEBUG=True)
+    def test_run_monitor_allows_plain_http_in_debug(self):
+        sync = mock.Mock()
+        self._run(sync)
+        sync.assert_called_once()
 
 
 class RunMonitorLoggingTests(TestCase):
@@ -423,6 +655,21 @@ class LoadSiteConfigTests(TestCase):
         self.run_cmd(self.config())
         self.assertEqual(MonitorSettings.load().url_template, self.TEMPLATE)
 
+    def test_load_site_config_accepts_agent_id(self):
+        cfg = {
+            "recorders": [
+                {"stream_name": "rec-a", "room_name": "A", "agent_id": "agent-a"},
+                {"stream_name": "rec-b", "room_name": "B"},
+            ]
+        }
+        self.run_cmd(cfg)
+        self.assertEqual(Recorder.objects.get(stream_name="rec-a").agent_id, "agent-a")
+        self.assertIsNone(Recorder.objects.get(stream_name="rec-b").agent_id)
+        cfg["recorders"][1]["agent_id"] = "agent-a"
+        with self.assertRaises(CommandError) as ctx:
+            self.run_cmd(cfg)
+        self.assertIn("duplicate agent_id", str(ctx.exception))
+
     def test_example_file_loads_cleanly(self):
         example = Path(settings.BASE_DIR) / "site.example.json"
         out = StringIO()
@@ -430,3 +677,213 @@ class LoadSiteConfigTests(TestCase):
         self.assertIn("created: 4", out.getvalue())
         self.assertFalse(Recorder.objects.get(stream_name="rec-20-hall").active)
         self.assertIn("unchanged: 4", self.run_cmd(json.loads(example.read_text())))
+
+
+BERLIN = ZoneInfo("Europe/Berlin")
+
+
+def berlin(hour, minute=0, day=10):
+    """Local time on 2026-11-<day> (CET, UTC+1)."""
+    return datetime(2026, 11, day, hour, minute, tzinfo=BERLIN)
+
+
+class RecorderEventApiTests(TestCase):
+    def setUp(self):
+        member = User.objects.create_user(username="member", is_superuser=True)
+        self.client.force_login(member)
+        self.recorder = Recorder.objects.create(
+            room_name="Hall", stream_name="rec-hall", agent_id="rec-hall"
+        )
+        self.n = 0
+
+    def event(self, start, end, title="T", recorder=None):
+        self.n += 1
+        return ScheduledEvent.objects.create(
+            identifier=f"ev-{self.n}",
+            recorder=recorder or self.recorder,
+            title=title,
+            series="S",
+            start=start,
+            end=end,
+        )
+
+    def get(self, now, recorder=None):
+        with mock.patch("django.utils.timezone.now", return_value=now):
+            response = self.client.get(f"/api/recorders/{(recorder or self.recorder).pk}/")
+        self.assertEqual(response.status_code, 200, response.content)
+        return response.json()
+
+    def set_status(self, state, offline_since=None):
+        RecorderStatus.objects.filter(recorder=self.recorder).update(
+            state=state, offline_since=offline_since
+        )
+
+    def test_current_and_next_event(self):
+        self.event(berlin(10), berlin(12), "first")
+        self.event(berlin(14), berlin(16), "second")
+        body = self.get(berlin(11))
+        self.assertEqual(body["current_event"]["title"], "first")
+        self.assertEqual(body["current_event"]["series"], "S")
+        self.assertEqual(body["next_event"]["title"], "second")
+        self.assertEqual(
+            datetime.fromisoformat(body["next_event"]["start"]), berlin(14)
+        )
+
+    def test_no_events_gives_null(self):
+        body = self.get(berlin(11))
+        self.assertIsNone(body["current_event"])
+        self.assertIsNone(body["next_event"])
+        self.assertIsNone(body["missing_since"])
+
+    def test_next_event_only_today_local(self):
+        self.event(berlin(23, 30), berlin(23, 50), "late")
+        self.event(berlin(0, 30, day=11), berlin(1, 0, day=11), "tomorrow")
+        body = self.get(berlin(22))
+        self.assertEqual(body["next_event"]["title"], "late")
+        self.set_status("live")
+        ScheduledEvent.objects.filter(title="late").delete()
+        self.assertIsNone(self.get(berlin(22))["next_event"])
+
+    def test_overnight_event_is_current(self):
+        self.event(berlin(23), berlin(1, day=11), "night")
+        body = self.get(berlin(0, 30, day=11))
+        self.assertEqual(body["current_event"]["title"], "night")
+
+    def test_earliest_start_wins_when_overlapping(self):
+        self.event(berlin(10, 30), berlin(12), "later")
+        self.event(berlin(10), berlin(12), "earlier")
+        self.assertEqual(self.get(berlin(11))["current_event"]["title"], "earlier")
+
+    def test_event_end_is_exclusive(self):
+        self.event(berlin(10), berlin(12))
+        self.assertIsNone(self.get(berlin(12))["current_event"])
+
+    def test_missing_since_after_grace(self):
+        self.event(berlin(10), berlin(12))
+        self.set_status("offline")
+        self.assertIsNone(self.get(berlin(10, 2))["missing_since"])
+        body = self.get(berlin(10, 5))
+        self.assertEqual(
+            datetime.fromisoformat(body["missing_since"]), berlin(10, 3)
+        )
+
+    def test_missing_since_uses_offline_since_mid_event(self):
+        self.event(berlin(10), berlin(12))
+        self.set_status("offline", offline_since=berlin(10, 40))
+        body = self.get(berlin(11))
+        self.assertEqual(
+            datetime.fromisoformat(body["missing_since"]), berlin(10, 40)
+        )
+
+    def test_missing_since_respects_grace_setting(self):
+        MonitorSettings.objects.update_or_create(
+            pk=1, defaults={"missing_grace_minutes": 10}
+        )
+        self.event(berlin(10), berlin(12))
+        self.set_status("offline")
+        self.assertIsNone(self.get(berlin(10, 5))["missing_since"])
+        self.assertEqual(
+            datetime.fromisoformat(self.get(berlin(10, 10))["missing_since"]),
+            berlin(10, 10),
+        )
+
+    def test_unknown_during_event_is_never_missing(self):
+        self.event(berlin(10), berlin(12))
+        self.set_status("unknown")
+        self.assertIsNone(self.get(berlin(11))["missing_since"])
+
+    def test_live_is_never_missing(self):
+        self.event(berlin(10), berlin(12))
+        self.set_status("live")
+        self.assertIsNone(self.get(berlin(11))["missing_since"])
+
+    def test_offline_without_event_is_not_missing(self):
+        self.set_status("offline")
+        self.assertIsNone(self.get(berlin(11))["missing_since"])
+
+    def test_inactive_recorder_is_never_missing(self):
+        self.event(berlin(10), berlin(12))
+        self.set_status("offline")
+        Recorder.objects.filter(pk=self.recorder.pk).update(active=False)
+        self.assertIsNone(self.get(berlin(11))["missing_since"])
+
+    def test_status_exposes_agent_fields(self):
+        RecorderStatus.objects.filter(recorder=self.recorder).update(
+            agent_state="capturing", agent_updated_at=berlin(9)
+        )
+        status = self.get(berlin(11))["status"]
+        self.assertEqual(status["agent_state"], "capturing")
+        self.assertEqual(datetime.fromisoformat(status["agent_updated_at"]), berlin(9))
+
+    def test_agent_id_blank_becomes_null_and_unique_enforced(self):
+        def post(stream, agent_id):
+            return self.client.post(
+                "/api/recorders/",
+                {"room_name": "", "stream_name": stream, "agent_id": agent_id},
+                content_type="application/json",
+            )
+
+        first = post("s-1", "")
+        self.assertEqual(first.status_code, 201, first.content)
+        self.assertIsNone(first.json()["agent_id"])
+        self.assertEqual(first.json()["room_name"], "")
+        second = post("s-2", "")
+        self.assertEqual(second.status_code, 201, second.content)
+        self.assertIsNone(Recorder.objects.get(stream_name="s-2").agent_id)
+        dup = post("s-3", "rec-hall")
+        self.assertEqual(dup.status_code, 400)
+        self.assertIn("agent_id", dup.json())
+
+    def test_agent_id_and_needs_review_writable(self):
+        response = self.client.patch(
+            f"/api/recorders/{self.recorder.pk}/",
+            {"agent_id": "cap-90-R12", "needs_review": True},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.recorder.refresh_from_db()
+        self.assertEqual(self.recorder.agent_id, "cap-90-R12")
+        self.assertTrue(self.recorder.needs_review)
+
+    def test_list_query_count_constant(self):
+        def make(count):
+            for i in range(count):
+                rec = Recorder.objects.create(
+                    room_name=f"R{count}-{i}", stream_name=f"s-{count}-{i}"
+                )
+                self.event(berlin(10), berlin(12), recorder=rec)
+                self.event(berlin(14), berlin(16), recorder=rec)
+
+        def count_queries():
+            with mock.patch("django.utils.timezone.now", return_value=berlin(11)):
+                with CaptureQueriesContext(connection) as ctx:
+                    response = self.client.get("/api/recorders/")
+            self.assertEqual(response.status_code, 200)
+            return len(ctx), response.json()
+
+        make(3)
+        self.client.get("/api/recorders/")  # warm up: creates the settings row
+        small, body = count_queries()
+        self.assertEqual(len(body), 4)
+        self.assertEqual(body[1]["current_event"]["title"], "T")
+        make(7)
+        large, body = count_queries()
+        self.assertEqual(len(body), 11)
+        self.assertEqual(small, large)
+
+    def test_settings_grace_bounds(self):
+        for value, code in [(31, 400), (-1, 400), (30, 200), (0, 200)]:
+            with self.subTest(value=value):
+                response = self.client.put(
+                    "/api/settings/monitor/",
+                    {
+                        "url_template": MonitorSettings.load().url_template,
+                        "stale_factor": 3,
+                        "missing_grace_minutes": value,
+                    },
+                    content_type="application/json",
+                )
+                self.assertEqual(response.status_code, code, response.content)
+        self.assertEqual(
+            self.client.get("/api/settings/monitor/").json()["missing_grace_minutes"], 0
+        )

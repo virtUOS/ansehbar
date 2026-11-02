@@ -1,6 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Universität Osnabrück (virtUOS)
 
+from collections import defaultdict
+from datetime import timedelta
+
 from django.conf import settings
 from django.db.models import Max
 from django.utils import timezone
@@ -9,6 +12,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.permissions import HasAccess
+from opencast.models import OpencastSyncState, ScheduledEvent
 from recorders.models import MonitorSettings, Recorder, RecorderStatus
 from recorders.serializers import MonitorSettingsSerializer, RecorderSerializer
 
@@ -36,7 +40,22 @@ class RecorderViewSet(
     def get_serializer_context(self):
         context = super().get_serializer_context()
         # One settings lookup per request instead of one per row.
-        context["url_template"] = MonitorSettings.load().url_template
+        monitor_settings = MonitorSettings.load()
+        context["url_template"] = monitor_settings.url_template
+        context["grace_minutes"] = monitor_settings.missing_grace_minutes
+        # Current time and end of the local day once per request; events
+        # that matter (running or starting today) in a single query.
+        now = timezone.now()
+        local_now = timezone.localtime(now)
+        day_end = (local_now + timedelta(days=1)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        events_by_recorder = defaultdict(list)
+        for event in ScheduledEvent.objects.filter(end__gt=now, start__lt=day_end):
+            events_by_recorder[event.recorder_id].append(event)
+        context["now"] = now
+        context["day_end"] = day_end
+        context["events_by_recorder"] = events_by_recorder
         return context
 
 
@@ -66,10 +85,17 @@ class MonitorHealthView(APIView):
         last_check = RecorderStatus.objects.filter(recorder__active=True).aggregate(
             last=Max("checked_at")
         )["last"]
+        # filter().first(): a GET must not create the singleton row.
+        sync_state = OpencastSyncState.objects.filter(pk=1).first()
         return Response(
             {
                 "last_check": last_check,
                 "now": timezone.now(),
                 "interval_seconds": settings.MONITOR_INTERVAL_SECONDS,
+                "opencast": {
+                    "enabled": bool(settings.OPENCAST_URL),
+                    "last_success": sync_state.last_success_at if sync_state else None,
+                    "sync_seconds": settings.OPENCAST_SYNC_SECONDS,
+                },
             }
         )
