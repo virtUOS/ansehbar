@@ -54,3 +54,17 @@ class OpencastSyncState(models.Model):
         return self.requested_at is not None and (
             self.last_attempt_at is None or self.requested_at > self.last_attempt_at
         )
+
+
+class IgnoredAgent(models.Model):
+    """Opencast agent whose recorder was deleted; sync must not re-create it."""
+
+    agent_id = models.CharField(max_length=100, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.CharField(max_length=150, blank=True)
+
+    class Meta:
+        ordering = ["agent_id"]
+
+    def __str__(self):
+        return self.agent_id

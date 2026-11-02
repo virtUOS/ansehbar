@@ -15,7 +15,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from opencast.client import Agent, Event, OpencastClient, OpencastError
-from opencast.models import OpencastSyncState, ScheduledEvent
+from opencast.models import IgnoredAgent, OpencastSyncState, ScheduledEvent
 from recorders.models import Recorder, RecorderStatus
 from recorders.validators import validate_stream_name
 
@@ -65,8 +65,11 @@ def sync_agents(agents: list[Agent], now: datetime) -> AgentSyncResult:
     result = AgentSyncResult()
     max_len = Recorder._meta.get_field("agent_id").max_length
     seen: set[str] = set()
+    ignored = set(IgnoredAgent.objects.values_list("agent_id", flat=True))
     for agent in agents:
         seen.add(agent.agent_id)
+        if agent.agent_id in ignored:
+            continue
         recorder = Recorder.objects.filter(agent_id=agent.agent_id).first()
         if recorder is None:
             try:

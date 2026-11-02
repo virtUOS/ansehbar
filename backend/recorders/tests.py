@@ -19,8 +19,9 @@ from django.db import connection
 from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 
-from opencast.client import OpencastError
-from opencast.models import OpencastSyncState, ScheduledEvent
+from opencast.client import Agent, OpencastError
+from opencast.models import IgnoredAgent, OpencastSyncState, ScheduledEvent
+from opencast.sync import sync_agents
 from recorders.models import MonitorSettings, Recorder, RecorderStatus
 from recorders.monitor import run_cycle
 from streams.sources import Probe
@@ -143,11 +144,38 @@ class RecorderApiTests(TestCase):
         self.client.force_login(outsider)
         self.assertEqual(self.client.get("/api/recorders/").status_code, 403)
 
-    def test_delete_not_allowed(self):
+    def test_delete_active_recorder_refused(self):
         rec = Recorder.objects.create(room_name="A", stream_name="rec-a")
         response = self.client.delete(f"/api/recorders/{rec.pk}/")
-        self.assertEqual(response.status_code, 405)
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(
+            response.json(), {"detail": "Only deactivated recorders can be deleted."}
+        )
+        self.assertTrue(Recorder.objects.filter(pk=rec.pk).exists())
 
+    def test_delete_inactive_recorder_cascades(self):
+        rec = Recorder.objects.create(room_name="A", stream_name="rec-a", active=False)
+        now = datetime(2026, 11, 4, 8, 0, tzinfo=timezone.utc)
+        ScheduledEvent.objects.create(
+            identifier="e1", recorder=rec, start=now, end=now + timedelta(hours=1)
+        )
+        response = self.client.delete(f"/api/recorders/{rec.pk}/")
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(Recorder.objects.filter(pk=rec.pk).exists())
+        self.assertFalse(RecorderStatus.objects.filter(recorder_id=rec.pk).exists())
+        self.assertFalse(ScheduledEvent.objects.exists())
+        self.assertFalse(IgnoredAgent.objects.exists())
+
+    def test_delete_opencast_recorder_ignores_agent(self):
+        rec = Recorder.objects.create(
+            room_name="A", stream_name="rec-a", agent_id="rec-a", active=False
+        )
+        self.assertEqual(self.client.delete(f"/api/recorders/{rec.pk}/").status_code, 204)
+        ignored = IgnoredAgent.objects.get(agent_id="rec-a")
+        self.assertEqual(ignored.created_by, "member")
+        result = sync_agents([Agent("rec-a", "idle", None)], datetime.now(timezone.utc))
+        self.assertEqual(result.created, 0)
+        self.assertFalse(Recorder.objects.exists())
     def test_signal_creates_status(self):
         rec = Recorder.objects.create(room_name="A", stream_name="rec-a")
         self.assertEqual(rec.status.state, RecorderStatus.UNKNOWN)

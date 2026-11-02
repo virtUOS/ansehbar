@@ -13,7 +13,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 
 from opencast import sync
 from opencast.client import Agent, Event, OpencastClient, OpencastError
-from opencast.models import OpencastSyncState, ScheduledEvent
+from opencast.models import IgnoredAgent, OpencastSyncState, ScheduledEvent
 from recorders.models import Recorder
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -494,3 +494,45 @@ class SyncRequestApiTests(TestCase):
     @override_settings(OPENCAST_URL="https://opencast.example.org")
     def test_sync_request_rejects_get(self):
         self.assertEqual(self.client.get("/api/opencast/sync/").status_code, 405)
+
+
+class IgnoredAgentTests(TestCase):
+    def setUp(self):
+        sync._logged.clear()
+        self.client.force_login(User.objects.create_user(username="m", is_superuser=True))
+
+    def test_ignored_agent_is_skipped_silently(self):
+        IgnoredAgent.objects.create(agent_id="cap-90-R12")
+        Recorder.objects.all().delete()
+        with self.assertNoLogs("opencast.sync", level="WARNING"):
+            result = sync.sync_agents([Agent("cap-90-R12", "idle", NOW)], NOW)
+        self.assertEqual((result.created, result.linked, result.skipped), (0, 0, []))
+        self.assertFalse(Recorder.objects.exists())
+
+    def test_ignored_agent_is_not_linked_to_stream_name(self):
+        IgnoredAgent.objects.create(agent_id="rec-hall")
+        rec = Recorder.objects.create(stream_name="rec-hall", room_name="Hall")
+        sync.sync_agents([Agent("rec-hall", "idle", NOW)], NOW)
+        rec.refresh_from_db()
+        self.assertIsNone(rec.agent_id)
+
+    def test_unignore_lets_agent_return(self):
+        ignored = IgnoredAgent.objects.create(agent_id="cap-90-R12", created_by="X")
+        listing = self.client.get("/api/ignored-agents/").json()
+        self.assertEqual(listing[0]["agent_id"], "cap-90-R12")
+        self.assertEqual(
+            set(listing[0]), {"id", "agent_id", "created_at", "created_by"}
+        )
+        response = self.client.delete(f"/api/ignored-agents/{ignored.pk}/")
+        self.assertEqual(response.status_code, 204)
+        sync.sync_agents([Agent("cap-90-R12", "idle", NOW)], NOW)
+        self.assertTrue(Recorder.objects.get(agent_id="cap-90-R12").needs_review)
+
+    def test_ignored_agents_requires_access(self):
+        ignored = IgnoredAgent.objects.create(agent_id="a")
+        self.client.force_login(User.objects.create_user(username="outsider"))
+        self.assertEqual(self.client.get("/api/ignored-agents/").status_code, 403)
+        self.assertEqual(
+            self.client.delete(f"/api/ignored-agents/{ignored.pk}/").status_code, 403
+        )
+        self.assertTrue(IgnoredAgent.objects.filter(pk=ignored.pk).exists())
