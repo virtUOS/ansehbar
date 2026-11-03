@@ -370,10 +370,91 @@ eintragen, nie ins Repository.
    Beginn oder Ende vom Slot abweicht.
 4. Unter **Verwaltung → Einladungen** weitere Personen ohne
    Gruppenmitgliedschaft freischalten.
-5. Sobald Gruppe und Einladungen tragen, kann `ANSEHBAR_BOOTSTRAP_USERS`
+5. Unter **Verwaltung → Alarme** Empfänger für Alarm-E-Mails eintragen (siehe
+   Abschnitt 7).
+6. Sobald Gruppe und Einladungen tragen, kann `ANSEHBAR_BOOTSTRAP_USERS`
    wieder geleert werden.
 
-## 7. Prüfen und Fehlersuche
+## 7. Alarme, E-Mail und Metriken
+
+ansehBAR alarmiert, wenn während eines Opencast-Termins der Stream fehlt
+(nur mit Opencast-Anbindung, siehe Abschnitt 5). Außerhalb von Terminen ist
+„kein Stream“ normal und löst nichts aus. Es gibt zwei Kanäle: E-Mail und die
+Metrik-Schnittstelle `/metrics` für Prometheus. Letztere beschreibt
+[docs/monitoring.md](monitoring.md). Entwarnungen gibt es nur per E-Mail.
+
+### Alarmmodus pro Rekorder
+
+Unter **Verwaltung → Rekorder** stellt jeder Rekorder seinen Modus ein:
+
+| Modus | Verhalten |
+| --- | --- |
+| `exact` (Standard) | Alarm, wenn der Stream zum Opencast-Start plus Wartezeit fehlt |
+| `grid` | Alarm frühestens zum Slot-Beginn plus c.t. plus Toleranz; für Einrichtungen, die anders buchen oder starten |
+| `off` | Kein Alarm, der Vorfall wird nur erfasst |
+
+Unter **Verwaltung → Einstellungen** stehen die zugehörigen Zeiten:
+
+| Einstellung | Bedeutung | Standard |
+| --- | --- | --- |
+| Wartezeit („technischer Puffer“) | Minuten nach dem Terminbeginn, bevor ein fehlender Stream zählt | 3 |
+| Slots (Länge, Beginn nach Mitternacht) | Raster der Veranstaltungen, siehe Abschnitt 6 | 120 / 0 |
+| c.t.-Versatz | Minuten nach dem Slot-Beginn, zu denen die Veranstaltung tatsächlich beginnt | 15 |
+| Toleranz nach c.t. | Zusätzliche Minuten nach c.t. im Modus `grid` | 5 |
+| Toleranz am Ende | Endet der Stream so kurz vor dem geplanten Ende, ist das kein Vorfall (auch nicht in der Anzeige „Stream fehlt“) | 5 |
+| Alarm per E-Mail / Metriken | Schaltet je einen Kanal global ab | an |
+
+Im Modus `grid` gilt als Schwelle der spätere Zeitpunkt aus „Terminbeginn plus
+Wartezeit“ und „Slot-Beginn plus c.t.-Versatz plus Toleranz“. Beginnt ein
+Termin erst nach c.t., wird er nicht zusätzlich verschoben.
+
+### Vorfälle und Entwarnung
+
+- Pro Ausfall gibt es einen Vorfall; er wird alarmwürdig, sobald die
+  Schwelle überschritten ist. Es werden nur Vorfälle alarmiert, deren Termin
+  noch läuft: Alte offene Vorfälle (etwa nach einem Deploy) lösen nichts aus.
+- Kommt der Stream zurück und fällt innerhalb von 60 Sekunden wieder aus
+  (gemessen ab dem Ausfall), gilt es als derselbe Vorfall: kein neuer Alarm.
+- **Entwarnung:** Bleibt der Stream mindestens 60 Sekunden stabil, geht eine
+  Entwarnung an dieselben Empfänger. Endet der Termin bei fehlendem Stream,
+  gibt es keine Entwarnung. Fällt der Stream nach einer Entwarnung erneut aus,
+  entsteht ein neuer Vorfall mit eigenem Alarm.
+
+### E-Mail einrichten
+
+Der Monitor versendet die E-Mails über SMTP. In der `.env`:
+
+| Variable | Bedeutung | Standard |
+| --- | --- | --- |
+| `EMAIL_HOST` | SMTP-Server | `localhost` |
+| `EMAIL_PORT` | Port | `25` |
+| `EMAIL_HOST_USER` / `EMAIL_HOST_PASSWORD` | Zugangsdaten, falls nötig (`$` in Passwörtern als `$$` schreiben) | leer |
+| `EMAIL_USE_TLS` | `1` = STARTTLS, `0` = aus | `0` |
+| `EMAIL_TIMEOUT` | Sekunden, bevor eine hängende Verbindung aufgegeben wird | `10` |
+| `DEFAULT_FROM_EMAIL` | Absender | `ansehbar@localhost` |
+| `ALARM_LANGUAGE` | Sprache der E-Mails (`de`/`en`), für alle Empfänger gleich | `de` |
+| `EMAIL_BACKEND` | Nur zum Überschreiben des SMTP-Backends, z. B. für Tests | SMTP (in der Entwicklung Konsole) |
+
+In der Entwicklung sind keine Mail-Einstellungen nötig: Die E-Mails erscheinen
+im Log des Monitors. Nach Änderungen an der `.env` die Container neu erzeugen
+(`docker compose -f docker-compose.prod.yml up -d`).
+
+Empfänger pflegt man unter **Verwaltung → Alarme**. Dort lässt sich auch eine
+Test-E-Mail an alle aktiven Empfänger anstoßen (der Monitor versendet sie im
+nächsten Zyklus). Jede Meldung steht im Protokoll `SentNotification`. Die Zustellung ist
+idempotent: Pro Vorfall-Ereignis, Kanal und Empfänger gibt es genau eine
+Meldung, auch über Neustarts des Monitors hinweg. Schlägt der Versand fehl,
+versucht der Monitor es im nächsten Zyklus erneut, höchstens 5-mal pro Meldung;
+danach bleibt sie mit der Fehlermeldung (`last_error`) liegen. Ein SMTP-Fehler
+hält den Prüfzyklus nie an.
+
+### Metriken für Prometheus
+
+`/metrics` ist ohne `METRICS_TOKEN` aus (404). Einrichtung, Kennzahlen,
+Alarmregeln (`monitoring/alerts.yml`) und Scrape-Beispiel
+(`monitoring/scrape.example.yml`) stehen in [monitoring.md](monitoring.md).
+
+## 8. Prüfen und Fehlersuche
 
 | Beobachtung | Ursache und Abhilfe |
 | --- | --- |
@@ -394,9 +475,11 @@ eintragen, nie ins Repository.
 | Banner „Opencast-Abgleich abgeschaltet – OPENCAST_URL muss https:// verwenden“ | `OPENCAST_URL` beginnt mit `http://`. Ohne TLS ginge das Passwort im Klartext über das Netz, deshalb gleicht ansehBAR nicht ab (außer mit `DJANGO_DEBUG=1`). Adresse auf `https://` umstellen und Container neu erzeugen. |
 | Hinweis „Opencast zeigt keine geplanten Aufzeichnungen“ | Agents sind bekannt, aber das Konto sieht keine Termine: Event-ACL-Rechte des Kontos prüfen (siehe „Konto in Opencast“). |
 | Termine fehlen, obwohl in Opencast geplant | Meist darf das Konto die Events nicht lesen: Rolle in den Event-ACLs bzw. ACL-Vorlagen ergänzen (siehe „Konto in Opencast“). Außerdem liegt der Termin vielleicht außerhalb von `OPENCAST_LOOKAHEAD_DAYS`, oder der Agent ist keinem Rekorder zugeordnet. |
+| E-Mails kommen nicht an | Zuerst `docker compose -f docker-compose.prod.yml logs monitor` prüfen. Offene Meldungen zeigt das Protokoll: `docker compose -f docker-compose.prod.yml exec app python manage.py shell -c "from alarms.models import SentNotification as S; print(list(S.objects.filter(sent_at__isnull=True).values('recipient', 'attempts', 'last_error')))"`. `last_error` nennt den SMTP-Fehler (Server, Port, Zugangsdaten, `EMAIL_USE_TLS`). Ohne `EMAIL_HOST` geht die Mail an `localhost:25` und kommt meist nirgends an. Nach 5 Fehlversuchen versucht der Monitor die Meldung nicht mehr; Einstellung korrigieren und eine Test-E-Mail senden. Außerdem: Ist der Alarmmodus des Rekorders `off`, ist „Alarm per E-Mail“ abgeschaltet, oder fehlen Empfänger, wird nichts gesendet. |
+| Keine Alarme trotz fehlendem Stream | Alarme gibt es nur während eines Opencast-Termins, nach Wartezeit (bei `grid` nach c.t. plus Toleranz) und nur für Vorfälle, deren Termin noch läuft. Modus, Opencast-Anbindung und Banner prüfen. |
 | Agent wird übersprungen | Der Log des Monitors nennt per WARNING den Grund: Die Agent-ID ist kein gültiger Stream-Name (erlaubt sind Buchstaben, Ziffern, `.`, `_`, `-`), oder zu lang (mehr als 100 Zeichen), oder der Stream-Name gehört schon zu einem anderen Agent. `agent_id` beim passenden Rekorder setzen. |
 
-## 8. Aktualisieren
+## 9. Aktualisieren
 
 ```bash
 git pull

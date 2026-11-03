@@ -29,12 +29,14 @@ Anmeldung läuft über OIDC (Keycloak); Zugang haben Mitglieder einer
 IdP-Gruppe und in ansehBAR eingeladene Personen. ansehBAR ändert nichts in
 Keycloak, Opencast oder an den Rekordern — es beobachtet nur.
 
-**Stand:** Stufe 2 — Monitor mit gepflegter Rekorderliste und
+**Stand:** Stufe 3a (auf Stufe 2 aufbauend) — Monitor mit gepflegter Rekorderliste und
 Live-Erkennung der HLS-Streams (derzeit ein HLS-Streaming-Server) sowie
 optionaler Anbindung an Opencast (geplante Aufzeichnungen, „Stream fehlt“,
 „Heute noch geplant“; nur lesend), mit verständlichen Fehlermeldungen, Abgleich
-auf Knopfdruck und Löschen deaktivierter Rekorder. Geplant sind Alarme per E-Mail und über den Monitoring-Dienst mit Ausfallprotokoll
-(Stufe 3) und lernende Toleranzen (Stufe 4); Details im
+auf Knopfdruck und Löschen deaktivierter Rekorder. Stufe 3a ergänzt Alarme „Stream fehlt“ per E-Mail und über `/metrics` für
+Prometheus (Alarmmodus pro Rekorder, Empfänger in der Verwaltung, Entwarnung nach
+stabiler Rückkehr). Geplant sind der Alarm „Ton fehlt“ (3b), Raumkalender mit
+Protokoll (3c) und lernende Toleranzen (Stufe 4); Details im
 [Design-Dokument](docs/superpowers/specs/2026-10-30-ansehbar-design.md).
 
 **Technik:** erzeugt aus dem
@@ -148,6 +150,10 @@ Umgebungsvariablen (siehe `.env.prod.example`).
 | `OPENCAST_SYNC_SECONDS` | Sekunden zwischen zwei Abgleichen mit Opencast | `60` |
 | `OPENCAST_LOOKAHEAD_DAYS` | Tage Terminplan im Voraus | `7` |
 | `OPENCAST_LOOKBACK_DAYS` | Tage Rückblick für den Hinweis „Letzte Aufzeichnung hatte Probleme“ | `7` |
+| `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `EMAIL_USE_TLS` (`1`/`0`), `EMAIL_TIMEOUT` | SMTP-Zugang für Alarm-E-Mails (siehe [Konfigurationsanleitung](docs/KONFIGURATION.md#7-alarme-e-mail-und-metriken)) | `localhost`, `25`, leer, leer, `0`, `10` |
+| `DEFAULT_FROM_EMAIL` | Absender der Alarm-E-Mails | `ansehbar@localhost` |
+| `ALARM_LANGUAGE` | Sprache der Alarm-E-Mails (`de`/`en`), für alle Empfänger gleich | `de` |
+| `METRICS_TOKEN` | Bearer-Token für `/metrics`; leer = Endpoint aus (404). Siehe [Monitoring](docs/monitoring.md) | leer |
 | `ANSEHBAR_SITE_CONFIG` | Pfad der Standortkonfiguration für `load_site_config` (siehe „Standortkonfiguration“) | `backend/site.local.json` |
 
 Hinweise:
@@ -168,6 +174,9 @@ Hinweise:
   Ergebnis („Status unbekannt“): Nach einem längeren Ausfall des Monitors
   steht dort daher noch die alte Startzeit, bis der Monitor den Stream wieder
   als beendet erkannt hat.
+- In der Entwicklung braucht die `.env` keine Mail-Einstellungen: Mit
+  `DJANGO_DEBUG=1` schreibt der Monitor Alarm-E-Mails auf die Konsole
+  (`docker compose logs monitor`).
 - Die Stream-URL-Vorlage und der Frische-Faktor stehen im Frontend unter
   „Verwaltung → Einstellungen“.
 - Backend-Texte sind englische gettext-Schlüssel, die deutschen Übersetzungen
