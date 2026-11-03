@@ -82,3 +82,16 @@ def audio_alarm_due(
     return incident.silent_until - incident.started_at >= timedelta(
         minutes=settings.silence_alarm_minutes
     )
+
+
+def silence_counts_from(event, mode: str, settings: MonitorSettings) -> datetime:
+    """From when silence in this event is logged and counted.
+
+    The stream alarm threshold of the room (c.t. rooms: slot start + c.t. +
+    tolerance), so the quiet minutes before a lecture begins never count.
+    With alarm mode ``off`` the exact threshold (start + grace) applies.
+    """
+    threshold = alarm_threshold(event, mode, settings)
+    if threshold is None:
+        threshold = alarm_threshold(event, Recorder.ALARM_EXACT, settings)
+    return threshold

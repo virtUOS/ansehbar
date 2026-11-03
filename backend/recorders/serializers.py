@@ -8,7 +8,7 @@ from django.utils.translation import gettext as _
 from rest_framework import serializers
 
 from recorders.missing import missing_since
-from recorders.models import MonitorSettings, Recorder, RecorderStatus
+from recorders.models import Incident, MonitorSettings, Recorder, RecorderStatus
 
 # The API reports a level only from a measurement at most this old.
 AUDIO_FRESH_SECONDS = 120
@@ -171,12 +171,26 @@ class RecorderSerializer(serializers.ModelSerializer):
         now = self.context.get("now") or timezone.now()
         to_iso = serializers.DateTimeField().to_representation
         problems = []
+        significant = timedelta(
+            minutes=self.context.get(
+                "silence_alarm_minutes",
+                MonitorSettings._meta.get_field("silence_alarm_minutes").default,
+            )
+        )
         for incident in self.context.get("incidents_by_event", {}).get(event.pk, []):
             # Only the part within the event counts; an incident still open
             # on an ended event stops at the event end.
             began = max(incident.started_at, event.start)
             ended = min(incident.ended_at or event.end, event.end)
             if ended <= began:
+                continue
+            # Short silences stay stored (for the timeline), but only those
+            # that alerted or reached the alarm time are a problem here.
+            if (
+                incident.kind == Incident.AUDIO_SILENT
+                and incident.alerted_at is None
+                and ended - began < significant
+            ):
                 continue
             seconds = (ended - began).total_seconds()
             problems.append(

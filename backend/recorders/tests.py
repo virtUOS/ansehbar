@@ -22,7 +22,13 @@ from django.test.utils import CaptureQueriesContext
 from opencast.client import Agent, OpencastError
 from opencast.models import IgnoredAgent, OpencastSyncState, ScheduledEvent
 from opencast.sync import sync_agents
-from recorders.alarm_rules import alarm_due, alarm_threshold, audio_alarm_due, slot_start
+from recorders.alarm_rules import (
+    alarm_due,
+    alarm_threshold,
+    audio_alarm_due,
+    silence_counts_from,
+    slot_start,
+)
 from recorders.models import Incident, MonitorSettings, Recorder, RecorderStatus
 from recorders.monitor import run_cycle
 from streams.sources import Probe
@@ -1516,6 +1522,35 @@ class RecorderEventApiTests(TestCase):
         self.assertEqual(datetime.fromisoformat(problems[0]["to"]), berlin(10, 47, day=9))
         self.assertEqual(problems[0]["minutes"], 17)
 
+    def test_last_recording_lists_only_significant_silences(self):
+        event = self.ended()  # 10:00-12:00, alarm after 15 minutes (default)
+        short = dict(
+            recorder=self.recorder, event=event, kind="audio_silent",
+            started_at=berlin(10, 10, day=9), ended_at=berlin(10, 13, day=9),
+        )
+        Incident.objects.create(**short)
+        Incident.objects.create(
+            recorder=self.recorder, event=event, kind="audio_silent",
+            started_at=berlin(10, 30, day=9), ended_at=berlin(10, 50, day=9),
+        )
+        # Short, but it alerted (e.g. the alarm time was shorter back then).
+        Incident.objects.create(
+            **{**short, "started_at": berlin(11, 0, day=9),
+               "ended_at": berlin(11, 4, day=9), "alerted_at": berlin(11, 3, day=9)}
+        )
+        # Short stream gaps are listed as before.
+        Incident.objects.create(
+            recorder=self.recorder, event=event, kind="stream_missing",
+            started_at=berlin(11, 30, day=9), ended_at=berlin(11, 31, day=9),
+        )
+        problems = self.problems(berlin(13, day=9))
+        self.assertEqual(
+            [(p["kind"], p["minutes"]) for p in problems],
+            [("audio_silent", 20), ("audio_silent", 4), ("stream_missing", 1)],
+        )
+        # The short silence stays stored.
+        self.assertEqual(Incident.objects.filter(kind="audio_silent").count(), 3)
+
     def test_list_query_count_with_silences(self):
         def make(count):
             for i in range(count):
@@ -1896,6 +1931,15 @@ class AlarmDueTests(TestCase):
     def test_off_threshold_is_none(self):
         self.assertIsNone(alarm_threshold(self.ev, "off", self.s))
 
+    def test_silence_counts_from_exact(self):
+        self.assertEqual(silence_counts_from(self.ev, "exact", self.s), berlin(10, 3))
+
+    def test_silence_counts_from_grid_with_ct(self):
+        self.assertEqual(silence_counts_from(self.ev, "grid", self.s), berlin(10, 20))
+
+    def test_silence_counts_from_off_uses_exact_threshold(self):
+        self.assertEqual(silence_counts_from(self.ev, "off", self.s), berlin(10, 3))
+
     def test_slot_start_before_offset_is_previous_day(self):
         self.assertEqual(
             slot_start(berlin(0, 5), 90, 15), berlin(22, 45, day=9)
@@ -2078,17 +2122,20 @@ class AudioPassTests(TestCase):
         self.assertEqual(status.silent_since, utc(10, 10))
 
     def test_failed_measurement_keeps_state(self):
+        # Silence counts from 10:03 (start + grace): the incident opens at 10:06.
         self.measure_a(utc(10, 0), -60.0)
         self.measure_a(utc(10, 3), -60.0)
-        for minute in range(4, 31):
+        self.measure_a(utc(10, 6), -60.0)
+        for minute in range(7, 31):
             status = self.measure_a(utc(10, minute), None, ok=False, detail="timeout")
         self.assertEqual(status.silent_since, utc(10, 0))
-        self.assertEqual(status.audio_checked_at, utc(10, 3))
+        self.assertEqual(status.audio_checked_at, utc(10, 6))
         self.assertEqual(status.audio_level_db, -60.0)
         self.assertEqual(status.audio_detail, "timeout")
         [incident] = self.audio_incidents()
         self.assertIsNone(incident.ended_at)
-        self.assertEqual(incident.silent_until, utc(10, 3))
+        self.assertEqual(incident.started_at, utc(10, 3))
+        self.assertEqual(incident.silent_until, utc(10, 6))
 
     def test_incident_opens_after_log_minutes(self):
         self.measure_a(utc(10, 20), -60.0)
@@ -2159,15 +2206,19 @@ class AudioPassTests(TestCase):
         self.measure_a(utc(11, 53), -60.0)
         [first_incident] = self.audio_incidents()
         self.assertEqual(first_incident.event, self.event)
+        self.measure_a(utc(11, 57), -60.0)
         self.measure_a(utc(12, 1), -60.0)
         [first_incident] = self.audio_incidents()
         self.assertEqual(first_incident.ended_at, utc(12, 0))
         self.assertFalse(first_incident.recovered)
-        self.measure_a(utc(12, 2), -60.0)
+        # In the second event silence counts from 12:03 (start + grace).
+        self.measure_a(utc(12, 4), -60.0)
+        self.assertEqual(len(self.audio_incidents()), 1)
+        self.measure_a(utc(12, 5), -60.0)
         first_incident, second_incident = self.audio_incidents()
         self.assertEqual(second_incident.event, second)
-        self.assertEqual(second_incident.started_at, utc(12, 0))
-        self.assertEqual(second_incident.silent_until, utc(12, 2))
+        self.assertEqual(second_incident.started_at, utc(12, 3))
+        self.assertEqual(second_incident.silent_until, utc(12, 5))
 
     def test_status_fields_not_clobbered(self):
         from recorders.audio_monitor import run_audio_pass
@@ -2210,6 +2261,106 @@ class AudioPassTests(TestCase):
         self.assertEqual(status.audio_detail, "RuntimeError: bad")
         self.assertIsNone(status.audio_checked_at)
         self.assertIsNone(status.silent_since)
+
+    def set_state(self, state):
+        RecorderStatus.objects.filter(recorder=self.recorder).update(state=state)
+
+    def test_unknown_keeps_silence_and_incident(self):
+        self.measure_a(utc(10, 20), -60.0)
+        status = self.measure_a(utc(10, 23), -60.0)
+        [incident] = self.audio_incidents()
+        self.set_state(RecorderStatus.UNKNOWN)
+        count, measure = self.run_pass(utc(10, 24), {})
+        self.assertEqual((count, measure.calls), (0, []))
+        status = RecorderStatus.objects.get(recorder=self.recorder)
+        self.assertEqual(status.silent_since, utc(10, 20))
+        self.assertEqual(status.audio_level_db, -60.0)
+        self.assertEqual(status.audio_checked_at, utc(10, 23))
+        incident.refresh_from_db()
+        self.assertIsNone(incident.ended_at)
+        self.assertEqual(incident.silent_until, utc(10, 23))
+
+    def test_unknown_then_live_continues_incident(self):
+        self.measure_a(utc(10, 20), -60.0)
+        self.measure_a(utc(10, 23), -60.0)
+        [incident] = self.audio_incidents()
+        self.set_state(RecorderStatus.UNKNOWN)
+        self.run_pass(utc(10, 24), {})
+        self.run_pass(utc(10, 25), {})
+        self.set_state(RecorderStatus.LIVE)
+        status = self.measure_a(utc(10, 26), -60.0)
+        self.assertEqual(status.silent_since, utc(10, 20))
+        [same] = self.audio_incidents()
+        self.assertEqual(same.pk, incident.pk)
+        self.assertIsNone(same.ended_at)
+        self.assertEqual(same.silent_until, utc(10, 26))
+
+    def test_offline_still_resets_silence(self):
+        self.measure_a(utc(10, 20), -60.0)
+        self.set_state(RecorderStatus.OFFLINE)
+        self.run_pass(utc(10, 21), {})
+        status = RecorderStatus.objects.get(recorder=self.recorder)
+        self.assertIsNone(status.silent_since)
+
+    def test_measurement_gap_restarts_silence(self):
+        from recorders.audio_monitor import MAX_MEASUREMENT_GAP
+
+        self.assertEqual(MAX_MEASUREMENT_GAP, timedelta(minutes=5))
+        self.measure_a(utc(10, 0), -60.0)
+        self.measure_a(utc(10, 3), -60.0)
+        self.measure_a(utc(10, 6), -60.0)
+        [old] = self.audio_incidents()
+        for minute in range(7, 31):
+            self.measure_a(utc(10, minute), None, ok=False, detail="timeout")
+        status = self.measure_a(utc(10, 31), -60.0)
+        self.assertEqual(status.silent_since, utc(10, 31))
+        old.refresh_from_db()
+        self.assertEqual(old.ended_at, utc(10, 6))
+        self.assertFalse(old.recovered)
+        settings_ = MonitorSettings.load()
+        open_incidents = Incident.objects.filter(
+            kind=Incident.AUDIO_SILENT, ended_at__isnull=True
+        ).select_related("recorder", "event")
+        self.assertFalse(
+            any(audio_alarm_due(i, settings_, utc(10, 31), set()) for i in open_incidents)
+        )
+        # A fresh incident starts from the new silence after the log time.
+        self.measure_a(utc(10, 33), -60.0)
+        _, new = self.audio_incidents()
+        self.assertEqual(new.started_at, utc(10, 31))
+
+    def test_gaps_below_limit_keep_extending(self):
+        self.measure_a(utc(10, 10), -60.0)
+        for minute in (14, 18, 22, 26):
+            self.measure_a(utc(10, minute) - timedelta(seconds=1), None, ok=False)
+            status = self.measure_a(utc(10, minute), -60.0)
+        self.assertEqual(status.silent_since, utc(10, 10))
+        [incident] = self.audio_incidents()
+        self.assertEqual(incident.started_at, utc(10, 10))
+        self.assertEqual(incident.silent_until, utc(10, 26))
+
+    def test_silence_counts_from_grid_threshold(self):
+        settings_ = MonitorSettings.load()
+        # Slots start every local hour, so 10:00 UTC (11:00 local) starts one.
+        settings_.slot_minutes, settings_.slot_offset_minutes = 60, 0
+        settings_.ct_minutes, settings_.ct_tolerance_minutes = 15, 5
+        settings_.save()
+        self.recorder.alarm_mode = Recorder.ALARM_GRID
+        self.recorder.save()
+        for minute in range(0, 22):
+            self.measure_a(utc(10, minute), -60.0)
+        self.assertEqual(self.audio_incidents(), [])
+        self.measure_a(utc(10, 22), -60.0)
+        [incident] = self.audio_incidents()
+        self.assertEqual(incident.started_at, utc(10, 20))
+        for minute in range(23, 36):
+            self.measure_a(utc(10, minute), -60.0)
+            incident.refresh_from_db()
+            due = audio_alarm_due(
+                Incident.objects.select_related("recorder", "event").get(pk=incident.pk),
+                settings_, utc(10, minute), set(),
+            )
+            self.assertEqual(due, minute >= 35, minute)
 
 
 class RunMonitorAudioTests(TestCase):
@@ -2273,6 +2424,37 @@ class RunMonitorAudioTests(TestCase):
             logs.output, [f"ERROR:{MONITOR}:ffmpeg not found; audio monitoring disabled"]
         )
 
+    def _cycle_with_audio_off(self):
+        Recorder.objects.all().delete()
+        recorder = Recorder.objects.create(room_name="A", stream_name="rec-a")
+        event = ScheduledEvent.objects.create(
+            identifier="ev-a", recorder=recorder, start=utc(10, 0), end=utc(12, 0)
+        )
+        incident = Incident.objects.create(
+            recorder=recorder, event=event, kind=Incident.AUDIO_SILENT,
+            started_at=utc(10, 10), silent_until=utc(10, 30), alerted_at=utc(10, 25),
+        )
+        source = FakeSource({"rec-a": Probe(True, True, 100, 6.0)})
+        with mock.patch(f"{MONITOR}.HlsStreamSource", return_value=source), \
+                mock.patch(f"{MONITOR}.timezone.now", return_value=utc(12, 1)), \
+                mock.patch(f"{MONITOR}.ffmpeg_available", return_value=False), \
+                mock.patch(f"{MONITOR}.run_audio_pass") as audio, \
+                self.assertLogs(MONITOR, level="INFO"):
+            call_command("run_monitor", "--once")
+        audio.assert_not_called()
+        incident.refresh_from_db()
+        return incident
+
+    @override_settings(OPENCAST_URL="", AUDIO_MONITOR_ENABLED=False)
+    def test_disabled_audio_still_closes_incidents(self):
+        incident = self._cycle_with_audio_off()
+        self.assertEqual(incident.ended_at, utc(12, 0))
+
+    @override_settings(OPENCAST_URL="", AUDIO_MONITOR_ENABLED=True)
+    def test_missing_ffmpeg_still_closes_incidents(self):
+        incident = self._cycle_with_audio_off()
+        self.assertEqual(incident.ended_at, utc(12, 0))
+
     @override_settings(OPENCAST_URL="", AUDIO_MONITOR_ENABLED=True)
     def test_once_runs_audio_pass_inline(self):
         Recorder.objects.all().delete()
@@ -2283,6 +2465,20 @@ class RunMonitorAudioTests(TestCase):
                 mock.patch(f"{MONITOR}.run_audio_pass", return_value=0) as audio:
             call_command("run_monitor", "--once")
         audio.assert_called_once()
+
+
+class AudioSettingsTests(TestCase):
+    def test_parallel_and_sample_seconds_at_least_one(self):
+        import importlib
+
+        import config.settings as module
+
+        self.addCleanup(importlib.reload, module)
+        env = {"AUDIO_MAX_PARALLEL": "0", "AUDIO_SAMPLE_SECONDS": "-5"}
+        with mock.patch.dict("os.environ", env):
+            importlib.reload(module)
+        self.assertEqual(module.AUDIO_MAX_PARALLEL, 1)
+        self.assertEqual(module.AUDIO_SAMPLE_SECONDS, 1)
 
 
 class AudioAlarmDueTests(TestCase):

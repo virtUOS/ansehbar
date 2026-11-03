@@ -18,7 +18,7 @@ from alarms.delivery import deliver_alarms
 from opencast.client import OpencastClient, OpencastError
 from opencast.models import OpencastSyncState
 from opencast.sync import opencast_sync_enabled, run_opencast_sync
-from recorders.audio_monitor import run_audio_pass
+from recorders.audio_monitor import run_audio_pass, update_audio_incidents
 from recorders.incidents import update_incidents
 from recorders.models import MonitorSettings, RecorderStatus
 from recorders.monitor import run_cycle
@@ -187,15 +187,19 @@ class Command(BaseCommand):
             except Exception:
                 logger.exception("could not record opencast sync failure")
 
-    def _audio_due(self):
-        """True if audio monitoring is on, ffmpeg exists and a pass is due."""
+    def _audio_available(self):
+        """True if audio monitoring is on and ffmpeg exists (checked once)."""
         if not settings.AUDIO_MONITOR_ENABLED:
             return False
         if self._ffmpeg_ok is None:
             self._ffmpeg_ok = ffmpeg_available()
             if not self._ffmpeg_ok:
                 logger.error("ffmpeg not found; audio monitoring disabled")
-        if not self._ffmpeg_ok:
+        return self._ffmpeg_ok
+
+    def _audio_due(self):
+        """True if audio monitoring is available and a pass is due."""
+        if not self._audio_available():
             return False
         now = time.monotonic()
         if (
@@ -251,6 +255,13 @@ class Command(BaseCommand):
             except Exception:
                 # Incident bookkeeping must never stop the stream cycle.
                 logger.exception("updating incidents failed")
+            if not self._audio_available():
+                # No audio passes: still close audio incidents (event end,
+                # stream offline) so no alarm stays raised.
+                try:
+                    update_audio_incidents(now)
+                except Exception:
+                    logger.exception("updating audio incidents failed")
             try:
                 deliver_alarms(now)
             except Exception:

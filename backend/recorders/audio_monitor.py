@@ -11,6 +11,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from opencast.models import ScheduledEvent
+from recorders.alarm_rules import silence_counts_from
 from recorders.models import Incident, MonitorSettings, Recorder, RecorderStatus
 from recorders.monitor import _save
 from streams.audio import AudioMeasurement
@@ -20,6 +21,9 @@ from streams.sources import StreamSource
 # neither the database nor the JSON API should see -Infinity).
 AUDIO_FLOOR_DB = -91.0
 NO_AUDIO_TRACK = "no audio track"
+# A silent reading after a longer gap without a successful measurement starts
+# a new silence: nobody knows whether there was sound in between.
+MAX_MEASUREMENT_GAP = timedelta(minutes=5)
 
 
 def _running_events(now: datetime) -> dict[int, ScheduledEvent]:
@@ -32,17 +36,27 @@ def _running_events(now: datetime) -> dict[int, ScheduledEvent]:
     return running
 
 
-def _targets(now: datetime) -> list[tuple[Recorder, ScheduledEvent]]:
-    """Active, live recorders with a running event."""
+def _targets(now: datetime) -> tuple[list[tuple[Recorder, ScheduledEvent]], set[int]]:
+    """Active, live recorders with a running event, and the ids of those to hold.
+
+    Held: active recorders with a running event whose stream state is
+    unknown. They are not measured, but like after a failed measurement
+    their silence state stays as it is.
+    """
     running = _running_events(now)
     targets = []
+    held = set()
     for recorder in Recorder.objects.filter(active=True).select_related("status"):
         if not hasattr(recorder, "status"):
             continue
         event = running.get(recorder.pk)
-        if recorder.status.state == RecorderStatus.LIVE and event is not None:
+        if event is None:
+            continue
+        if recorder.status.state == RecorderStatus.LIVE:
             targets.append((recorder, event))
-    return targets
+        elif recorder.status.state == RecorderStatus.UNKNOWN:
+            held.add(recorder.pk)
+    return targets, held
 
 
 def _safe_measure(measure, source: StreamSource, stream_name: str) -> AudioMeasurement:
@@ -63,10 +77,23 @@ def _write(status: RecorderStatus, event: ScheduledEvent, result: AudioMeasureme
         return False
     level = None if result.level_db is None else max(result.level_db, AUDIO_FLOOR_DB)
     status.audio_level_db = level
-    status.audio_checked_at = now
     sound = level is not None and level >= threshold
+    previous = status.audio_checked_at
+    status.audio_checked_at = now
     if not sound:
-        status.silent_since = status.silent_since or now
+        if previous is None or previous < now - MAX_MEASUREMENT_GAP:
+            # Too long without a measurement: the silence starts anew, and an
+            # incident of the old one ends with its last silent measurement.
+            status.silent_since = now
+            for incident in Incident.objects.filter(
+                recorder_id=status.recorder_id,
+                kind=Incident.AUDIO_SILENT,
+                ended_at__isnull=True,
+            ):
+                incident.ended_at = incident.silent_until or now
+                incident.save(update_fields=["ended_at"])
+        else:
+            status.silent_since = status.silent_since or now
         status.audio_detail = NO_AUDIO_TRACK if level is None else ""
     else:
         status.silent_since = None
@@ -94,7 +121,7 @@ def run_audio_pass(
     stream cycle and the Opencast sync own the other fields.
     """
     started = now_fn()  # only for choosing the targets
-    targets = _targets(started)
+    targets, held = _targets(started)
     # Never measured first, then least recently measured: a fair rotation.
     targets.sort(
         key=lambda t: (
@@ -119,9 +146,10 @@ def run_audio_pass(
         if _write(recorder.status, event, result, threshold, now)
     }
 
-    # Not measured (offline/unknown, no event, inactive): no silence state.
-    target_ids = [recorder.pk for recorder, _ in targets]
-    stale = RecorderStatus.objects.exclude(recorder_id__in=target_ids).filter(
+    # Not measured (offline, no event, inactive): no silence state. An unknown
+    # stream state is no news about the sound: that state stays.
+    keep_ids = [recorder.pk for recorder, _ in targets] + sorted(held)
+    stale = RecorderStatus.objects.exclude(recorder_id__in=keep_ids).filter(
         Q(silent_since__isnull=False) | Q(audio_level_db__isnull=False)
     )
     for status in stale:
@@ -139,8 +167,11 @@ def update_audio_incidents(now: datetime, sound_ids: set[int] = frozenset()) -> 
     sound_ids: recorders measured with sound in this pass. Only those count as
     recovered; a silence state cleared for any other reason (e.g. the stream
     dropped while the pass measured) ends the incident now, not recovered.
+    An unknown stream state changes nothing (like a failed measurement).
+    Silence counts only from the room's stream alarm threshold on.
     """
-    log_after = timedelta(minutes=MonitorSettings.load().silence_log_minutes)
+    settings = MonitorSettings.load()
+    log_after = timedelta(minutes=settings.silence_log_minutes)
     running = _running_events(now)
     recorders = {r.pk: r for r in Recorder.objects.select_related("status")}
     open_incidents = list(
@@ -161,10 +192,14 @@ def update_audio_incidents(now: datetime, sound_ids: set[int] = frozenset()) -> 
                 recorder is None
                 or not recorder.active
                 or status is None
-                or status.state != RecorderStatus.LIVE
+                or status.state == RecorderStatus.OFFLINE
             ):
                 incident.ended_at = now
                 fields = ["ended_at"]
+            elif status.state == RecorderStatus.UNKNOWN:
+                # No news about the sound: the incident stays as it is.
+                open_keys.add((incident.recorder_id, incident.event_id))
+                continue
             elif status.silent_since is None and incident.recorder_id in sound_ids:
                 # Sound is back: the incident ends with that measurement.
                 incident.ended_at = status.audio_checked_at or now
@@ -188,14 +223,17 @@ def update_audio_incidents(now: datetime, sound_ids: set[int] = frozenset()) -> 
             if (
                 not recorder.active
                 or status is None
-                or status.state != RecorderStatus.LIVE
+                or status.state == RecorderStatus.OFFLINE
                 or event is None
                 or status.silent_since is None
                 or status.audio_checked_at is None
                 or (recorder.pk, event.pk) in open_keys
             ):
                 continue
-            start = max(status.silent_since, event.start)
+            start = max(
+                status.silent_since,
+                silence_counts_from(event, recorder.alarm_mode, settings),
+            )
             if status.audio_checked_at - start >= log_after:
                 new.append(
                     Incident(
