@@ -109,6 +109,32 @@ class MetricsTests(TestCase):
             self._body(),
         )
 
+    def test_audio_silent_alarm_gauge(self):
+        silent = _recorder("Room A", "cap-90-A")
+        Incident.objects.create(
+            recorder=silent,
+            kind=Incident.AUDIO_SILENT,
+            started_at=timezone.now() - timedelta(minutes=20),
+            alerted_at=timezone.now(),
+        )
+        _recorder("Room B", "cap-90-B")
+        _recorder("Room C", "cap-90-C", alarm_mode=Recorder.ALARM_OFF)
+        _recorder("Room D", "cap-90-D", active=False)
+        body = self._body()
+        self.assertIn("# TYPE ansehbar_audio_silent_alarm gauge", body)
+        self.assertIn(
+            'ansehbar_audio_silent_alarm{room="Room A",stream="cap-90-A"} 1', body
+        )
+        self.assertIn(
+            'ansehbar_audio_silent_alarm{room="Room B",stream="cap-90-B"} 0', body
+        )
+        self.assertNotIn('ansehbar_audio_silent_alarm{room="Room C"', body)
+        self.assertNotIn('ansehbar_audio_silent_alarm{room="Room D"', body)
+        # a stream-missing incident does not raise the audio gauge
+        self.assertIn(
+            'ansehbar_stream_missing_alarm{room="Room A",stream="cap-90-A"} 0', body
+        )
+
     def test_unalerted_or_ended_incident_is_not_an_alarm(self):
         pending = _recorder("Room A", "cap-90-A")
         _open_incident(pending, alerted=False)
@@ -134,6 +160,7 @@ class MetricsTests(TestCase):
         )
         body = self._body()
         self.assertNotIn("ansehbar_stream_missing_alarm", body)
+        self.assertNotIn("ansehbar_audio_silent_alarm", body)
         self.assertIn("ansehbar_recorders", body)
 
     def test_label_values_are_escaped(self):
@@ -212,8 +239,16 @@ class AlertRulesTests(SimpleTestCase):
         rules = [r for g in data["groups"] for r in g["rules"]]
         self.assertEqual(
             {r["alert"] for r in rules},
-            {"AnsehbarStreamMissing", "AnsehbarMonitorStale", "AnsehbarOpencastSyncStale"},
+            {
+                "AnsehbarStreamMissing",
+                "AnsehbarAudioSilent",
+                "AnsehbarMonitorStale",
+                "AnsehbarOpencastSyncStale",
+            },
         )
+        audio = next(r for r in rules if r["alert"] == "AnsehbarAudioSilent")
+        self.assertEqual(audio["labels"]["severity"], "warning")
+        self.assertEqual(audio["labels"]["service"], "ansehbar")
         for rule in rules:
             self.assertIn(rule["labels"]["severity"], {"warning", "critical"})
             self.assertEqual(rule["labels"]["service"], "ansehbar")

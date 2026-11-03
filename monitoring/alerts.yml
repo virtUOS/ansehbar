@@ -18,6 +18,16 @@ groups:
           summary: "Stream missing in {{ $labels.room }}"
           description: "The stream {{ $labels.stream }} is not live although a recording is scheduled."
 
+      - alert: AnsehbarAudioSilent
+        expr: ansehbar_audio_silent_alarm == 1
+        for: 1m
+        labels:
+          severity: warning
+          service: ansehbar
+        annotations:
+          summary: "Sound missing in {{ $labels.room }}"
+          description: "No sound for over 15 minutes during a scheduled recording (stream {{ $labels.stream }})."
+
       - alert: AnsehbarMonitorStale
         expr: time() - ansehbar_monitor_last_check_timestamp_seconds > 300
         for: 5m

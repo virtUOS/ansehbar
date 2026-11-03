@@ -118,6 +118,7 @@ Alle Werte sind **Gauges**.
 | Kennzahl | Labels | Bedeutung |
 |---|---|---|
 | `ansehbar_stream_missing_alarm` | `room`, `stream` | `1`, wenn für den Rekorder ein offener, alarmierter Vorfall besteht, sonst `0`. Gemeldet für alle aktiven Rekorder, deren Alarmmodus nicht „aus“ ist. Entfällt ganz, wenn der Kanal „Metriken“ (Alarm-Einstellung `alarm_metrics_enabled`) aus ist. |
+| `ansehbar_audio_silent_alarm` | `room`, `stream` | `1`, wenn für den Rekorder ein offener, alarmierter Ton-Vorfall („Ton fehlt“) besteht, sonst `0`. Gleiche Rekorderauswahl und gleicher Kanal „Metriken“ wie bei `ansehbar_stream_missing_alarm`. |
 | `ansehbar_monitor_last_check_timestamp_seconds` | — | Unix-Zeit der letzten Prüfung eines aktiven Rekorders; fehlt, solange noch nie geprüft wurde. |
 | `ansehbar_opencast_enabled` | — | `1`, wenn die Opencast-Anbindung aktiv ist, sonst `0`. |
 | `ansehbar_opencast_last_success_timestamp_seconds` | — | Unix-Zeit des letzten erfolgreichen Opencast-Abgleichs; nur bei aktiver Anbindung und nach einem ersten Erfolg. |
@@ -135,8 +136,13 @@ ein `severity`-Label.
 | Regel | Bedingung | Dauer | Severity |
 |---|---|---|---|
 | `AnsehbarStreamMissing` | `ansehbar_stream_missing_alarm == 1` | 2 min | `critical` |
+| `AnsehbarAudioSilent` | `ansehbar_audio_silent_alarm == 1` | 1 min | `warning` |
 | `AnsehbarMonitorStale` | `time() - ansehbar_monitor_last_check_timestamp_seconds > 300` | 5 min | `warning` |
 | `AnsehbarOpencastSyncStale` | `ansehbar_opencast_enabled == 1 and time() - ansehbar_opencast_last_success_timestamp_seconds > 900` | 10 min | `warning` |
+
+Die Regel `AnsehbarAudioSilent` ist neu (Stufe 3b): Die Betreiber müssen die
+aktualisierte `monitoring/alerts.yml` erneut erhalten und einbinden, sonst
+bleibt „Ton fehlt“ ohne Prometheus-Alarm.
 
 Einbinden: Datei auf den Prometheus-Server legen, unter `rule_files:` in der
 `prometheus.yml` eintragen, Prometheus neu laden. Die Prüfung der Syntax:
@@ -156,5 +162,5 @@ Außerhalb von Terminen ist „kein Stream“ normal und bleibt `0`.
 | `404` | `METRICS_TOKEN` nicht gesetzt oder App-Container nicht neu erstellt (Schritt 1.3) |
 | `401` | Token falsch, oder Header fehlt (`Authorization: Bearer …`, mit Leerzeichen) |
 | HTML statt Kennzahlen / Parse-Fehler in Prometheus | `handle /metrics` fehlt im `Caddyfile` (Schritt 1.4) |
-| `ansehbar_stream_missing_alarm` fehlt | Kanal „Metriken“ (`alarm_metrics_enabled`) ist aus, oder kein aktiver Rekorder mit Alarmmodus ungleich „aus“ |
+| `ansehbar_stream_missing_alarm` / `ansehbar_audio_silent_alarm` fehlt | Kanal „Metriken“ (`alarm_metrics_enabled`) ist aus, oder kein aktiver Rekorder mit Alarmmodus ungleich „aus“ |
 | Target `DOWN`, TLS-Fehler | Domain/Zertifikat prüfen; `scheme: https` gesetzt? |
