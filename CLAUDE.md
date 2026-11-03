@@ -16,16 +16,19 @@ Frontend 5179, Backend 8007, Keycloak 8086, Postgres 5438.
 
 - Backend-Apps: `config` (Settings/URLs), `accounts` (User, Zugangsprüfung
   über IdP-Gruppe/Bootstrap/Einladungen, Einladungs- und Benutzersuche-API),
-  `recorders` (Rekorder, Status, Monitor-Einstellungen, API, Monitor-Zyklus),
+  `recorders` (Rekorder, Status, Monitor-Einstellungen, API, Monitor-Zyklus;
+  `audio_monitor.py` führt den Ton-Durchlauf aus),
   `opencast` (read-only-Client der External API, Sync von Agents und
   Terminen, `ScheduledEvent`, `OpencastSyncState`),
   `alarms` (Alarmempfänger, `SentNotification`-Protokoll, E-Mail-Zustellung
   im Monitor-Zyklus; Alarmregeln liegen in `recorders/alarm_rules.py`,
   `/metrics` in `common/views.py`),
-  `streams` (HLS-Probe: Master-/Chunklist, Frische der Media-Sequence),
+  `streams` (HLS-Probe: Master-/Chunklist, Frische der Media-Sequence;
+  `audio.py`: Pegelmessung mit ffmpeg),
   `common` (Basis).
 - Monitor: eigener Compose-Dienst `monitor`, `python manage.py run_monitor`
-  (`--once` für einen Lauf); Intervall `MONITOR_INTERVAL_SECONDS`.
+  (`--once` für einen Lauf); Intervall `MONITOR_INTERVAL_SECONDS`. Der Monitor
+  misst den Ton in einem eigenen Thread (`AUDIO_*`, Stufe 3b).
 - Frontend (`frontend/src/`): `media/` (hls.js-Player, Web-Audio, Pegel),
   `pages/` (Übersicht, Raumansicht, Landing/NoAccess, `admin/`),
   `components/` (Kachel, Raumliste, StatusBadge, Formularteile, Dialog),
@@ -41,6 +44,7 @@ docker compose exec frontend npx tsc -b                # Frontend-Typecheck
 docker compose exec frontend npm test                  # Frontend-Tests (vitest)
 docker compose exec frontend npm run check:i18n        # jeder t("…")-Key hat eine deutsche Übersetzung
 docker compose exec backend python manage.py run_monitor --once  # ein Prüflauf
+docker compose exec backend python manage.py measure_audio <stream>  # Pegel eines Streams messen (Kalibrierung der Stille-Schwelle)
 docker compose exec backend python manage.py load_site_config    # Rekorder/Stream-URL aus backend/site.local.json laden
 docker compose exec backend sh -c "pip install -q ruff && ruff check ."  # Lint (wie CI, Config in backend/pyproject.toml)
 ```
