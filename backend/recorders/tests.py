@@ -2037,6 +2037,31 @@ class AudioPassTests(TestCase):
         self.assertIsNone(status.silent_since)
         self.assertIsNone(status.audio_level_db)
 
+    def test_stream_drop_during_pass_is_no_recovery(self):
+        from recorders.audio_monitor import run_audio_pass
+
+        self.measure_a(utc(10, 20), -60.0)
+        self.measure_a(utc(10, 25), -60.0)
+        RecorderStatus.objects.filter(recorder=self.recorder).update(
+            state=RecorderStatus.OFFLINE
+        )
+        calls = []
+
+        def now_fn():
+            calls.append(1)
+            if len(calls) == 2:
+                # The stream cycle wrote live again while the pass measured.
+                RecorderStatus.objects.filter(recorder=self.recorder).update(
+                    state=RecorderStatus.LIVE
+                )
+            return utc(10, 26)
+
+        count = run_audio_pass(FakeMeasure({}), FakeSource({}), now_fn=now_fn)
+        self.assertEqual(count, 0)
+        [incident] = self.audio_incidents()
+        self.assertEqual(incident.ended_at, utc(10, 26))
+        self.assertFalse(incident.recovered)
+
     def test_silence_across_back_to_back_events(self):
         second = self.make_event(self.recorder, "ev-b", utc(12, 0), utc(14, 0))
         self.measure_a(utc(11, 50), -60.0)

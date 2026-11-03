@@ -54,16 +54,18 @@ def _safe_measure(measure, source: StreamSource, stream_name: str) -> AudioMeasu
 
 
 def _write(status: RecorderStatus, event: ScheduledEvent, result: AudioMeasurement,
-           threshold: int, now: datetime) -> None:
+           threshold: int, now: datetime) -> bool:
+    """Store one measurement; True if it measured sound."""
     if not result.ok:
         # A failed measurement is no silence: the silence state stays as it is.
         status.audio_detail = result.detail[:200]
         _save(status, ["audio_detail"])
-        return
+        return False
     level = None if result.level_db is None else max(result.level_db, AUDIO_FLOOR_DB)
     status.audio_level_db = level
     status.audio_checked_at = now
-    if level is None or level < threshold:
+    sound = level is not None and level >= threshold
+    if not sound:
         status.silent_since = status.silent_since or now
         status.audio_detail = NO_AUDIO_TRACK if level is None else ""
     else:
@@ -77,6 +79,7 @@ def _write(status: RecorderStatus, event: ScheduledEvent, result: AudioMeasureme
         status,
         ["audio_level_db", "audio_checked_at", "audio_detail", "silent_since"],
     )
+    return sound
 
 
 def run_audio_pass(
@@ -110,8 +113,11 @@ def run_audio_pass(
 
     now = now_fn()  # after the measurements
     threshold = MonitorSettings.load().silence_threshold_db
-    for (recorder, event), result in zip(targets, results):
-        _write(recorder.status, event, result, threshold, now)
+    sound_ids = {
+        recorder.pk
+        for (recorder, event), result in zip(targets, results)
+        if _write(recorder.status, event, result, threshold, now)
+    }
 
     # Not measured (offline/unknown, no event, inactive): no silence state.
     target_ids = [recorder.pk for recorder, _ in targets]
@@ -123,12 +129,17 @@ def run_audio_pass(
         status.audio_level_db = None
         _save(status, ["silent_since", "audio_level_db"])
 
-    update_audio_incidents(now)
+    update_audio_incidents(now, sound_ids)
     return len(targets)
 
 
-def update_audio_incidents(now: datetime) -> None:
-    """Open, extend and close audio_silent incidents from the stored statuses."""
+def update_audio_incidents(now: datetime, sound_ids: set[int] = frozenset()) -> None:
+    """Open, extend and close audio_silent incidents from the stored statuses.
+
+    sound_ids: recorders measured with sound in this pass. Only those count as
+    recovered; a silence state cleared for any other reason (e.g. the stream
+    dropped while the pass measured) ends the incident now, not recovered.
+    """
     log_after = timedelta(minutes=MonitorSettings.load().silence_log_minutes)
     running = _running_events(now)
     recorders = {r.pk: r for r in Recorder.objects.select_related("status")}
@@ -154,11 +165,16 @@ def update_audio_incidents(now: datetime) -> None:
             ):
                 incident.ended_at = now
                 fields = ["ended_at"]
-            elif status.silent_since is None:
+            elif status.silent_since is None and incident.recorder_id in sound_ids:
                 # Sound is back: the incident ends with that measurement.
                 incident.ended_at = status.audio_checked_at or now
                 incident.recovered = True
                 fields = ["ended_at", "recovered"]
+            elif status.silent_since is None:
+                # Silence state cleared without a sound measurement (not
+                # measured in this pass, e.g. the stream was down): no recovery.
+                incident.ended_at = now
+                fields = ["ended_at"]
             else:
                 incident.silent_until = status.audio_checked_at
                 open_keys.add((incident.recorder_id, incident.event_id))
