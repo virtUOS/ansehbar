@@ -87,6 +87,16 @@ services:
       OPENCAST_LOOKAHEAD_DAYS: ${OPENCAST_LOOKAHEAD_DAYS:-7}
       OPENCAST_LOOKBACK_DAYS: ${OPENCAST_LOOKBACK_DAYS:-7}
       ANSEHBAR_SITE_CONFIG: ${ANSEHBAR_SITE_CONFIG:-}
+      # Alarm e-mails (SMTP). Unset = Django defaults (see settings.py).
+      EMAIL_BACKEND: ${EMAIL_BACKEND:-}
+      EMAIL_HOST: ${EMAIL_HOST:-localhost}
+      EMAIL_PORT: ${EMAIL_PORT:-25}
+      EMAIL_HOST_USER: ${EMAIL_HOST_USER:-}
+      EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD:-}
+      EMAIL_USE_TLS: ${EMAIL_USE_TLS:-0}
+      EMAIL_TIMEOUT: ${EMAIL_TIMEOUT:-10}
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-ansehbar@localhost}
+      ALARM_LANGUAGE: ${ALARM_LANGUAGE:-de}
       # Claim names — override only if the IdP uses non-standard ones.
       OIDC_CLAIM_USERNAME: ${OIDC_CLAIM_USERNAME:-preferred_username}
       OIDC_CLAIM_EMAIL: ${OIDC_CLAIM_EMAIL:-email}

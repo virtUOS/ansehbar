@@ -6,6 +6,7 @@ from django.urls import path
 from rest_framework.routers import DefaultRouter
 
 from accounts.views import InvitationViewSet, UserSearchViewSet
+from alarms.views import AlarmRecipientViewSet
 from opencast.views import IgnoredAgentViewSet, OpencastSyncRequestView
 from recorders.views import MonitorHealthView, MonitorSettingsView, RecorderViewSet
 
@@ -14,6 +15,7 @@ router.include_root_view = False
 router.register("invitations", InvitationViewSet, basename="invitation")
 router.register("users", UserSearchViewSet, basename="user")
 router.register("recorders", RecorderViewSet, basename="recorder")
+router.register("alarm-recipients", AlarmRecipientViewSet, basename="alarm-recipient")
 router.register("ignored-agents", IgnoredAgentViewSet, basename="ignored-agent")
 
 urlpatterns = [

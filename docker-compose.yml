@@ -61,6 +61,16 @@ services:
       OPENCAST_LOOKAHEAD_DAYS: ${OPENCAST_LOOKAHEAD_DAYS:-7}
       OPENCAST_LOOKBACK_DAYS: ${OPENCAST_LOOKBACK_DAYS:-7}
       ANSEHBAR_SITE_CONFIG: ${ANSEHBAR_SITE_CONFIG:-}
+      # Alarm e-mails: dev prints them to the backend/monitor log.
+      EMAIL_BACKEND: django.core.mail.backends.console.EmailBackend
+      EMAIL_HOST: ${EMAIL_HOST:-localhost}
+      EMAIL_PORT: ${EMAIL_PORT:-25}
+      EMAIL_HOST_USER: ${EMAIL_HOST_USER:-}
+      EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD:-}
+      EMAIL_USE_TLS: ${EMAIL_USE_TLS:-0}
+      EMAIL_TIMEOUT: ${EMAIL_TIMEOUT:-10}
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-ansehbar@localhost}
+      ALARM_LANGUAGE: ${ALARM_LANGUAGE:-de}
       FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost:5179}
       # virtiofs (colima) swallows inotify events — poll for code changes.
       WATCHFILES_FORCE_POLLING: "true"
