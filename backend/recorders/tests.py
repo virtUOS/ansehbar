@@ -22,6 +22,7 @@ from django.test.utils import CaptureQueriesContext
 from opencast.client import Agent, OpencastError
 from opencast.models import IgnoredAgent, OpencastSyncState, ScheduledEvent
 from opencast.sync import sync_agents
+from recorders.alarm_rules import alarm_due, alarm_threshold, slot_start
 from recorders.models import Incident, MonitorSettings, Recorder, RecorderStatus
 from recorders.monitor import run_cycle
 from streams.sources import Probe
@@ -1700,3 +1701,106 @@ class RunMonitorIncidentTests(TestCase):
         self.assertIsNotNone(recorder.status.checked_at)
         self.assertTrue(any("incidents" in m for m in logs.output))
         self.assertFalse(any("monitor cycle failed" in m for m in logs.output))
+
+
+class AlarmDueTests(TestCase):
+    """Event 10:00-12:00, grace 3, c.t. 15, tolerance 5, slots 120/0."""
+
+    def setUp(self):
+        self.s = MonitorSettings(
+            missing_grace_minutes=3,
+            ct_minutes=15,
+            ct_tolerance_minutes=5,
+            slot_minutes=120,
+            slot_offset_minutes=0,
+        )
+        self.recorder = Recorder.objects.create(room_name="A", stream_name="rec-a")
+        self.ev = self.event(berlin(10), berlin(12))
+
+    def event(self, start, end):
+        return ScheduledEvent.objects.create(
+            identifier=f"ev-{start:%H%M}-{end:%H%M}",
+            recorder=self.recorder,
+            start=start,
+            end=end,
+        )
+
+    def incident(self, started_at, **kwargs):
+        kwargs.setdefault("event", self.ev)
+        return Incident.objects.create(
+            recorder=self.recorder,
+            kind=Incident.STREAM_MISSING,
+            started_at=started_at,
+            **kwargs,
+        )
+
+    def test_exact_threshold_is_start_plus_grace(self):
+        self.assertEqual(alarm_threshold(self.ev, "exact", self.s), berlin(10, 3))
+
+    def test_grid_threshold_is_ct_plus_tolerance(self):
+        self.assertEqual(alarm_threshold(self.ev, "grid", self.s), berlin(10, 20))
+
+    def test_grid_does_not_shift_late_start_further(self):
+        ev = self.event(berlin(10, 30), berlin(12))
+        self.assertEqual(alarm_threshold(ev, "grid", self.s), berlin(10, 33))
+
+    def test_grid_uses_slot_offset(self):
+        self.s.slot_minutes, self.s.slot_offset_minutes = 90, 15
+        ev = self.event(berlin(9, 15), berlin(10, 45))
+        self.assertEqual(alarm_threshold(ev, "grid", self.s), berlin(9, 35))
+
+    def test_off_threshold_is_none(self):
+        self.assertIsNone(alarm_threshold(self.ev, "off", self.s))
+
+    def test_slot_start_before_offset_is_previous_day(self):
+        self.assertEqual(
+            slot_start(berlin(0, 5), 90, 15), berlin(22, 45, day=9)
+        )
+
+    def test_slot_start_regular(self):
+        self.assertEqual(slot_start(berlin(10, 30), 120, 0), berlin(10))
+        self.assertEqual(slot_start(berlin(9, 59), 90, 15), berlin(9, 15))
+
+    def test_slot_start_on_dst_day(self):
+        # 2026-10-25: clocks go back at 03:00 CEST -> 02:00 CET.
+        at = datetime(2026, 10, 25, 10, 30, tzinfo=BERLIN)
+        self.assertEqual(
+            slot_start(at, 120, 0), datetime(2026, 10, 25, 10, 0, tzinfo=BERLIN)
+        )
+
+    def test_mode_off_never_alarms(self):
+        self.recorder.alarm_mode = Recorder.ALARM_OFF
+        inc = self.incident(berlin(10, 1))
+        for now in (berlin(10, 5), berlin(11), berlin(11, 59)):
+            self.assertFalse(alarm_due(inc, self.s, now))
+
+    def test_due_only_while_event_runs(self):
+        inc = self.incident(berlin(10, 1))
+        self.assertFalse(alarm_due(inc, self.s, berlin(10, 2)))
+        self.assertTrue(alarm_due(inc, self.s, berlin(10, 4)))
+        self.assertFalse(alarm_due(inc, self.s, berlin(12)))
+        self.assertFalse(alarm_due(inc, self.s, berlin(9, 59)))
+
+    def test_closed_incident_not_due(self):
+        inc = self.incident(berlin(10, 1), ended_at=berlin(10, 2))
+        self.assertFalse(alarm_due(inc, self.s, berlin(10, 4)))
+
+    def test_inactive_recorder_not_due(self):
+        self.recorder.active = False
+        inc = self.incident(berlin(10, 1))
+        self.assertFalse(alarm_due(inc, self.s, berlin(10, 4)))
+
+    def test_no_event_not_due(self):
+        inc = self.incident(berlin(10, 1), event=None)
+        self.assertFalse(alarm_due(inc, self.s, berlin(10, 4)))
+
+    def test_incident_start_after_threshold_delays_alarm(self):
+        inc = self.incident(berlin(10, 30))
+        self.assertFalse(alarm_due(inc, self.s, berlin(10, 29)))
+        self.assertTrue(alarm_due(inc, self.s, berlin(10, 30)))
+
+    def test_grid_mode_waits_for_ct_tolerance(self):
+        self.recorder.alarm_mode = Recorder.ALARM_GRID
+        inc = self.incident(berlin(10, 1))
+        self.assertFalse(alarm_due(inc, self.s, berlin(10, 19)))
+        self.assertTrue(alarm_due(inc, self.s, berlin(10, 20)))
