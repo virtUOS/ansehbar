@@ -249,6 +249,9 @@ REST_FRAMEWORK = {
     "PAGE_SIZE": 25,
 }
 
+# Bearer token protecting /metrics (Prometheus). Empty = endpoint off (404).
+METRICS_TOKEN = os.environ.get("METRICS_TOKEN", "")
+
 # Optional AI features via a LiteLLM proxy (basicbar_integrations.ai). Off
 # unless fully configured; "enabled" is derived from these, not a flag.
 AI_PROVIDER = os.environ.get("AI_PROVIDER", "none")  # "none" | "litellm"

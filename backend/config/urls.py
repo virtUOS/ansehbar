@@ -8,8 +8,11 @@ from django.contrib import admin
 from django.urls import include, path
 
 from accounts.views import whoami
+from common.views import MetricsView
 
 urlpatterns = [
+    # Prometheus scrape target (404 unless METRICS_TOKEN is set).
+    path("metrics", MetricsView.as_view()),
     path("admin/", admin.site.urls),
     # OIDC login/logout/silent/back-channel/callback and api/whoami/language/.
     path("", include("basicbar_auth.urls")),
