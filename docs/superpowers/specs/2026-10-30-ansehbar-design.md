@@ -413,10 +413,32 @@ zuletzt beendeten Termin des Raums innerhalb von `OPENCAST_LOOKBACK_DAYS`
   Matrix-Weiterleitung). ansehBAR bietet wie abstimmBAR und ausleihBAR einen
   tokengeschützten `/metrics`-Endpunkt im Prometheus-Textformat an
   (Bearer-Token `METRICS_TOKEN`, außerhalb von `/api/`). Alarmregeln (mit
-  `for:`-Verzögerung) liegen in Prometheus, nicht in ansehBAR. **Offen**:
-  Scrape-Konfiguration, Labels, Routing nach Warnung/kritisch (mit den
-  Betreibern zu klären, siehe 10). Der Kanal wird so gebaut, dass er sich
-  ohne Umbau der Vorfall-Logik anpassen lässt.
+  `for:`-Verzögerung) liegen in Prometheus, nicht in ansehBAR. Der Kanal wird
+  so gebaut, dass er sich ohne Umbau der Vorfall-Logik anpassen lässt.
+- **Festgelegt (Rückfragen 2026-11-03):**
+  - Endpunkt, Token und Scrape exakt wie bei abstimmBAR (dort von Timo schon
+    angebunden): `GET /metrics` außerhalb von `/api/`, Bearer `METRICS_TOKEN`,
+    ohne Token `404`, `text/plain; version=0.0.4`; Prometheus fragt über
+    HTTPS die öffentliche URL ab, Token per `credentials_file`. Das
+    Reverse-Proxy-Setup muss `/metrics` an die App weiterreichen. Doku analog
+    zu abstimmBARs `docs/monitoring.md`.
+  - Scrape-Intervall 1 min.
+  - Namen und Labels wie bei abstimmBAR: Präfix `ansehbar_`, Gauges; pro Raum
+    Labels `room` und `stream` (etwa 40 Räume, Kardinalität unkritisch).
+  - Die Alarmregeln pflegen wir selbst (Beispiel-`alerts.yml` im Repo).
+  - Schweregrade: **kritisch** = Stream fehlt während eines Termins;
+    **Warnung** = Opencast-Abgleich gestört, Monitor liefert keine Daten,
+    Ton fehlt länger als 15 min.
+  - Alarme nur während geplanter Termine; außerhalb ist „kein Stream“ normal.
+  - Großzügige `for:`-Dauern sind in Ordnung: Niemand kann sofort eingreifen,
+    meist geht es darum, Probleme in Folgeveranstaltungen zu vermeiden.
+  - ansehBAR bekommt einen **eigenen Matrix-Raum** (nicht Warning/Critical
+    des virtUOS-Space).
+  - Inhibition mitdenken: Ist der Streaming-Server (oder Opencast) ganz weg,
+    kommt ein übergeordneter Alarm statt eines Alarms pro Raum. ansehBAR
+    liefert dafür eine Metrik zur Erreichbarkeit des Streaming-Servers.
+  - Kein eigener Heartbeat für Container/Host nötig (`up` reicht).
+  - Produktiv läuft ansehBAR auf einer eigenen VM.
 - **Später:** Browser-Benachrichtigungen (Web Push), allgemeine Webhooks.
 - **Inhalt einer Meldung** (alles, was man zum Weiterleiten braucht): Raum,
   Rekorder, Typ, Termin (Titel, Serie, geplante Zeit), seit wann, Link zur
@@ -463,10 +485,14 @@ Jede Stufe ist für sich nutzbar und wird einzeln geplant und gebaut.
 
 ## 10. Offen
 
-- **Anbindung an den Monitoring-Dienst** (7.4): Prometheus + Alertmanager mit
-  Matrix-Weiterleitung, ansehBAR liefert `/metrics` (Token `METRICS_TOKEN`).
-  Offen: Scrape-Konfiguration, Labels, Routing Warnung/kritisch (Stand
-  2026-11-02). Das blockiert erst den zweiten Kanal in Stufe 3, nicht E-Mail.
+- **Anbindung an den Monitoring-Dienst** (7.4), noch offen bei Timo
+  (Stand 2026-11-03): Wer pflegt Scrape-Eintrag und unsere Alarmregeln in der
+  Prometheus-Konfiguration (eigenes Konfig-Repo, Merge-Request, Datei
+  übergeben)? Über welches Label (`severity`?) und welche Werte wird nach
+  Warnung/kritisch geroutet? Kommen Entwarnungen (resolved) automatisch in
+  Matrix an? Wie werden der eigene Matrix-Raum und die Inhibition-Regel im
+  Alertmanager eingerichtet? Das blockiert erst den zweiten Kanal in Stufe 3,
+  nicht E-Mail.
 - Engere Opencast-Rolle für das ansehBAR-Konto (Kollegen klären).
 
 ## 11. Dem Builder überlassen
