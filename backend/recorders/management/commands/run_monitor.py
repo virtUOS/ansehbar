@@ -166,7 +166,8 @@ class Command(BaseCommand):
                 # The attempt's start time, like run_opencast_sync records it.
                 state.last_attempt_at = now
                 state.last_error = type(exc).__name__[:300]
-                state.last_error_kind = "invalid"
+                # Our own failure (e.g. the database), not Opencast's answer.
+                state.last_error_kind = "internal"
                 state.save(
                     update_fields=["last_attempt_at", "last_error", "last_error_kind"]
                 )

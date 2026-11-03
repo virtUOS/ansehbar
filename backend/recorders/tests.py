@@ -251,8 +251,21 @@ class MonitorSettingsApiTests(TestCase):
         )
         self.assertEqual(
             set(block),
-            {"enabled", "last_success", "sync_seconds", "last_attempt", "error_kind", "requested"},
+            {
+                "enabled", "insecure_url", "last_success", "sync_seconds",
+                "last_attempt", "error_kind", "requested",
+            },
         )
+        self.assertEqual(block["insecure_url"], False)
+
+    @override_settings(OPENCAST_URL="http://opencast.example.org", DEBUG=False)
+    def test_health_reports_insecure_opencast_url(self):
+        block = self.client.get("/api/monitor/health/").json()["opencast"]
+        self.assertEqual(block["enabled"], False)
+        self.assertEqual(block["insecure_url"], True)
+        with override_settings(OPENCAST_URL=""):
+            block = self.client.get("/api/monitor/health/").json()["opencast"]
+        self.assertEqual(block["insecure_url"], False)
 
     @override_settings(OPENCAST_URL="https://opencast.example.org")
     def test_health_reports_request_and_error_kind(self):
@@ -549,7 +562,7 @@ class RunMonitorOpencastTests(TestCase):
         with self.assertLogs(MONITOR, level="DEBUG"):
             self._run(mock.Mock(side_effect=failing_sync))
         state = OpencastSyncState.load()
-        self.assertEqual(state.last_error_kind, "invalid")
+        self.assertEqual(state.last_error_kind, "internal")
         self.assertEqual(state.last_attempt_at, started[0])
 
     @override_settings(OPENCAST_URL="https://opencast.example.org")

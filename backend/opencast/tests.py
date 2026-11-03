@@ -615,6 +615,25 @@ class SyncRequestApiTests(TestCase):
             state.requested_at,
         )
 
+    @override_settings(OPENCAST_URL="https://opencast.example.org")
+    def test_repeated_sync_request_keeps_pending_request(self):
+        first = self.client.post("/api/opencast/sync/").json()["requested_at"]
+        second = self.client.post("/api/opencast/sync/")
+        self.assertEqual(second.status_code, 202)
+        self.assertEqual(second.json()["requested_at"], first)
+
+    @override_settings(OPENCAST_URL="https://opencast.example.org")
+    def test_sync_request_right_after_an_attempt_is_ignored(self):
+        state = OpencastSyncState.load()
+        state.last_attempt_at = datetime.now(timezone.utc) - timedelta(seconds=3)
+        state.save()
+        self.assertEqual(self.client.post("/api/opencast/sync/").status_code, 202)
+        self.assertIsNone(OpencastSyncState.load().requested_at)
+        state.last_attempt_at = datetime.now(timezone.utc) - timedelta(seconds=30)
+        state.save()
+        self.client.post("/api/opencast/sync/")
+        self.assertIsNotNone(OpencastSyncState.load().requested_at)
+
     @override_settings(OPENCAST_URL="")
     def test_sync_request_without_opencast_is_409(self):
         response = self.client.post("/api/opencast/sync/")

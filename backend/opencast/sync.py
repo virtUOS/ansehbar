@@ -66,6 +66,11 @@ def opencast_sync_enabled() -> bool:
     return not url.lower().startswith("http://") or settings.DEBUG
 
 
+def opencast_url_insecure() -> bool:
+    """True if an Opencast URL is set but refused as plain http://."""
+    return bool(settings.OPENCAST_URL) and not opencast_sync_enabled()
+
+
 def _set_status(recorder: Recorder, agent: Agent) -> None:
     RecorderStatus.objects.update_or_create(
         recorder=recorder,
