@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Universität Osnabrück (virtUOS)
+#
+# Prometheus alert rules for ansehBAR. The operators of the monitoring stack
+# load this file; there are no all-clears from there (see docs/monitoring.md).
+# Rules cannot suppress Alertmanager's "resolved" notifications: set
+# `send_resolved: false` on the receiver (route) that handles ansehBAR alerts.
+groups:
+  - name: ansehbar
+    rules:
+      - alert: AnsehbarStreamMissing
+        expr: ansehbar_stream_missing_alarm == 1
+        for: 2m
+        labels:
+          severity: critical
+          service: ansehbar
+        annotations:
+          summary: "Stream missing in {{ $labels.room }}"
+          description: "The stream {{ $labels.stream }} is not live although a recording is scheduled."
+
+      - alert: AnsehbarMonitorStale
+        expr: time() - ansehbar_monitor_last_check_timestamp_seconds > 300
+        for: 5m
+        labels:
+          severity: warning
+          service: ansehbar
+        annotations:
+          summary: "The ansehBAR monitor has not checked any stream for over 5 minutes"
+          description: "Check the monitor container; without it no alarms are raised."
+
+      - alert: AnsehbarOpencastSyncStale
+        expr: ansehbar_opencast_enabled == 1 and time() - ansehbar_opencast_last_success_timestamp_seconds > 900
+        for: 10m
+        labels:
+          severity: warning
+          service: ansehbar
+        annotations:
+          summary: "The Opencast sync has not succeeded for over 15 minutes"
+          description: "Without current schedules, alarms are based on outdated appointments."

@@ -43,6 +43,7 @@ class RecorderSerializer(serializers.ModelSerializer):
             "agent_id",
             "active",
             "needs_review",
+            "alarm_mode",
             "playback_url",
             "status",
             "current_event",
@@ -205,6 +206,9 @@ class RecorderSerializer(serializers.ModelSerializer):
     def get_missing_since(self, obj):
         now = self.context.get("now") or timezone.now()
         grace = timedelta(minutes=self.context.get("grace_minutes", 0))
+        end_tolerance = timedelta(
+            minutes=self.context.get("end_tolerance_minutes", 0)
+        )
         since = missing_since(
             obj.active,
             obj.status.state,
@@ -212,6 +216,7 @@ class RecorderSerializer(serializers.ModelSerializer):
             self._current(obj),
             now,
             grace,
+            end_tolerance,
         )
         if since is None:
             return None
@@ -227,6 +232,11 @@ class MonitorSettingsSerializer(serializers.ModelSerializer):
             "missing_grace_minutes",
             "slot_minutes",
             "slot_offset_minutes",
+            "ct_minutes",
+            "ct_tolerance_minutes",
+            "end_tolerance_minutes",
+            "alarm_email_enabled",
+            "alarm_metrics_enabled",
         ]
 
     def validate(self, attrs):

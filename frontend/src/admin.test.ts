@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import { ApiError } from "./api";
-import { identifierFor, previewUrl, sortIgnoredAgents, splitErrors, syncWaitDone, toggleActivePayload } from "./admin";
+import { identifierFor, previewUrl, recipientPayload, sortIgnoredAgents, splitErrors, syncWaitDone, toggleActivePayload } from "./admin";
 
 describe("splitErrors", () => {
   it("maps known fields and routes the rest to general", () => {
@@ -71,5 +71,14 @@ describe("syncWaitDone", () => {
   });
   it("gives up after 60 s", () => {
     expect(syncWaitDone({ requested: true, seenRequested: true, elapsedMs: 60000 })).toBe(true);
+  });
+});
+
+describe("recipientPayload", () => {
+  it("sends the trimmed e-mail address", () => {
+    expect(recipientPayload("  a@x.de ", null)).toEqual({ email: "a@x.de" });
+  });
+  it("a picked user wins over the typed text", () => {
+    expect(recipientPayload("a@x.de", 7)).toEqual({ user: 7 });
   });
 });

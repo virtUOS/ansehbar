@@ -19,6 +19,9 @@ Frontend 5179, Backend 8007, Keycloak 8086, Postgres 5438.
   `recorders` (Rekorder, Status, Monitor-Einstellungen, API, Monitor-Zyklus),
   `opencast` (read-only-Client der External API, Sync von Agents und
   Terminen, `ScheduledEvent`, `OpencastSyncState`),
+  `alarms` (Alarmempfänger, `SentNotification`-Protokoll, E-Mail-Zustellung
+  im Monitor-Zyklus; Alarmregeln liegen in `recorders/alarm_rules.py`,
+  `/metrics` in `common/views.py`),
   `streams` (HLS-Probe: Master-/Chunklist, Frische der Media-Sequence),
   `common` (Basis).
 - Monitor: eigener Compose-Dienst `monitor`, `python manage.py run_monitor`

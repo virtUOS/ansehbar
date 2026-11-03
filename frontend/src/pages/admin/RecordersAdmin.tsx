@@ -3,9 +3,9 @@
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { Info, Pencil, Power, PowerOff, Trash2 } from "lucide-react";
+import { BellOff, Info, Pencil, Power, PowerOff, Trash2 } from "lucide-react";
 import { sortIgnoredAgents, splitErrors, toggleActivePayload, type FormErrors } from "../../admin";
-import { ApiError, api, type IgnoredAgent, type Recorder } from "../../api";
+import { ApiError, api, type AlarmMode, type IgnoredAgent, type Recorder } from "../../api";
 import { useAppContext } from "../../appContext";
 import { Field, FormErrorSummary, inputCls } from "../../components/FormParts";
 import { StatusBadge } from "../../components/StatusBadge";
@@ -21,7 +21,7 @@ import type { MonitorHealth } from "../../api";
 const iconBtn =
   "inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-900 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800 dark:focus-visible:outline-slate-100";
 
-const FIELDS = ["room_name", "stream_name", "agent_id", "active"];
+const FIELDS = ["room_name", "stream_name", "agent_id", "active", "alarm_mode"];
 const NO_ERRORS: FormErrors = { fields: {}, general: [] };
 
 /** Recorder id being edited, "new", or null when the form is closed. */
@@ -227,7 +227,15 @@ export function RecordersAdmin() {
                       <span className="font-sans text-slate-600 dark:text-slate-300">{t("Not linked")}</span>
                     )}
                   </td>
-                  <td className="px-3 py-2">{r.active ? `✓ ${t("Active")}` : `– ${t("Inactive")}`}</td>
+                  <td className="px-3 py-2">
+                    {r.active ? `✓ ${t("Active")}` : `– ${t("Inactive")}`}
+                    {r.alarm_mode === "off" ? (
+                      <span className="mt-1 flex items-center gap-1 whitespace-nowrap text-xs text-slate-700 dark:text-slate-300">
+                        <BellOff aria-hidden className="h-4 w-4 shrink-0" />
+                        {t("Alarm off")}
+                      </span>
+                    ) : null}
+                  </td>
                   <td className="px-3 py-2">{r.active ? <StatusBadge state={r.status.state} /> : <span aria-hidden>–</span>}</td>
                   <td className="px-3 py-2">
                     {r.needs_review ? (
@@ -337,6 +345,7 @@ function RecorderForm({
   const [stream, setStream] = useState(recorder?.stream_name ?? "");
   const [agent, setAgent] = useState(recorder?.agent_id ?? "");
   const [active, setActive] = useState(recorder?.active ?? true);
+  const [alarmMode, setAlarmMode] = useState<AlarmMode>(recorder?.alarm_mode ?? "exact");
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<FormErrors>(NO_ERRORS);
   const first = useRef<HTMLInputElement>(null);
@@ -347,7 +356,7 @@ function RecorderForm({
     setSaving(true);
     setErrors(NO_ERRORS);
     // Saving counts as the review; "" unlinks the agent (server: "" -> null).
-    const data = { room_name: room.trim(), stream_name: stream.trim(), agent_id: agent.trim() || null, active, needs_review: false };
+    const data = { room_name: room.trim(), stream_name: stream.trim(), agent_id: agent.trim() || null, active, alarm_mode: alarmMode, needs_review: false };
     try {
       if (recorder) await api.recorders.update(recorder.id, data);
       else await api.recorders.create(data);
@@ -372,6 +381,15 @@ function RecorderForm({
       </Field>
       <Field label={t("Opencast agent")} errors={errors.fields.agent_id} hint={t("Opencast capture agent; leave empty if not linked.")}>
         {(p) => <input {...p} value={agent} onChange={(e) => setAgent(e.target.value)} className={`${inputCls} font-mono`} autoCapitalize="off" autoCorrect="off" spellCheck={false} />}
+      </Field>
+      <Field label={t("Alarm")} errors={errors.fields.alarm_mode} hint={t("Grid: the alarm counts from slot start + c.t. (see Settings) instead of the Opencast start.")}>
+        {(p) => (
+          <select {...p} value={alarmMode} onChange={(e) => setAlarmMode(e.target.value as AlarmMode)} className={`${inputCls} max-w-md`}>
+            <option value="exact">{t("On time (Opencast start)")}</option>
+            <option value="grid">{t("Grid (c.t.)")}</option>
+            <option value="off">{t("Off (log only)")}</option>
+          </select>
+        )}
       </Field>
       <label className="flex items-center gap-2 text-sm font-medium">
         <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} className="h-4 w-4" />

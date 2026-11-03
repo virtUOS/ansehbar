@@ -3,6 +3,7 @@
 
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
+from django.utils.translation import gettext_lazy as _
 
 from recorders.validators import validate_stream_name, validate_url_template
 
@@ -12,6 +13,15 @@ DEFAULT_URL_TEMPLATE = (
 
 
 class Recorder(models.Model):
+    ALARM_EXACT = "exact"
+    ALARM_GRID = "grid"
+    ALARM_OFF = "off"
+    ALARM_MODE_CHOICES = [
+        (ALARM_EXACT, _("On time (Opencast start)")),
+        (ALARM_GRID, _("Grid (c.t.)")),
+        (ALARM_OFF, _("Off (log only)")),
+    ]
+
     # Empty means "room name missing" (recorder created from an Opencast agent).
     room_name = models.CharField(max_length=100, blank=True)
     # Case-sensitive on purpose (e.g. "cap-90-R12"); never lower-case it.
@@ -22,6 +32,9 @@ class Recorder(models.Model):
     agent_id = models.CharField(max_length=100, null=True, blank=True, unique=True)
     active = models.BooleanField(default=True)
     needs_review = models.BooleanField(default=False)
+    alarm_mode = models.CharField(
+        max_length=5, choices=ALARM_MODE_CHOICES, default=ALARM_EXACT
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -84,6 +97,19 @@ class MonitorSettings(models.Model):
     slot_offset_minutes = models.PositiveSmallIntegerField(
         default=0, validators=[MinValueValidator(0), MaxValueValidator(479)]
     )
+    # Alarm timing: c.t. offset after the slot start and tolerance after it;
+    # tolerance for a stream ending shortly before the scheduled end.
+    ct_minutes = models.PositiveSmallIntegerField(
+        default=15, validators=[MinValueValidator(0), MaxValueValidator(60)]
+    )
+    ct_tolerance_minutes = models.PositiveSmallIntegerField(
+        default=5, validators=[MinValueValidator(0), MaxValueValidator(30)]
+    )
+    end_tolerance_minutes = models.PositiveSmallIntegerField(
+        default=5, validators=[MinValueValidator(0), MaxValueValidator(30)]
+    )
+    alarm_email_enabled = models.BooleanField(default=True)
+    alarm_metrics_enabled = models.BooleanField(default=True)
 
     @classmethod
     def load(cls) -> "MonitorSettings":
@@ -113,6 +139,11 @@ class Incident(models.Model):
     kind = models.CharField(max_length=20, choices=KIND_CHOICES)
     started_at = models.DateTimeField()
     ended_at = models.DateTimeField(null=True, blank=True)
+    # Closed because the stream came back (not because the event ended).
+    recovered = models.BooleanField(default=False)
+    # When the incident became worth an alarm, independent of the channel.
+    alerted_at = models.DateTimeField(null=True, blank=True)
+    all_clear_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["started_at"]

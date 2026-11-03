@@ -64,6 +64,7 @@ INSTALLED_APPS = [
     "accounts",
     "recorders",
     "opencast",
+    "alarms",
 ]
 
 AUTH_USER_MODEL = "accounts.User"
@@ -197,6 +198,23 @@ LOGGING = {
     },
 }
 
+# --- E-mail (stream alarms) ---
+EMAIL_BACKEND = os.environ.get("EMAIL_BACKEND") or (
+    "django.core.mail.backends.console.EmailBackend"
+    if DEBUG
+    else "django.core.mail.backends.smtp.EmailBackend"
+)
+EMAIL_HOST = os.environ.get("EMAIL_HOST") or "localhost"
+EMAIL_PORT = _int_or_default("EMAIL_PORT", 25)
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "0") == "1"
+# Seconds; a hanging SMTP server must not stall the monitor cycle for long.
+EMAIL_TIMEOUT = _int_or_default("EMAIL_TIMEOUT", 10)
+DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL") or "ansehbar@localhost"
+# Language of alarm e-mails (the same for all recipients).
+ALARM_LANGUAGE = os.environ.get("ALARM_LANGUAGE") or "de"
+
 # Behind a TLS-terminating reverse proxy in production: trust its forwarded
 # host/scheme so absolute URLs use https, and require secure cookies.
 if not DEBUG:
@@ -230,6 +248,9 @@ REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "common.pagination.StandardPagination",
     "PAGE_SIZE": 25,
 }
+
+# Bearer token protecting /metrics (Prometheus). Empty = endpoint off (404).
+METRICS_TOKEN = os.environ.get("METRICS_TOKEN", "")
 
 # Optional AI features via a LiteLLM proxy (basicbar_integrations.ai). Off
 # unless fully configured; "enabled" is derived from these, not a flag.

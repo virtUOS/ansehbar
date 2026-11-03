@@ -7,6 +7,7 @@ import { NavLink, Outlet } from "react-router-dom";
 const TABS = [
   { to: "/verwaltung/rekorder", label: "Recorders" },
   { to: "/verwaltung/einladungen", label: "Invitations" },
+  { to: "/verwaltung/alarme", label: "Alarms" },
   { to: "/verwaltung/einstellungen", label: "Settings" },
 ];
 

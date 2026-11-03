@@ -22,6 +22,7 @@ from django.test.utils import CaptureQueriesContext
 from opencast.client import Agent, OpencastError
 from opencast.models import IgnoredAgent, OpencastSyncState, ScheduledEvent
 from opencast.sync import sync_agents
+from recorders.alarm_rules import alarm_due, alarm_threshold, slot_start
 from recorders.models import Incident, MonitorSettings, Recorder, RecorderStatus
 from recorders.monitor import run_cycle
 from streams.sources import Probe
@@ -33,6 +34,15 @@ class RecorderApiTests(TestCase):
     def setUp(self):
         member = User.objects.create_user(username="member", is_superuser=True)
         self.client.force_login(member)
+
+    def test_recorder_alarm_mode(self):
+        rec = Recorder.objects.create(room_name="A", stream_name="rec-a")
+        url = f"/api/recorders/{rec.pk}/"
+        self.assertEqual(self.client.get(url).json()["alarm_mode"], "exact")
+        ok = self.client.patch(url, {"alarm_mode": "grid"}, content_type="application/json")
+        self.assertEqual(ok.status_code, 200)
+        bad = self.client.patch(url, {"alarm_mode": "loud"}, content_type="application/json")
+        self.assertEqual(bad.status_code, 400)
 
     def test_stream_name_keeps_case(self):
         response = self.client.post(
@@ -195,6 +205,20 @@ class MonitorSettingsApiTests(TestCase):
         body = self.client.get("/api/settings/monitor/").json()
         self.assertEqual(body["stale_factor"], 3)
         self.assertIn("{stream}", body["url_template"])
+
+    def test_alarm_settings_defaults_and_bounds(self):
+        body = self.client.get("/api/settings/monitor/").json()
+        self.assertEqual(
+            [body[k] for k in ["ct_minutes", "ct_tolerance_minutes", "end_tolerance_minutes",
+                               "alarm_email_enabled", "alarm_metrics_enabled"]],
+            [15, 5, 5, True, True],
+        )
+        base = {"url_template": body["url_template"], "stale_factor": 3}
+        for field, value, code in [("ct_minutes", 61, 400), ("ct_minutes", 0, 200),
+                                   ("ct_tolerance_minutes", 31, 400),
+                                   ("end_tolerance_minutes", 30, 200)]:
+            with self.subTest(field=field, value=value):
+                self.assertEqual(self.put({**base, field: value}).status_code, code)
 
     def test_slot_settings_defaults_and_validation(self):
         body = self.client.get("/api/settings/monitor/").json()
@@ -1092,6 +1116,18 @@ class RecorderEventApiTests(TestCase):
             berlin(10, 10),
         )
 
+    def test_missing_since_respects_end_tolerance_setting(self):
+        self.event(berlin(10), berlin(12))
+        self.set_status("offline", berlin(11, 56))
+        self.assertIsNone(self.get(berlin(11, 58))["missing_since"])
+        MonitorSettings.objects.update_or_create(
+            pk=1, defaults={"end_tolerance_minutes": 2}
+        )
+        self.assertEqual(
+            datetime.fromisoformat(self.get(berlin(11, 58))["missing_since"]),
+            berlin(11, 56),
+        )
+
     def test_unknown_during_event_is_never_missing(self):
         self.event(berlin(10), berlin(12))
         self.set_status("unknown")
@@ -1406,6 +1442,37 @@ class RecorderEventApiTests(TestCase):
         )
 
 
+class MissingSinceTests(TestCase):
+    GRACE = timedelta(minutes=3)
+    END_TOL = timedelta(minutes=5)
+
+    def setUp(self):
+        recorder = Recorder.objects.create(room_name="M", stream_name="rec-m")
+        self.ev = ScheduledEvent.objects.create(
+            identifier="ev-m", recorder=recorder, title="T",
+            start=berlin(10), end=berlin(12),
+        )
+
+    def test_stream_ending_within_end_tolerance_is_not_missing(self):
+        from recorders.missing import missing_since
+
+        self.assertIsNone(missing_since(True, "offline", berlin(11, 56), self.ev,
+                                        berlin(11, 58), self.GRACE, self.END_TOL))
+
+    def test_stream_ending_before_end_tolerance_is_missing(self):
+        from recorders.missing import missing_since
+
+        self.assertEqual(missing_since(True, "offline", berlin(11, 50), self.ev,
+                                       berlin(11, 58), self.GRACE, self.END_TOL),
+                         berlin(11, 50))
+
+    def test_end_tolerance_defaults_to_zero(self):
+        from recorders.missing import missing_since
+
+        self.assertEqual(missing_since(True, "offline", berlin(11, 56), self.ev,
+                                       berlin(11, 58), self.GRACE), berlin(11, 56))
+
+
 class UpdateIncidentsTests(TestCase):
     def setUp(self):
         from recorders.incidents import update_incidents
@@ -1492,6 +1559,82 @@ class UpdateIncidentsTests(TestCase):
         self.assertEqual(second.started_at, self.at(10, 20))
         self.assertIsNone(second.ended_at)
 
+    def at_s(self, hour, minute, second):
+        return datetime(2026, 11, 2, hour, minute, second, tzinfo=timezone.utc)
+
+    def recovered_at_10_20(self):
+        self.set_state("offline", self.at(9, 50))
+        self.update(self.at(10, 5))
+        self.set_state("live")
+        self.update(self.at(10, 20))
+
+    def test_live_closes_incident_as_recovered(self):
+        self.recovered_at_10_20()
+        (incident,) = self.incidents()
+        self.assertEqual(incident.ended_at, self.at(10, 20))
+        self.assertTrue(incident.recovered)
+
+    def test_event_end_closes_incident_not_recovered(self):
+        self.set_state("offline", self.at(9, 50))
+        self.update(self.at(10, 5))
+        self.update(self.at(12, 5))
+        (incident,) = self.incidents()
+        self.assertEqual(incident.ended_at, self.end)
+        self.assertFalse(incident.recovered)
+
+    def test_flicker_reopens_incident(self):
+        self.recovered_at_10_20()
+        Incident.objects.update(alerted_at=self.at(10, 6))
+        self.set_state("offline", self.at_s(10, 20, 30))
+        self.update(self.at_s(10, 20, 40))
+        (incident,) = self.incidents()
+        self.assertIsNone(incident.ended_at)
+        self.assertFalse(incident.recovered)
+        self.assertEqual(incident.started_at, self.at(10, 3))
+        self.assertEqual(incident.alerted_at, self.at(10, 6))
+
+    def test_flicker_detected_late_reopens_incident(self):
+        # Drop 45 s after the return, noticed only 75 s after it.
+        self.recovered_at_10_20()
+        self.set_state("offline", self.at_s(10, 20, 45))
+        self.update(self.at_s(10, 21, 15))
+        (incident,) = self.incidents()
+        self.assertIsNone(incident.ended_at)
+        self.assertFalse(incident.recovered)
+
+    def test_recovered_incident_of_other_event_not_reopened(self):
+        event_b = ScheduledEvent.objects.create(
+            identifier="ev-2", recorder=self.recorder, title="B",
+            start=self.end, end=self.at(14, 0),
+        )
+        self.set_state("offline", self.at(9, 50))
+        self.update(self.at(10, 5))
+        self.set_state("live")
+        self.update(self.at_s(11, 59, 30))
+        self.set_state("offline", self.at(12, 0))
+        self.update(self.at_s(12, 3, 10))
+        first, second = self.incidents()
+        self.assertEqual(first.event, self.event)
+        self.assertTrue(first.recovered)
+        self.assertEqual(second.event, event_b)
+        self.assertEqual(second.started_at, self.at(12, 3))
+        self.assertIsNone(second.ended_at)
+
+    def test_drop_after_stable_return_opens_new_incident(self):
+        self.recovered_at_10_20()
+        self.set_state("offline", self.at_s(10, 21, 30))
+        self.update(self.at_s(10, 21, 40))
+        first, second = self.incidents()
+        self.assertEqual(first.ended_at, self.at(10, 20))
+        self.assertTrue(first.recovered)
+        self.assertEqual(second.started_at, self.at_s(10, 21, 30))
+        self.assertIsNone(second.ended_at)
+
+    def test_stream_ending_within_end_tolerance_opens_no_incident(self):
+        self.set_state("offline", self.at(11, 56))
+        self.update(self.at(11, 58))
+        self.assertEqual(self.incidents(), [])
+
     def test_inactive_recorder_no_incident(self):
         self.recorder.active = False
         self.recorder.save()
@@ -1507,6 +1650,7 @@ class UpdateIncidentsTests(TestCase):
         self.update(self.at(10, 30))
         (incident,) = self.incidents()
         self.assertEqual(incident.ended_at, self.at(10, 30))
+        self.assertFalse(incident.recovered)
 
     def test_incident_of_deleted_event_closed_now(self):
         self.set_state("offline", self.at(9, 50))
@@ -1516,6 +1660,7 @@ class UpdateIncidentsTests(TestCase):
         (incident,) = self.incidents()
         self.assertIsNone(incident.event)
         self.assertEqual(incident.ended_at, self.at(10, 30))
+        self.assertFalse(incident.recovered)
 
     def test_no_incident_without_running_event(self):
         self.set_state("offline", self.at(9, 0))
@@ -1556,3 +1701,106 @@ class RunMonitorIncidentTests(TestCase):
         self.assertIsNotNone(recorder.status.checked_at)
         self.assertTrue(any("incidents" in m for m in logs.output))
         self.assertFalse(any("monitor cycle failed" in m for m in logs.output))
+
+
+class AlarmDueTests(TestCase):
+    """Event 10:00-12:00, grace 3, c.t. 15, tolerance 5, slots 120/0."""
+
+    def setUp(self):
+        self.s = MonitorSettings(
+            missing_grace_minutes=3,
+            ct_minutes=15,
+            ct_tolerance_minutes=5,
+            slot_minutes=120,
+            slot_offset_minutes=0,
+        )
+        self.recorder = Recorder.objects.create(room_name="A", stream_name="rec-a")
+        self.ev = self.event(berlin(10), berlin(12))
+
+    def event(self, start, end):
+        return ScheduledEvent.objects.create(
+            identifier=f"ev-{start:%H%M}-{end:%H%M}",
+            recorder=self.recorder,
+            start=start,
+            end=end,
+        )
+
+    def incident(self, started_at, **kwargs):
+        kwargs.setdefault("event", self.ev)
+        return Incident.objects.create(
+            recorder=self.recorder,
+            kind=Incident.STREAM_MISSING,
+            started_at=started_at,
+            **kwargs,
+        )
+
+    def test_exact_threshold_is_start_plus_grace(self):
+        self.assertEqual(alarm_threshold(self.ev, "exact", self.s), berlin(10, 3))
+
+    def test_grid_threshold_is_ct_plus_tolerance(self):
+        self.assertEqual(alarm_threshold(self.ev, "grid", self.s), berlin(10, 20))
+
+    def test_grid_does_not_shift_late_start_further(self):
+        ev = self.event(berlin(10, 30), berlin(12))
+        self.assertEqual(alarm_threshold(ev, "grid", self.s), berlin(10, 33))
+
+    def test_grid_uses_slot_offset(self):
+        self.s.slot_minutes, self.s.slot_offset_minutes = 90, 15
+        ev = self.event(berlin(9, 15), berlin(10, 45))
+        self.assertEqual(alarm_threshold(ev, "grid", self.s), berlin(9, 35))
+
+    def test_off_threshold_is_none(self):
+        self.assertIsNone(alarm_threshold(self.ev, "off", self.s))
+
+    def test_slot_start_before_offset_is_previous_day(self):
+        self.assertEqual(
+            slot_start(berlin(0, 5), 90, 15), berlin(22, 45, day=9)
+        )
+
+    def test_slot_start_regular(self):
+        self.assertEqual(slot_start(berlin(10, 30), 120, 0), berlin(10))
+        self.assertEqual(slot_start(berlin(9, 59), 90, 15), berlin(9, 15))
+
+    def test_slot_start_on_dst_day(self):
+        # 2026-10-25: clocks go back at 03:00 CEST -> 02:00 CET.
+        at = datetime(2026, 10, 25, 10, 30, tzinfo=BERLIN)
+        self.assertEqual(
+            slot_start(at, 120, 0), datetime(2026, 10, 25, 10, 0, tzinfo=BERLIN)
+        )
+
+    def test_mode_off_never_alarms(self):
+        self.recorder.alarm_mode = Recorder.ALARM_OFF
+        inc = self.incident(berlin(10, 1))
+        for now in (berlin(10, 5), berlin(11), berlin(11, 59)):
+            self.assertFalse(alarm_due(inc, self.s, now))
+
+    def test_due_only_while_event_runs(self):
+        inc = self.incident(berlin(10, 1))
+        self.assertFalse(alarm_due(inc, self.s, berlin(10, 2)))
+        self.assertTrue(alarm_due(inc, self.s, berlin(10, 4)))
+        self.assertFalse(alarm_due(inc, self.s, berlin(12)))
+        self.assertFalse(alarm_due(inc, self.s, berlin(9, 59)))
+
+    def test_closed_incident_not_due(self):
+        inc = self.incident(berlin(10, 1), ended_at=berlin(10, 2))
+        self.assertFalse(alarm_due(inc, self.s, berlin(10, 4)))
+
+    def test_inactive_recorder_not_due(self):
+        self.recorder.active = False
+        inc = self.incident(berlin(10, 1))
+        self.assertFalse(alarm_due(inc, self.s, berlin(10, 4)))
+
+    def test_no_event_not_due(self):
+        inc = self.incident(berlin(10, 1), event=None)
+        self.assertFalse(alarm_due(inc, self.s, berlin(10, 4)))
+
+    def test_incident_start_after_threshold_delays_alarm(self):
+        inc = self.incident(berlin(10, 30))
+        self.assertFalse(alarm_due(inc, self.s, berlin(10, 29)))
+        self.assertTrue(alarm_due(inc, self.s, berlin(10, 30)))
+
+    def test_grid_mode_waits_for_ct_tolerance(self):
+        self.recorder.alarm_mode = Recorder.ALARM_GRID
+        inc = self.incident(berlin(10, 1))
+        self.assertFalse(alarm_due(inc, self.s, berlin(10, 19)))
+        self.assertTrue(alarm_due(inc, self.s, berlin(10, 20)))

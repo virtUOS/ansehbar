@@ -484,6 +484,12 @@ zuletzt beendeten Termin des Raums innerhalb von `OPENCAST_LOOKBACK_DAYS`
    „Heute noch geplant“, Zuordnung Agent ↔ Stream.
 3. **Vorfälle und Alarme.** Vorfall-Logik, Backend-Pegelmessung, Kanäle
    E-Mail und Monitoring-Dienst, Empfänger, Raster-Einstellungen, Raumkalender.
+   Stufe 3 wird in drei Teile geschnitten:
+   - **3a Alarme „Stream fehlt“** (umgesetzt): Alarmmodus pro Rekorder,
+     Raster-Einstellungen, Vorfall-Logik mit Entwarnung, Empfänger,
+     E-Mail-Zustellung und `/metrics` für den Monitoring-Dienst.
+   - **3b Ton:** Backend-Pegelmessung und der Alarm „Ton fehlt“.
+   - **3c Raumkalender und Protokoll** pro Raum.
 4. **Pünktlichkeit lernen.**
 
 Jede Stufe ist für sich nutzbar und wird einzeln geplant und gebaut.

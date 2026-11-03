@@ -45,6 +45,7 @@ function rec(id: number, room: string, state: Recorder["status"]["state"] = "off
     agent_id: null,
     active: true,
     needs_review: false,
+    alarm_mode: "exact",
     playback_url: "",
     status: { state, live_since: null, checked_at: null, agent_state: "", agent_updated_at: null },
     current_event: null,

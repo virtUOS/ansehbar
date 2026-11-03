@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Universität Osnabrück (virtUOS)
+#
+# Example scrape entry for prometheus.yml (see docs/monitoring.md).
+scrape_configs:
+  - job_name: ansehbar
+    scheme: https
+    metrics_path: /metrics
+    scrape_interval: 1m
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/ansehbar.token   # contains only the token
+    static_configs:
+      - targets: ["ansehbar.example.org"]

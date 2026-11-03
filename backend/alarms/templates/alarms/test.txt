@@ -1,0 +1,5 @@
+{% comment %}SPDX-License-Identifier: Apache-2.0
+Copyright 2026 Universität Osnabrück (virtUOS){% endcomment %}{% load i18n %}{% autoescape off %}{% translate "This is a test message from ansehBAR. Stream alarms will reach you at this address." %}
+
+{{ link }}
+{% endautoescape %}
