@@ -127,6 +127,13 @@ class MonitorSettings(models.Model):
     silence_alarm_minutes = models.PositiveSmallIntegerField(
         default=15, validators=[MinValueValidator(5), MaxValueValidator(120)]
     )
+    # Retention: level samples vs. incidents, events and notifications.
+    sample_retention_days = models.PositiveSmallIntegerField(
+        default=30, validators=[MinValueValidator(1), MaxValueValidator(365)]
+    )
+    history_retention_days = models.PositiveSmallIntegerField(
+        default=400, validators=[MinValueValidator(183), MaxValueValidator(3650)]
+    )
 
     @classmethod
     def load(cls) -> "MonitorSettings":

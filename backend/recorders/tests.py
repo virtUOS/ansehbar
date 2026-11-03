@@ -19,6 +19,7 @@ from django.db import IntegrityError, connection
 from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 
+from alarms.models import SentNotification
 from opencast.client import Agent, OpencastError
 from opencast.models import IgnoredAgent, OpencastSyncState, ScheduledEvent
 from opencast.sync import sync_agents
@@ -29,8 +30,15 @@ from recorders.alarm_rules import (
     silence_counts_from,
     slot_start,
 )
-from recorders.models import Incident, MonitorSettings, Recorder, RecorderStatus
+from recorders.models import (
+    AudioSample,
+    Incident,
+    MonitorSettings,
+    Recorder,
+    RecorderStatus,
+)
 from recorders.monitor import run_cycle
+from recorders.retention import prune_history
 from streams.sources import Probe
 
 User = get_user_model()
@@ -2567,3 +2575,103 @@ class AudioAlarmDueTests(TestCase):
         # Silent since 10:00, last silent measurement 10:03, failures until 10:30.
         incident = self.incident(silent_until=berlin(10, 3))
         self.assertFalse(self.due(incident, now=berlin(10, 30)))
+
+
+class RetentionTests(TestCase):
+    def setUp(self):
+        self.now = datetime(2026, 11, 3, 12, 0, tzinfo=timezone.utc)
+        self.recorder = Recorder.objects.create(room_name="Hall", stream_name="rec-hall")
+
+    def sample(self, days):
+        return AudioSample.objects.create(
+            recorder=self.recorder,
+            measured_at=self.now - timedelta(days=days),
+            level_db=-30,
+        )
+
+    def event(self, ident, end_days_ago, hours=1):
+        end = self.now - timedelta(days=end_days_ago)
+        return ScheduledEvent.objects.create(
+            identifier=ident, recorder=self.recorder, title="T",
+            start=end - timedelta(hours=hours), end=end,
+        )
+
+    def incident(self, event, started):
+        return Incident.objects.create(
+            recorder=self.recorder, event=event, kind=Incident.STREAM_MISSING,
+            started_at=started,
+        )
+
+    def test_prune_deletes_old_samples_only(self):
+        old, recent = self.sample(31), self.sample(29)
+        result = prune_history(self.now)
+        self.assertEqual(result["samples"], 1)
+        self.assertEqual(list(AudioSample.objects.all()), [recent])
+        self.assertFalse(AudioSample.objects.filter(pk=old.pk).exists())
+
+    def test_prune_deletes_event_with_incidents(self):
+        event = self.event("old", 401)
+        first = self.incident(event, event.start)
+        self.incident(event, event.start + timedelta(minutes=20))
+        note = SentNotification.objects.create(
+            key="k1", kind=SentNotification.ALARM, incident=first, recipient="a@example.org"
+        )
+        SentNotification.objects.filter(pk=note.pk).update(
+            created_at=self.now - timedelta(days=401)
+        )
+        result = prune_history(self.now)
+        self.assertEqual(result["events"], 1)
+        self.assertEqual(result["incidents"], 2)
+        self.assertEqual(result["notifications"], 1)
+        self.assertFalse(ScheduledEvent.objects.exists())
+        self.assertFalse(Incident.objects.exists())
+        self.assertFalse(SentNotification.objects.exists())
+
+    def test_prune_keeps_event_ending_after_cutoff(self):
+        event = self.event("edge", 399)
+        event.start = self.now - timedelta(days=400, hours=1)
+        event.save()
+        incident = self.incident(event, event.start + timedelta(minutes=5))
+        prune_history(self.now)
+        self.assertTrue(ScheduledEvent.objects.filter(pk=event.pk).exists())
+        incident.refresh_from_db()
+        self.assertEqual(incident.event_id, event.pk)
+
+    def test_prune_uses_settings(self):
+        MonitorSettings.objects.update_or_create(pk=1, defaults={"sample_retention_days": 1})
+        self.sample(2)
+        self.assertEqual(prune_history(self.now)["samples"], 1)
+
+    def test_settings_retention_bounds(self):
+        member = User.objects.create_user(username="member", is_superuser=True)
+        self.client.force_login(member)
+        body = self.client.get("/api/settings/monitor/").json()
+        self.assertEqual(
+            (body["sample_retention_days"], body["history_retention_days"]), (30, 400)
+        )
+        for field, value, code in [("history_retention_days", 182, 400),
+                                   ("history_retention_days", 183, 200),
+                                   ("sample_retention_days", 0, 400),
+                                   ("sample_retention_days", 365, 200)]:
+            with self.subTest(field=field, value=value):
+                response = self.client.put(
+                    "/api/settings/monitor/", {**body, field: value},
+                    content_type="application/json",
+                )
+                self.assertEqual(response.status_code, code)
+
+    @override_settings(OPENCAST_URL="")
+    def test_run_monitor_once_prunes(self):
+        source = FakeSource({"rec-hall": Probe(True, True, 100, 6.0)})
+        with mock.patch(f"{MONITOR}.HlsStreamSource", return_value=source), \
+                mock.patch(f"{MONITOR}.prune_history", return_value={}) as prune:
+            call_command("run_monitor", "--once")
+        prune.assert_called_once()
+
+    @override_settings(OPENCAST_URL="")
+    def test_prune_failure_does_not_stop_monitor(self):
+        source = FakeSource({"rec-hall": Probe(True, True, 100, 6.0)})
+        with mock.patch(f"{MONITOR}.HlsStreamSource", return_value=source), \
+                mock.patch(f"{MONITOR}.prune_history", side_effect=RuntimeError("x")), \
+                self.assertLogs(MONITOR, "ERROR"):
+            call_command("run_monitor", "--once")

@@ -281,6 +281,8 @@ class MonitorSettingsSerializer(serializers.ModelSerializer):
             "silence_threshold_db",
             "silence_log_minutes",
             "silence_alarm_minutes",
+            "sample_retention_days",
+            "history_retention_days",
         ]
 
     def validate(self, attrs):

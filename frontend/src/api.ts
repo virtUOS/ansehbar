@@ -149,6 +149,8 @@ export interface MonitorSettings {
   silence_threshold_db: number;
   silence_log_minutes: number;
   silence_alarm_minutes: number;
+  sample_retention_days: number;
+  history_retention_days: number;
 }
 
 export interface AlarmRecipient {
