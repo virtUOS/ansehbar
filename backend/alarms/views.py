@@ -34,7 +34,7 @@ class AlarmRecipientViewSet(
     def test(self, request):
         """Queue one test mail per active recipient; the monitor delivers it."""
         batch = uuid.uuid4()
-        recipients = AlarmRecipient.objects.filter(active=True)
+        recipients = list(AlarmRecipient.objects.filter(active=True))
         SentNotification.objects.bulk_create(
             SentNotification(
                 key=f"test:{batch}:email:{r.email}",
@@ -44,4 +44,4 @@ class AlarmRecipientViewSet(
             )
             for r in recipients
         )
-        return Response({"queued": recipients.count()}, status=status.HTTP_202_ACCEPTED)
+        return Response({"queued": len(recipients)}, status=status.HTTP_202_ACCEPTED)

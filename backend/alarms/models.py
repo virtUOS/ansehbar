@@ -33,7 +33,7 @@ class SentNotification(models.Model):
     TEST = "test"
     KIND_CHOICES = [(ALARM, "alarm"), (ALL_CLEAR, "all clear"), (TEST, "test")]
 
-    key = models.CharField(max_length=200, unique=True)
+    key = models.CharField(max_length=320, unique=True)
     channel = models.CharField(max_length=20, choices=CHANNEL_CHOICES, default=EMAIL)
     kind = models.CharField(max_length=20, choices=KIND_CHOICES)
     incident = models.ForeignKey(
