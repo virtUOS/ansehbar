@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Maximize, Volume2, VolumeX } from "lucide-react";
+import { ArrowLeft, CalendarDays, Maximize, Volume2, VolumeX } from "lucide-react";
 import { useRecorders } from "../useRecorders";
 import { displayName, formatClock, formatDuration, presentation, recordingScheduled, scheduleUnclear, stateTransition } from "../recorders";
 import { RoomName } from "../components/RoomName";
@@ -19,6 +19,39 @@ import { PlaybackOverlay, usePlayback } from "../components/PlaybackOverlay";
 import { HlsPlayer } from "../media/HlsPlayer";
 import { LevelMeter } from "../media/LevelMeter";
 import { useAudio } from "../media/AudioContextProvider";
+import { EventTimeline } from "../components/EventTimeline";
+import { LevelCurve } from "../components/LevelCurve";
+import { useEventDetail } from "../useEventDetail";
+import { useNow } from "../useNow";
+import { timelineEntries } from "../timeline";
+
+/** Timeline and level curve of the running event; a leaf of its own, so its
+ *  polling and clock never re-render the player. */
+function CurrentEventTimeline({ eventId, liveSince }: { eventId: number; liveSince: string | null }) {
+  const { t } = useTranslation();
+  const { detail, error } = useEventDetail(eventId);
+  const now = useNow(30000);
+  return (
+    <section aria-labelledby="timeline-heading" className="space-y-2">
+      <h2 id="timeline-heading" className="text-lg font-semibold">
+        {t("Timeline")}
+      </h2>
+      {error ? (
+        <p role="status" className="text-sm text-slate-700 dark:text-slate-300">
+          {t("Timeline could not be loaded")}
+        </p>
+      ) : null}
+      {detail ? (
+        <>
+          <EventTimeline entries={timelineEntries(detail, now, liveSince)} />
+          <LevelCurve detail={detail} />
+        </>
+      ) : !error ? (
+        <p className="text-sm text-slate-700 dark:text-slate-300">{t("Loading…")}</p>
+      ) : null}
+    </section>
+  );
+}
 
 /** Ticks every second on its own, so the player never re-renders. */
 function LiveBadge({ since }: { since: string | null }) {
@@ -211,6 +244,13 @@ export function RoomView() {
             ))}
           </select>
         </label>
+        <Link
+          to={`/raum/${recorder.id}/kalender`}
+          className="inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2 font-medium hover:underline"
+        >
+          <CalendarDays aria-hidden className="h-5 w-5" />
+          {t("Calendar")}
+        </Link>
       </div>
 
       <AudioUnlockButton />
@@ -280,6 +320,8 @@ export function RoomView() {
           })}
         </p>
       ) : null}
+
+      {event ? <CurrentEventTimeline eventId={event.id} liveSince={live ? recorder.status.live_since : null} /> : null}
 
       <LastRecordingWarning recorder={recorder} />
 

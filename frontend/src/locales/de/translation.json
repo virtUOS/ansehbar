@@ -223,5 +223,21 @@
   "Keep level measurements (days)": "Pegelmessungen aufbewahren (Tage)",
   "Level measurements are deleted after this many days.": "Pegelmessungen werden nach so vielen Tagen gelöscht.",
   "Keep history (days)": "Verlauf aufbewahren (Tage)",
-  "Incidents, events and sent notifications are deleted after this many days (at least one semester).": "Vorfälle, Termine und versendete Benachrichtigungen werden nach so vielen Tagen gelöscht (mindestens ein Semester)."
+  "Incidents, events and sent notifications are deleted after this many days (at least one semester).": "Vorfälle, Termine und versendete Benachrichtigungen werden nach so vielen Tagen gelöscht (mindestens ein Semester).",
+  "Timeline": "Zeitleiste",
+  "Calendar": "Kalender",
+  "Picture stable since {{time}}": "Bild seit {{time}} stabil",
+  "First sound at {{time}}": "Erster Ton um {{time}}",
+  "{{time}} Stream missing {{minutes}} min": "{{time}} Stream fehlte {{minutes}} min",
+  "Stream missing since {{time}}": "Stream fehlt seit {{time}}",
+  "{{time}} Silent {{minutes}} min (logged)": "{{time}} Stille {{minutes}} min (protokolliert)",
+  "Silent since {{time}}": "Still seit {{time}}",
+  "Alarm raised {{time}}": "Alarm ausgelöst {{time}}",
+  "All clear sent {{time}}": "Entwarnung gesendet {{time}}",
+  "No incidents": "Keine Vorfälle",
+  "No level measurements": "Keine Pegelmessungen",
+  "Level curve: {{count}} measurements, {{silent}} below the threshold_one": "Pegelkurve: {{count}} Messung, {{silent}} unter der Schwelle",
+  "Level curve: {{count}} measurements, {{silent}} below the threshold_other": "Pegelkurve: {{count}} Messungen, {{silent}} unter der Schwelle",
+  "Silence threshold {{db}} dBFS": "Stille-Schwelle {{db}} dBFS",
+  "Timeline could not be loaded": "Zeitleiste konnte nicht geladen werden"
 }

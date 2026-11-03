@@ -4,7 +4,8 @@
 import { useTranslation } from "react-i18next";
 import { AlertTriangle } from "lucide-react";
 import type { Recorder } from "../api";
-import { hasLastRecordingProblems, lastRecordingRef, problemTexts } from "../recorders";
+import { hasLastRecordingProblems, lastRecordingRef } from "../recorders";
+import { problemText } from "../problemTexts";
 
 /** Amber note that the room's last recording had problems (text and symbol,
  *  never colour only). `compact`: one line, details in the title tooltip. */
@@ -13,17 +14,8 @@ export function LastRecordingWarning({ recorder, compact = false }: { recorder: 
   const lr = recorder.last_recording;
   if (!lr || !hasLastRecordingProblems(recorder)) return null;
   const lang = i18n.language;
-  // Literal t() calls so that check:i18n sees the keys.
-  const texts: Record<string, (p: Record<string, string | number>) => string> = {
-    "Stream missing {{from}}–{{to}} ({{minutes}} min)": (p) => t("Stream missing {{from}}–{{to}} ({{minutes}} min)", p),
-    "Silent {{minutes}} min from {{from}}": (p) => t("Silent {{minutes}} min from {{from}}", p),
-    "Processing in Opencast failed": () => t("Processing in Opencast failed"),
-    "Recording failed on the recorder": () => t("Recording failed on the recorder"),
-    "Recording did not start": () => t("Recording did not start"),
-    "Recording did not finish": () => t("Recording did not finish"),
-  };
   // Unknown kinds yield no line; the heading still shows (problems exist).
-  const lines = problemTexts(lr, lang).flatMap((x) => (texts[x.key] ? [texts[x.key](x.params)] : []));
+  const lines = lr.problems.map((p) => problemText(t, p, lang)).filter((l) => l !== "");
   const ref = t("{{title}}, {{day}} {{from}}–{{to}}", lastRecordingRef(lr, lang));
   if (compact) {
     return (

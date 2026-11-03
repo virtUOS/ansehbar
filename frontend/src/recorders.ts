@@ -2,11 +2,11 @@
 // Copyright 2026 Universität Osnabrück (virtUOS)
 
 /** Pure helpers for recorder lists (merge, sort, time formatting). */
-import type { EventBrief, LastRecording, MonitorHealth, Recorder, SlotConfig } from "./api";
+import type { EventBrief, LastRecording, MonitorHealth, Recorder, RecordingProblem, SlotConfig } from "./api";
 
 function sameEvent(a: EventBrief | null, b: EventBrief | null): boolean {
   if (!a || !b) return a === b;
-  return a.title === b.title && a.series === b.series && a.start === b.start && a.end === b.end;
+  return a.id === b.id && a.title === b.title && a.series === b.series && a.start === b.start && a.end === b.end;
 }
 
 function sameEvents(a: EventBrief[], b: EventBrief[]): boolean {
@@ -334,46 +334,52 @@ export function hasLastRecordingProblems(r: Recorder): boolean {
 
 export type ProblemText = { key: string; params: Record<string, string | number> };
 
-/** Texts for the problems of the last recording: literal i18n keys (so
- *  check:i18n sees them) plus their interpolation params. Kinds this client
- *  does not know (newer backend) are skipped. */
+/** Text of one recording problem: a literal i18n key (so check:i18n sees it)
+ *  plus its interpolation params; null for a kind this client does not know
+ *  (newer backend). */
+export function problemTextOf(p: RecordingProblem, locale: string): ProblemText | null {
+  switch (p.kind) {
+    case "stream_missing":
+      return {
+        key: "Stream missing {{from}}–{{to}} ({{minutes}} min)",
+        params: {
+          from: p.from ? formatClock(p.from, locale) : "",
+          to: p.to ? formatClock(p.to, locale) : "",
+          minutes: p.minutes ?? 0,
+        },
+      };
+    case "audio_silent":
+      // `count` selects the plural form.
+      return {
+        key: "Silent {{minutes}} min from {{from}}",
+        params: {
+          from: p.from ? formatClock(p.from, locale) : "",
+          minutes: p.minutes ?? 0,
+          count: p.minutes ?? 0,
+        },
+      };
+    case "processing_failed":
+      return { key: "Processing in Opencast failed", params: {} };
+    case "recording_failed":
+      return { key: "Recording failed on the recorder", params: {} };
+    case "not_started":
+      return { key: "Recording did not start", params: {} };
+    case "not_finished":
+      return { key: "Recording did not finish", params: {} };
+    default:
+      return null;
+  }
+}
+
+/** Texts for the problems of the last recording; unknown kinds are skipped. */
 export function problemTexts(
   lr: LastRecording | null,
   locale: string,
 ): ProblemText[] {
   if (!lr) return [];
-  return lr.problems.flatMap((p): ProblemText[] => {
-    switch (p.kind) {
-      case "stream_missing":
-        return [{
-          key: "Stream missing {{from}}–{{to}} ({{minutes}} min)",
-          params: {
-            from: p.from ? formatClock(p.from, locale) : "",
-            to: p.to ? formatClock(p.to, locale) : "",
-            minutes: p.minutes ?? 0,
-          },
-        }];
-      case "audio_silent":
-        // `count` selects the plural form.
-        return [{
-          key: "Silent {{minutes}} min from {{from}}",
-          params: {
-            from: p.from ? formatClock(p.from, locale) : "",
-            minutes: p.minutes ?? 0,
-            count: p.minutes ?? 0,
-          },
-        }];
-      case "processing_failed":
-        return [{ key: "Processing in Opencast failed", params: {} }];
-      case "recording_failed":
-        return [{ key: "Recording failed on the recorder", params: {} }];
-      case "not_started":
-        return [{ key: "Recording did not start", params: {} }];
-      case "not_finished":
-        return [{ key: "Recording did not finish", params: {} }];
-      default:
-        return [];
-    }
+  return lr.problems.flatMap((p) => {
+    const text = problemTextOf(p, locale);
+    return text ? [text] : [];
   });
 }
 
