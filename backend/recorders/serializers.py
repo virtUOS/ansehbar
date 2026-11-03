@@ -7,8 +7,9 @@ from django.utils import timezone
 from django.utils.translation import gettext as _
 from rest_framework import serializers
 
+from recorders.history import recording_problems
 from recorders.missing import missing_since
-from recorders.models import Incident, MonitorSettings, Recorder, RecorderStatus
+from recorders.models import MonitorSettings, Recorder, RecorderStatus
 
 # The API reports a level only from a measurement at most this old.
 AUDIO_FRESH_SECONDS = 120
@@ -110,6 +111,7 @@ class RecorderSerializer(serializers.ModelSerializer):
         if event is None:
             return None
         return {
+            "id": event.pk,
             "title": event.title,
             "series": event.series,
             "start": event.start,
@@ -170,52 +172,16 @@ class RecorderSerializer(serializers.ModelSerializer):
             return None
         now = self.context.get("now") or timezone.now()
         to_iso = serializers.DateTimeField().to_representation
-        problems = []
-        significant = timedelta(
-            minutes=self.context.get(
+        problems = recording_problems(
+            event,
+            self.context.get("incidents_by_event", {}).get(event.pk, []),
+            now,
+            self.context.get(
                 "silence_alarm_minutes",
                 MonitorSettings._meta.get_field("silence_alarm_minutes").default,
-            )
+            ),
         )
-        for incident in self.context.get("incidents_by_event", {}).get(event.pk, []):
-            # Only the part within the event counts; an incident still open
-            # on an ended event stops at the event end.
-            began = max(incident.started_at, event.start)
-            ended = min(incident.ended_at or event.end, event.end)
-            if ended <= began:
-                continue
-            # Short silences stay stored (for the timeline), but only those
-            # that alerted or reached the alarm time are a problem here.
-            if (
-                incident.kind == Incident.AUDIO_SILENT
-                and incident.alerted_at is None
-                and ended - began < significant
-            ):
-                continue
-            seconds = (ended - began).total_seconds()
-            problems.append(
-                {
-                    "kind": incident.kind,
-                    "from": to_iso(began),
-                    "to": to_iso(ended),
-                    "minutes": max(1, round(seconds / 60)),
-                }
-            )
         status = event.opencast_status
-        deadline = event.end + timedelta(minutes=30)
-        # "Did not start/finish" only from a status Opencast delivered for this
-        # event after the deadline; an older one (or one of an event deleted in
-        # Opencast meanwhile) may simply be stale.
-        seen_at = event.seen_at
-        overdue = now >= deadline and seen_at is not None and seen_at >= deadline
-        if status.endswith("PROCESSING_FAILURE"):
-            problems.append({"kind": "processing_failed"})
-        elif status.endswith("RECORDING_FAILURE"):
-            problems.append({"kind": "recording_failed"})
-        elif overdue and status.endswith("SCHEDULED"):
-            problems.append({"kind": "not_started"})
-        elif overdue and status.endswith(("RECORDING", "INGESTING")):
-            problems.append({"kind": "not_finished"})
         return {
             "title": event.title,
             "start": to_iso(event.start),
@@ -281,6 +247,8 @@ class MonitorSettingsSerializer(serializers.ModelSerializer):
             "silence_threshold_db",
             "silence_log_minutes",
             "silence_alarm_minutes",
+            "sample_retention_days",
+            "history_retention_days",
         ]
 
     def validate(self, attrs):

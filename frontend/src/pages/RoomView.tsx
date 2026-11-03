@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Maximize, Volume2, VolumeX } from "lucide-react";
+import { ArrowLeft, CalendarDays, Maximize, Volume2, VolumeX } from "lucide-react";
 import { useRecorders } from "../useRecorders";
 import { displayName, formatClock, formatDuration, presentation, recordingScheduled, scheduleUnclear, stateTransition } from "../recorders";
 import { RoomName } from "../components/RoomName";
@@ -19,6 +19,20 @@ import { PlaybackOverlay, usePlayback } from "../components/PlaybackOverlay";
 import { HlsPlayer } from "../media/HlsPlayer";
 import { LevelMeter } from "../media/LevelMeter";
 import { useAudio } from "../media/AudioContextProvider";
+import { EventDetailPanel } from "../components/EventDetailPanel";
+
+/** Timeline and level curve of the running event. */
+function CurrentEventTimeline({ eventId, liveSince }: { eventId: number; liveSince: string | null }) {
+  const { t } = useTranslation();
+  return (
+    <section aria-labelledby="timeline-heading" className="space-y-2">
+      <h2 id="timeline-heading" className="text-lg font-semibold">
+        {t("Timeline")}
+      </h2>
+      <EventDetailPanel eventId={eventId} liveSince={liveSince} />
+    </section>
+  );
+}
 
 /** Ticks every second on its own, so the player never re-renders. */
 function LiveBadge({ since }: { since: string | null }) {
@@ -211,6 +225,13 @@ export function RoomView() {
             ))}
           </select>
         </label>
+        <Link
+          to={`/raum/${recorder.id}/kalender`}
+          className="inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2 font-medium hover:underline"
+        >
+          <CalendarDays aria-hidden className="h-5 w-5" />
+          {t("Calendar")}
+        </Link>
       </div>
 
       <AudioUnlockButton />
@@ -280,6 +301,8 @@ export function RoomView() {
           })}
         </p>
       ) : null}
+
+      {event ? <CurrentEventTimeline eventId={event.id} liveSince={live ? recorder.status.live_since : null} /> : null}
 
       <LastRecordingWarning recorder={recorder} />
 

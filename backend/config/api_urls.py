@@ -7,7 +7,11 @@ from rest_framework.routers import DefaultRouter
 
 from accounts.views import InvitationViewSet, UserSearchViewSet
 from alarms.views import AlarmRecipientViewSet
-from opencast.views import IgnoredAgentViewSet, OpencastSyncRequestView
+from opencast.views import (
+    EventDetailView,
+    IgnoredAgentViewSet,
+    OpencastSyncRequestView,
+)
 from recorders.views import MonitorHealthView, MonitorSettingsView, RecorderViewSet
 
 router = DefaultRouter()
@@ -20,6 +24,7 @@ router.register("ignored-agents", IgnoredAgentViewSet, basename="ignored-agent")
 
 urlpatterns = [
     path("monitor/health/", MonitorHealthView.as_view(), name="monitor-health"),
+    path("events/<int:pk>/", EventDetailView.as_view(), name="event-detail"),
     path("opencast/sync/", OpencastSyncRequestView.as_view(), name="opencast-sync"),
     path("settings/monitor/", MonitorSettingsView.as_view(), name="monitor-settings"),
     *router.urls,

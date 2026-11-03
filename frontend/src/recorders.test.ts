@@ -207,6 +207,7 @@ describe("monitorStale", () => {
 });
 
 const ev = (title: string, start: string): EventBrief => ({
+  id: 1,
   title,
   series: "",
   start,
@@ -507,6 +508,7 @@ describe("recording slots", () => {
   // Local times, so the tests do not depend on the machine's time zone.
   const local = (h: number, m = 0, day = 3) => new Date(2026, 10, day, h, m);
   const span = (from: Date, to: Date): EventBrief => ({
+    id: 1,
     title: "T",
     series: "",
     start: from.toISOString(),

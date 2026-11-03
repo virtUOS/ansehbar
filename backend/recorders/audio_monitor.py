@@ -12,7 +12,7 @@ from django.utils import timezone
 
 from opencast.models import ScheduledEvent
 from recorders.alarm_rules import silence_counts_from
-from recorders.models import Incident, MonitorSettings, Recorder, RecorderStatus
+from recorders.models import AudioSample, Incident, MonitorSettings, Recorder, RecorderStatus
 from recorders.monitor import _save
 from streams.audio import AudioMeasurement
 from streams.sources import StreamSource
@@ -76,6 +76,9 @@ def _write(status: RecorderStatus, event: ScheduledEvent, result: AudioMeasureme
         _save(status, ["audio_detail"])
         return False
     level = None if result.level_db is None else max(result.level_db, AUDIO_FLOOR_DB)
+    AudioSample.objects.create(
+        recorder_id=status.recorder_id, event=event, measured_at=now, level_db=level
+    )
     status.audio_level_db = level
     sound = level is not None and level >= threshold
     previous = status.audio_checked_at

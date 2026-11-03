@@ -127,6 +127,13 @@ class MonitorSettings(models.Model):
     silence_alarm_minutes = models.PositiveSmallIntegerField(
         default=15, validators=[MinValueValidator(5), MaxValueValidator(120)]
     )
+    # Retention: level samples vs. incidents, events and notifications.
+    sample_retention_days = models.PositiveSmallIntegerField(
+        default=30, validators=[MinValueValidator(1), MaxValueValidator(365)]
+    )
+    history_retention_days = models.PositiveSmallIntegerField(
+        default=400, validators=[MinValueValidator(183), MaxValueValidator(3650)]
+    )
 
     @classmethod
     def load(cls) -> "MonitorSettings":
@@ -174,3 +181,29 @@ class Incident(models.Model):
 
     def __str__(self):
         return f"{self.kind} {self.recorder_id} {self.started_at:%Y-%m-%d %H:%M}"
+
+
+class AudioSample(models.Model):
+    """One successful level measurement; level_db null = no audio track."""
+
+    recorder = models.ForeignKey(
+        Recorder, on_delete=models.CASCADE, related_name="audio_samples"
+    )
+    event = models.ForeignKey(
+        "opencast.ScheduledEvent",
+        null=True,
+        on_delete=models.SET_NULL,
+        related_name="audio_samples",
+    )
+    measured_at = models.DateTimeField()
+    level_db = models.FloatField(null=True)
+
+    class Meta:
+        ordering = ["measured_at"]
+        indexes = [
+            models.Index(fields=["event", "measured_at"]),
+            models.Index(fields=["measured_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.recorder_id} {self.measured_at:%Y-%m-%d %H:%M:%S} {self.level_db}"

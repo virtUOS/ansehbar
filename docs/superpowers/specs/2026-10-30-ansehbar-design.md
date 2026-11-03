@@ -489,7 +489,7 @@ zuletzt beendeten Termin des Raums innerhalb von `OPENCAST_LOOKBACK_DAYS`
      Raster-Einstellungen, Vorfall-Logik mit Entwarnung, Empfänger,
      E-Mail-Zustellung und `/metrics` für den Monitoring-Dienst.
    - **3b Ton** (umgesetzt): Backend-Pegelmessung und der Alarm „Ton fehlt“.
-   - **3c Raumkalender und Protokoll** pro Raum.
+   - **3c Raumkalender und Protokoll** (umgesetzt) pro Raum.
 4. **Pünktlichkeit lernen.**
 
 Jede Stufe ist für sich nutzbar und wird einzeln geplant und gebaut.
@@ -502,7 +502,8 @@ Jede Stufe ist für sich nutzbar und wird einzeln geplant und gebaut.
   deren Alertmanager-Konfiguration).
 - **Stille-Schwelle kalibrieren** (3b): Der Startwert −50 dBFS ist ein
   Schätzwert; er muss an echten Streams (Vorlesung gegen Pause) mit
-  `measure_audio` geprüft werden.
+  `measure_audio` geprüft werden. Die gespeicherte Pegelkurve (Raumansicht,
+  Tagesansicht im Kalender) hilft dabei.
 - Engere Opencast-Rolle für das ansehBAR-Konto (Kollegen klären).
 
 ## 11. Dem Builder überlassen

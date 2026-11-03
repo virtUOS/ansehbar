@@ -466,7 +466,7 @@ nicht mehr alarmiert.
 
 **„Letzte Aufzeichnung“** listet nur erhebliche Stillen: solche, die alarmiert
 haben oder mindestens „Alarm bei Stille ab“ dauerten. Kürzere Stillen bleiben
-gespeichert (für die Zeitleiste der Raumansicht in Stufe 3c), erscheinen dort
+gespeichert (für die Zeitleiste in Raumansicht und Kalender), erscheinen dort
 aber nicht. „Stream fehlt“-Vorfälle erscheinen weiterhin alle.
 
 **Schwelle kalibrieren:** Der Befehl
@@ -477,7 +477,9 @@ docker compose exec backend python manage.py measure_audio <stream> [--seconds N
 
 gibt `level: -42.1 dBFS`, `level: no audio track` oder `failed: …` aus.
 Einige Räume während einer Vorlesung und in der Pause messen, die Schwelle
-dazwischen setzen.
+dazwischen setzen. Hilfreich ist auch die gespeicherte Pegelkurve
+(Raumansicht, Tagesansicht im Kalender): Sie zeigt den Pegelverlauf eines
+Termins samt Schwelle.
 
 **Bandbreite:** Jede Messung lädt den vollständigen Stream (Video und Ton,
 etwa 2 bis 4 Mbit/s) für `AUDIO_SAMPLE_SECONDS` (Standard 10 Sekunden). Es werden nur Räume gemessen, die
@@ -517,6 +519,31 @@ hält den Prüfzyklus nie an.
 `/metrics` ist ohne `METRICS_TOKEN` aus (404). Einrichtung, Kennzahlen,
 Alarmregeln (`monitoring/alerts.yml`) und Scrape-Beispiel
 (`monitoring/scrape.example.yml`) stehen in [monitoring.md](monitoring.md).
+
+### Aufbewahrung
+
+Damit die Datenbank nicht unbegrenzt wächst, räumt der Monitor alte Daten auf.
+Zwei Fristen, einstellbar unter **Verwaltung → Einstellungen → Aufbewahrung**:
+
+| Einstellung | Bedeutung | Standard | Bereich |
+| --- | --- | --- | --- |
+| Pegelmessungen aufbewahren | Tage, die die einzelnen Pegelmessungen (Grundlage der Pegelkurve in Raumansicht und Kalender) gespeichert bleiben | 30 | 1 bis 365 |
+| Verlauf aufbewahren | Tage, die Termine, Vorfälle und Benachrichtigungsprotokoll gespeichert bleiben | 400 | 183 bis 3650 |
+
+Gelöscht wird, was älter als die jeweilige Frist ist:
+
+- **Pegelmessungen:** alle Messungen vor der Frist.
+- **Verlauf:** Benachrichtigungen (Protokoll gesendeter Alarme) vor der Frist;
+  Vorfälle, die vor der Frist begannen und deren Termin ebenfalls vor der Frist
+  endete (oder die keinen Termin haben); Termine, die vor der Frist endeten.
+
+Der Monitor räumt höchstens einmal pro Stunde auf, bei `run_monitor --once`
+immer. Schlägt das Aufräumen fehl, steht der Fehler im Log und der Monitor
+läuft weiter.
+
+Der Opencast-Abgleich holt nur Termine der letzten `OPENCAST_LOOKBACK_DAYS`
+Tage (Standard 7) zurück. Einmal gelöschte alte Termine kommen deshalb nicht
+wieder; die Aufbewahrung ist endgültig.
 
 ## 8. Prüfen und Fehlersuche
 

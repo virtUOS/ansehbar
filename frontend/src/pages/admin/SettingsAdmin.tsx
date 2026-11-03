@@ -12,6 +12,7 @@ const FIELDS = [
   "url_template", "stale_factor", "missing_grace_minutes", "slot_minutes", "slot_offset_minutes",
   "ct_minutes", "ct_tolerance_minutes", "end_tolerance_minutes", "alarm_email_enabled", "alarm_metrics_enabled",
   "silence_threshold_db", "silence_log_minutes", "silence_alarm_minutes",
+  "sample_retention_days", "history_retention_days",
 ];
 const NO_ERRORS: FormErrors = { fields: {}, general: [] };
 
@@ -31,6 +32,8 @@ export function SettingsAdmin() {
   const [silenceThreshold, setSilenceThreshold] = useState("-50");
   const [silenceLog, setSilenceLog] = useState("2");
   const [silenceAlarm, setSilenceAlarm] = useState("15");
+  const [sampleDays, setSampleDays] = useState("30");
+  const [historyDays, setHistoryDays] = useState("400");
   const [firstStream, setFirstStream] = useState<string | undefined>();
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState("");
@@ -52,6 +55,8 @@ export function SettingsAdmin() {
     setSilenceThreshold(String(s.silence_threshold_db));
     setSilenceLog(String(s.silence_log_minutes));
     setSilenceAlarm(String(s.silence_alarm_minutes));
+    setSampleDays(String(s.sample_retention_days));
+    setHistoryDays(String(s.history_retention_days));
   };
 
   useEffect(() => {
@@ -92,6 +97,8 @@ export function SettingsAdmin() {
         silence_threshold_db: Number(silenceThreshold),
         silence_log_minutes: Number(silenceLog),
         silence_alarm_minutes: Number(silenceAlarm),
+        sample_retention_days: Number(sampleDays),
+        history_retention_days: Number(historyDays),
       });
       apply(result);
       setSaved(true);
@@ -332,6 +339,47 @@ export function SettingsAdmin() {
                 step={1}
                 value={silenceAlarm}
                 onChange={(e) => { setSilenceAlarm(e.target.value); setSaved(false); }}
+                className={`${inputCls} max-w-32`}
+              />
+            )}
+          </Field>
+        </fieldset>
+        <fieldset className="space-y-4 rounded-lg border border-slate-200 p-4 dark:border-slate-800">
+          <legend className="px-1 text-lg font-bold">{t("Retention")}</legend>
+          <Field
+            label={t("Keep level measurements (days)")}
+            errors={errors.fields.sample_retention_days}
+            hint={t("Level measurements are deleted after this many days.")}
+          >
+            {(p) => (
+              <input
+                {...p}
+                required
+                type="number"
+                min={1}
+                max={365}
+                step={1}
+                value={sampleDays}
+                onChange={(e) => { setSampleDays(e.target.value); setSaved(false); }}
+                className={`${inputCls} max-w-32`}
+              />
+            )}
+          </Field>
+          <Field
+            label={t("Keep history (days)")}
+            errors={errors.fields.history_retention_days}
+            hint={t("Incidents, events and sent notifications are deleted after this many days (at least one semester).")}
+          >
+            {(p) => (
+              <input
+                {...p}
+                required
+                type="number"
+                min={183}
+                max={3650}
+                step={1}
+                value={historyDays}
+                onChange={(e) => { setHistoryDays(e.target.value); setSaved(false); }}
                 className={`${inputCls} max-w-32`}
               />
             )}

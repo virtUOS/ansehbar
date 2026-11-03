@@ -22,6 +22,7 @@ from recorders.audio_monitor import run_audio_pass, update_audio_incidents
 from recorders.incidents import update_incidents
 from recorders.models import MonitorSettings, RecorderStatus
 from recorders.monitor import run_cycle
+from recorders.retention import prune_history
 from streams.audio import ffmpeg_available, measure_audio
 from streams.sources import HlsStreamSource
 
@@ -31,6 +32,8 @@ logger = logging.getLogger(__name__)
 SUMMARY_EVERY_SECONDS = 60
 # On shutdown, wait at most this long for a running Opencast sync (and audio pass).
 SYNC_JOIN_SECONDS = 5
+# Old samples and history are pruned at most this often.
+PRUNE_EVERY_SECONDS = 3600
 
 
 class Command(BaseCommand):
@@ -50,6 +53,7 @@ class Command(BaseCommand):
         self._audio_thread = None
         self._last_audio_at = None  # time.monotonic() of the last pass start
         self._ffmpeg_ok = None  # checked once, on the first due pass
+        self._last_prune_at = None  # time.monotonic() of the last prune
         self._stop = stop = threading.Event()
         previous = {}
         # Signal handlers only work in the main thread (not under test runners).
@@ -66,6 +70,7 @@ class Command(BaseCommand):
                     self._cycle(client)
                     if self._audio_due():
                         self._run_audio(client)
+                    self._prune()
                 else:
                     try:
                         while True:
@@ -75,6 +80,7 @@ class Command(BaseCommand):
                             # Audio measurements take seconds each: own thread too.
                             self._start_audio(client)
                             self._cycle(client)
+                            self._prune_if_due()
                             if stop.wait(interval):
                                 break
                             # Drop stale DB connections between cycles (long-lived process).
@@ -186,6 +192,27 @@ class Command(BaseCommand):
                 )
             except Exception:
                 logger.exception("could not record opencast sync failure")
+
+    def _prune_due(self):
+        """True if no prune ran yet or the last one is an hour old."""
+        return (
+            self._last_prune_at is None
+            or time.monotonic() - self._last_prune_at >= PRUNE_EVERY_SECONDS
+        )
+
+    def _prune_if_due(self):
+        if self._prune_due():
+            self._prune()
+
+    def _prune(self):
+        """Delete expired samples and history; never raises."""
+        self._last_prune_at = time.monotonic()
+        try:
+            deleted = prune_history(timezone.now())
+            if any(deleted.values()):
+                logger.info("pruned old data: %s", deleted)
+        except Exception:
+            logger.exception("pruning old data failed")
 
     def _audio_available(self):
         """True if audio monitoring is on and ffmpeg exists (checked once)."""

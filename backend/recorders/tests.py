@@ -19,6 +19,7 @@ from django.db import IntegrityError, connection
 from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 
+from alarms.models import SentNotification
 from opencast.client import Agent, OpencastError
 from opencast.models import IgnoredAgent, OpencastSyncState, ScheduledEvent
 from opencast.sync import sync_agents
@@ -29,8 +30,15 @@ from recorders.alarm_rules import (
     silence_counts_from,
     slot_start,
 )
-from recorders.models import Incident, MonitorSettings, Recorder, RecorderStatus
+from recorders.models import (
+    AudioSample,
+    Incident,
+    MonitorSettings,
+    Recorder,
+    RecorderStatus,
+)
 from recorders.monitor import run_cycle
+from recorders.retention import prune_history
 from streams.sources import Probe
 
 User = get_user_model()
@@ -1030,9 +1038,11 @@ class RecorderEventApiTests(TestCase):
         )
 
     def test_current_and_next_event(self):
-        self.event(berlin(10), berlin(12), "first")
-        self.event(berlin(14), berlin(16), "second")
+        first = self.event(berlin(10), berlin(12), "first")
+        second = self.event(berlin(14), berlin(16), "second")
         body = self.get(berlin(11))
+        self.assertEqual(body["current_event"]["id"], first.pk)
+        self.assertEqual(body["next_event"]["id"], second.pk)
         self.assertEqual(body["current_event"]["title"], "first")
         self.assertEqual(body["current_event"]["series"], "S")
         self.assertEqual(body["next_event"]["title"], "second")
@@ -2250,6 +2260,35 @@ class AudioPassTests(TestCase):
         self.assertEqual(status.agent_state, "idle")
         self.assertEqual(status.audio_level_db, -60.0)
 
+    def test_audio_pass_stores_sample(self):
+        from recorders.models import AudioSample
+
+        self.measure_a(utc(10, 10), -35.0)
+        sample = AudioSample.objects.get()
+        self.assertEqual(sample.recorder, self.recorder)
+        self.assertEqual(sample.event, self.event)
+        self.assertEqual(sample.measured_at, utc(10, 10))
+        self.assertEqual(sample.level_db, -35.0)
+
+    def test_audio_pass_stores_no_track_sample(self):
+        from recorders.models import AudioSample
+
+        self.measure_a(utc(10, 10), None)
+        self.assertIsNone(AudioSample.objects.get().level_db)
+
+    def test_audio_pass_stores_clamped_sample(self):
+        from recorders.audio_monitor import AUDIO_FLOOR_DB
+        from recorders.models import AudioSample
+
+        self.measure_a(utc(10, 10), float("-inf"))
+        self.assertEqual(AudioSample.objects.get().level_db, AUDIO_FLOOR_DB)
+
+    def test_failed_measurement_stores_no_sample(self):
+        from recorders.models import AudioSample
+
+        self.measure_a(utc(10, 10), None, ok=False, detail="boom")
+        self.assertEqual(AudioSample.objects.count(), 0)
+
     def test_measure_exception_is_a_failed_measurement(self):
         from recorders.audio_monitor import run_audio_pass
 
@@ -2538,3 +2577,298 @@ class AudioAlarmDueTests(TestCase):
         # Silent since 10:00, last silent measurement 10:03, failures until 10:30.
         incident = self.incident(silent_until=berlin(10, 3))
         self.assertFalse(self.due(incident, now=berlin(10, 30)))
+
+
+class RetentionTests(TestCase):
+    def setUp(self):
+        self.now = datetime(2026, 11, 3, 12, 0, tzinfo=timezone.utc)
+        self.recorder = Recorder.objects.create(room_name="Hall", stream_name="rec-hall")
+
+    def sample(self, days):
+        return AudioSample.objects.create(
+            recorder=self.recorder,
+            measured_at=self.now - timedelta(days=days),
+            level_db=-30,
+        )
+
+    def event(self, ident, end_days_ago, hours=1):
+        end = self.now - timedelta(days=end_days_ago)
+        return ScheduledEvent.objects.create(
+            identifier=ident, recorder=self.recorder, title="T",
+            start=end - timedelta(hours=hours), end=end,
+        )
+
+    def incident(self, event, started):
+        return Incident.objects.create(
+            recorder=self.recorder, event=event, kind=Incident.STREAM_MISSING,
+            started_at=started,
+        )
+
+    def test_prune_deletes_old_samples_only(self):
+        old, recent = self.sample(31), self.sample(29)
+        result = prune_history(self.now)
+        self.assertEqual(result["samples"], 1)
+        self.assertEqual(list(AudioSample.objects.all()), [recent])
+        self.assertFalse(AudioSample.objects.filter(pk=old.pk).exists())
+
+    def test_prune_deletes_event_with_incidents(self):
+        event = self.event("old", 401)
+        first = self.incident(event, event.start)
+        self.incident(event, event.start + timedelta(minutes=20))
+        note = SentNotification.objects.create(
+            key="k1", kind=SentNotification.ALARM, incident=first, recipient="a@example.org"
+        )
+        SentNotification.objects.filter(pk=note.pk).update(
+            created_at=self.now - timedelta(days=401)
+        )
+        result = prune_history(self.now)
+        self.assertEqual(result["events"], 1)
+        self.assertEqual(result["incidents"], 2)
+        self.assertEqual(result["notifications"], 1)
+        self.assertFalse(ScheduledEvent.objects.exists())
+        self.assertFalse(Incident.objects.exists())
+        self.assertFalse(SentNotification.objects.exists())
+
+    def test_prune_keeps_event_ending_after_cutoff(self):
+        event = self.event("edge", 399)
+        event.start = self.now - timedelta(days=400, hours=1)
+        event.save()
+        incident = self.incident(event, event.start + timedelta(minutes=5))
+        prune_history(self.now)
+        self.assertTrue(ScheduledEvent.objects.filter(pk=event.pk).exists())
+        incident.refresh_from_db()
+        self.assertEqual(incident.event_id, event.pk)
+
+    def test_prune_uses_settings(self):
+        MonitorSettings.objects.update_or_create(pk=1, defaults={"sample_retention_days": 1})
+        self.sample(2)
+        self.assertEqual(prune_history(self.now)["samples"], 1)
+
+    def test_settings_retention_bounds(self):
+        member = User.objects.create_user(username="member", is_superuser=True)
+        self.client.force_login(member)
+        body = self.client.get("/api/settings/monitor/").json()
+        self.assertEqual(
+            (body["sample_retention_days"], body["history_retention_days"]), (30, 400)
+        )
+        for field, value, code in [("history_retention_days", 182, 400),
+                                   ("history_retention_days", 183, 200),
+                                   ("sample_retention_days", 0, 400),
+                                   ("sample_retention_days", 365, 200)]:
+            with self.subTest(field=field, value=value):
+                response = self.client.put(
+                    "/api/settings/monitor/", {**body, field: value},
+                    content_type="application/json",
+                )
+                self.assertEqual(response.status_code, code)
+
+    @override_settings(OPENCAST_URL="")
+    def test_run_monitor_once_prunes(self):
+        source = FakeSource({"rec-hall": Probe(True, True, 100, 6.0)})
+        with mock.patch(f"{MONITOR}.HlsStreamSource", return_value=source), \
+                mock.patch(f"{MONITOR}.prune_history", return_value={}) as prune:
+            call_command("run_monitor", "--once")
+        prune.assert_called_once()
+
+    @override_settings(OPENCAST_URL="")
+    def test_prune_failure_does_not_stop_monitor(self):
+        source = FakeSource({"rec-hall": Probe(True, True, 100, 6.0)})
+        with mock.patch(f"{MONITOR}.HlsStreamSource", return_value=source), \
+                mock.patch(f"{MONITOR}.prune_history", side_effect=RuntimeError("x")), \
+                self.assertLogs(MONITOR, "ERROR"):
+            call_command("run_monitor", "--once")
+
+
+class RoomCalendarApiTests(TestCase):
+    def setUp(self):
+        member = User.objects.create_user(username="member", is_superuser=True)
+        self.client.force_login(member)
+        self.recorder = Recorder.objects.create(
+            room_name="Testraum 1", stream_name="cap-test-1"
+        )
+        self.n = 0
+
+    def event(self, start, end, title="T", recorder=None, **extra):
+        self.n += 1
+        return ScheduledEvent.objects.create(
+            identifier=f"cal-{self.n}",
+            recorder=recorder or self.recorder,
+            title=title,
+            series="S",
+            start=start,
+            end=end,
+            **extra,
+        )
+
+    def incident(self, event, started, ended, kind="stream_missing"):
+        return Incident.objects.create(
+            recorder=event.recorder, event=event, kind=kind,
+            started_at=started, ended_at=ended,
+        )
+
+    def get(self, query="", recorder=None, now=None):
+        url = f"/api/recorders/{(recorder or self.recorder).pk}/calendar/{query}"
+        if now is None:
+            return self.client.get(url)
+        with mock.patch("django.utils.timezone.now", return_value=now):
+            return self.client.get(url)
+
+    def test_calendar_week_lists_events_with_incidents(self):
+        late = self.event(berlin(14, day=11), berlin(15, day=11), "late")
+        early = self.event(berlin(10, day=10), berlin(11, day=10), "early",
+                           first_audio_at=berlin(10, 5, day=10))
+        self.incident(early, berlin(10, 20, day=10), berlin(10, 30, day=10))
+        self.incident(late, berlin(14, 10, day=11), berlin(14, 20, day=11))
+        response = self.get("?from=2026-11-09", now=berlin(12, day=12))
+        self.assertEqual(response.status_code, 200, response.content)
+        body = response.json()
+        self.assertEqual(
+            datetime.fromisoformat(body["from"]), datetime(2026, 11, 9, tzinfo=BERLIN)
+        )
+        self.assertEqual(
+            datetime.fromisoformat(body["to"]), datetime(2026, 11, 16, tzinfo=BERLIN)
+        )
+        self.assertEqual(
+            body["recorders"],
+            [{"id": self.recorder.pk, "room_name": "Testraum 1",
+              "stream_name": "cap-test-1", "active": True}],
+        )
+        self.assertEqual([e["title"] for e in body["events"]], ["early", "late"])
+        first = body["events"][0]
+        self.assertEqual(first["id"], early.pk)
+        self.assertEqual(first["recorder_id"], self.recorder.pk)
+        self.assertEqual(first["series"], "S")
+        self.assertEqual(
+            datetime.fromisoformat(first["first_audio_at"]), berlin(10, 5, day=10)
+        )
+        self.assertIsNone(body["events"][1]["first_audio_at"])
+        self.assertEqual(len(first["incidents"]), 1)
+        incident = first["incidents"][0]
+        self.assertEqual(
+            set(incident),
+            {"id", "kind", "started_at", "ended_at", "recovered", "alerted_at",
+             "all_clear_at", "silent_until"},
+        )
+        self.assertEqual(incident["kind"], "stream_missing")
+        self.assertIsNone(incident["alerted_at"])
+        self.assertEqual(first["problems"][0]["kind"], "stream_missing")
+        self.assertEqual(first["problems"][0]["minutes"], 10)
+
+    def test_calendar_week_across_dst(self):
+        # DST ends on Sunday 2026-10-25 (CEST -> CET).
+        sunday = self.event(
+            datetime(2026, 10, 25, 21, tzinfo=BERLIN),
+            datetime(2026, 10, 25, 22, tzinfo=BERLIN), "sunday",
+        )
+        self.event(
+            datetime(2026, 10, 26, 0, 30, tzinfo=BERLIN),
+            datetime(2026, 10, 26, 1, 30, tzinfo=BERLIN), "monday",
+        )
+        body = self.get("?from=2026-10-19&days=7").json()
+        self.assertEqual([e["id"] for e in body["events"]], [sunday.pk])
+        self.assertEqual(
+            datetime.fromisoformat(body["to"]).astimezone(timezone.utc)
+            - datetime.fromisoformat(body["from"]).astimezone(timezone.utc),
+            timedelta(days=7, hours=1),
+        )
+
+    def test_calendar_includes_same_room_recorders(self):
+        old = Recorder.objects.create(
+            room_name="Testraum 1", stream_name="cap-test-old", active=False
+        )
+        other = Recorder.objects.create(room_name="Testraum 2", stream_name="cap-test-2")
+        mine = self.event(berlin(10), berlin(11), "new")
+        theirs = self.event(berlin(12), berlin(13), "old", recorder=old)
+        self.event(berlin(14), berlin(15), "elsewhere", recorder=other)
+        for rec in (self.recorder, old):
+            body = self.get("?from=2026-11-10", recorder=rec).json()
+            self.assertEqual({e["id"] for e in body["events"]}, {mine.pk, theirs.pk})
+            self.assertEqual(
+                {r["id"] for r in body["recorders"]}, {self.recorder.pk, old.pk}
+            )
+            by_id = {e["id"]: e for e in body["events"]}
+            self.assertEqual(by_id[theirs.pk]["recorder_id"], old.pk)
+            self.assertEqual(
+                [r["active"] for r in body["recorders"] if r["id"] == old.pk], [False]
+            )
+
+    def test_calendar_empty_room_name_stays_alone(self):
+        a = Recorder.objects.create(room_name="", stream_name="cap-test-a")
+        b = Recorder.objects.create(room_name="", stream_name="cap-test-b")
+        ea = self.event(berlin(10), berlin(11), "a", recorder=a)
+        eb = self.event(berlin(12), berlin(13), "b", recorder=b)
+        body = self.get("?from=2026-11-10", recorder=a).json()
+        self.assertEqual([e["id"] for e in body["events"]], [ea.pk])
+        self.assertEqual([r["id"] for r in body["recorders"]], [a.pk])
+        body = self.get("?from=2026-11-10", recorder=b).json()
+        self.assertEqual([e["id"] for e in body["events"]], [eb.pk])
+
+    def test_calendar_rejects_bad_params(self):
+        for query in ["?from=2026-13-01", "?from=abc", "?days=0", "?days=8",
+                      "?days=x", "?days="]:
+            with self.subTest(query=query):
+                response = self.get(query)
+                self.assertEqual(response.status_code, 400)
+                self.assertTrue(response.json()["detail"])
+        missing = self.client.get("/api/recorders/999999/calendar/")
+        self.assertEqual(missing.status_code, 404)
+
+    def test_calendar_defaults_to_today_and_seven_days(self):
+        body = self.get(now=berlin(12, day=10)).json()
+        self.assertEqual(
+            datetime.fromisoformat(body["from"]), datetime(2026, 11, 10, tzinfo=BERLIN)
+        )
+        self.assertEqual(
+            datetime.fromisoformat(body["to"]), datetime(2026, 11, 17, tzinfo=BERLIN)
+        )
+
+    def test_calendar_overlap(self):
+        crossing = self.event(
+            datetime(2026, 11, 9, 23, tzinfo=BERLIN),
+            datetime(2026, 11, 10, 1, tzinfo=BERLIN), "crossing",
+        )
+        self.event(  # ends exactly at from
+            datetime(2026, 11, 9, 22, tzinfo=BERLIN),
+            datetime(2026, 11, 10, 0, tzinfo=BERLIN), "before",
+        )
+        self.event(  # starts exactly at to
+            datetime(2026, 11, 11, 0, tzinfo=BERLIN),
+            datetime(2026, 11, 11, 1, tzinfo=BERLIN), "after",
+        )
+        body = self.get("?from=2026-11-10&days=1").json()
+        self.assertEqual([e["id"] for e in body["events"]], [crossing.pk])
+
+    def test_calendar_problems_only_for_ended_events(self):
+        running = self.event(berlin(10), berlin(12), "running")
+        ended = self.event(berlin(14), berlin(16), "ended")
+        self.incident(running, berlin(10, 10), None)
+        self.incident(ended, berlin(14, 10), berlin(14, 50))
+        body = self.get("?from=2026-11-10&days=1", now=berlin(11)).json()
+        by_id = {e["id"]: e for e in body["events"]}
+        self.assertEqual(by_id[running.pk]["problems"], [])
+        self.assertEqual(len(by_id[running.pk]["incidents"]), 1)
+        # Same data, later: the first event has ended, so its problem shows.
+        body = self.get("?from=2026-11-10&days=1", now=berlin(17)).json()
+        by_id = {e["id"]: e for e in body["events"]}
+        self.assertEqual(by_id[running.pk]["problems"][0]["kind"], "stream_missing")
+        self.assertEqual(by_id[ended.pk]["problems"][0]["minutes"], 40)
+
+    def test_calendar_query_count(self):
+        first = self.event(berlin(8), berlin(9))
+        self.incident(first, berlin(8, 10), berlin(8, 20))
+        now = berlin(20)
+        self.get("?from=2026-11-10", now=now)  # warm-up: creates the settings row
+        with CaptureQueriesContext(connection) as one:
+            self.assertEqual(self.get("?from=2026-11-10", now=now).status_code, 200)
+        for hour in (9, 10, 11, 12):
+            event = self.event(berlin(hour), berlin(hour, 30))
+            self.incident(event, berlin(hour, 5), berlin(hour, 10))
+        with CaptureQueriesContext(connection) as five:
+            body = self.get("?from=2026-11-10", now=now).json()
+        self.assertEqual(len(body["events"]), 5)
+        self.assertEqual(len(one), len(five))
+
+    def test_calendar_requires_access(self):
+        outsider = User.objects.create_user(username="out")
+        self.client.force_login(outsider)
+        self.assertEqual(self.get().status_code, 403)

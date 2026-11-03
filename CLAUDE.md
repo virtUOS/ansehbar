@@ -17,7 +17,10 @@ Frontend 5179, Backend 8007, Keycloak 8086, Postgres 5438.
 - Backend-Apps: `config` (Settings/URLs), `accounts` (User, Zugangsprüfung
   über IdP-Gruppe/Bootstrap/Einladungen, Einladungs- und Benutzersuche-API),
   `recorders` (Rekorder, Status, Monitor-Einstellungen, API, Monitor-Zyklus;
-  `audio_monitor.py` führt den Ton-Durchlauf aus),
+  `audio_monitor.py` führt den Ton-Durchlauf aus; `AudioSample` = ein Pegelwert
+  je Messung; `history.py` = Kalender-/Vorfallsdaten, geteilt mit „Letzte
+  Aufzeichnung“; `retention.py` = Aufbewahrung, `prune_history`, stündlich im
+  Monitor),
   `opencast` (read-only-Client der External API, Sync von Agents und
   Terminen, `ScheduledEvent`, `OpencastSyncState`),
   `alarms` (Alarmempfänger, `SentNotification`-Protokoll, E-Mail-Zustellung
@@ -30,7 +33,8 @@ Frontend 5179, Backend 8007, Keycloak 8086, Postgres 5438.
   (`--once` für einen Lauf); Intervall `MONITOR_INTERVAL_SECONDS`. Der Monitor
   misst den Ton in einem eigenen Thread (`AUDIO_*`, Stufe 3b).
 - Frontend (`frontend/src/`): `media/` (hls.js-Player, Web-Audio, Pegel),
-  `pages/` (Übersicht, Raumansicht, Landing/NoAccess, `admin/`),
+  `pages/` (Übersicht, Raumansicht, Raumkalender `RoomCalendar`, Landing/NoAccess,
+  `admin/`; Zeitleiste/Pegelkurve: `timeline.ts`, `EventTimeline`, `LevelCurve`),
   `components/` (Kachel, Raumliste, StatusBadge, Formularteile, Dialog),
   `api.ts` (Client), `locales/` (Übersetzungen).
 - Spec: `docs/superpowers/specs/2026-10-30-ansehbar-design.md`,
