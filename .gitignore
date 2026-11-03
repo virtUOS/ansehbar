@@ -30,3 +30,10 @@ alt/
 .superpowers/
 /media/
 /backend/media/
+
+# MkDocs build output (website/)
+/site/
+
+# Playwright output (website screenshots)
+/frontend/test-results/
+/frontend/playwright-report/
