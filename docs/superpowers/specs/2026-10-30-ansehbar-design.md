@@ -425,18 +425,23 @@ zuletzt beendeten Termin des Raums innerhalb von `OPENCAST_LOOKBACK_DAYS`
   - Scrape-Intervall 1 min.
   - Namen und Labels wie bei abstimmBAR: Präfix `ansehbar_`, Gauges; pro Raum
     Labels `room` und `stream` (etwa 40 Räume, Kardinalität unkritisch).
-  - Die Alarmregeln pflegen wir selbst (Beispiel-`alerts.yml` im Repo).
-  - Schweregrade: **kritisch** = Stream fehlt während eines Termins;
-    **Warnung** = Opencast-Abgleich gestört, Monitor liefert keine Daten,
-    Ton fehlt länger als 15 min.
+  - Die Alarmregeln pflegen wir selbst: als Datei im Repo (z. B.
+    `monitoring/alerts.yml`), die wir den Betreibern zusammen mit dem
+    Scrape-Eintrag schicken; sie spielen sie ein.
+  - Schweregrade über das Label `severity` mit den Werten `critical` (Stream
+    fehlt während eines Termins) und `warning` (Opencast-Abgleich gestört,
+    Monitor liefert keine Daten, Ton fehlt länger als 15 min).
+  - Der Monitoring-Dienst verschickt **keine Entwarnungen** (resolved), um die
+    Zahl der Nachrichten klein zu halten. Entwarnungen aus 7.2 gibt es daher
+    nur per E-Mail.
   - Alarme nur während geplanter Termine; außerhalb ist „kein Stream“ normal.
   - Großzügige `for:`-Dauern sind in Ordnung: Niemand kann sofort eingreifen,
     meist geht es darum, Probleme in Folgeveranstaltungen zu vermeiden.
   - ansehBAR bekommt einen **eigenen Matrix-Raum** (nicht Warning/Critical
     des virtUOS-Space).
-  - Inhibition mitdenken: Ist der Streaming-Server (oder Opencast) ganz weg,
-    kommt ein übergeordneter Alarm statt eines Alarms pro Raum. ansehBAR
-    liefert dafür eine Metrik zur Erreichbarkeit des Streaming-Servers.
+  - Inhibition (übergeordneter Alarm statt einer Meldung pro Raum, wenn der
+    Streaming-Server ganz weg ist) vorerst weglassen; die Gruppierung im
+    Alertmanager fasst gleichartige Alarme ohnehin zusammen.
   - Kein eigener Heartbeat für Container/Host nötig (`up` reicht).
   - Produktiv läuft ansehBAR auf einer eigenen VM.
 - **Später:** Browser-Benachrichtigungen (Web Push), allgemeine Webhooks.
@@ -485,14 +490,10 @@ Jede Stufe ist für sich nutzbar und wird einzeln geplant und gebaut.
 
 ## 10. Offen
 
-- **Anbindung an den Monitoring-Dienst** (7.4), noch offen bei Timo
-  (Stand 2026-11-03): Wer pflegt Scrape-Eintrag und unsere Alarmregeln in der
-  Prometheus-Konfiguration (eigenes Konfig-Repo, Merge-Request, Datei
-  übergeben)? Über welches Label (`severity`?) und welche Werte wird nach
-  Warnung/kritisch geroutet? Kommen Entwarnungen (resolved) automatisch in
-  Matrix an? Wie werden der eigene Matrix-Raum und die Inhibition-Regel im
-  Alertmanager eingerichtet? Das blockiert erst den zweiten Kanal in Stufe 3,
-  nicht E-Mail.
+- **Anbindung an den Monitoring-Dienst** (7.4): geklärt am 2026-11-03.
+  Beim Einreichen der Regeldatei mit den Betreibern abstimmen, wie Alarme von
+  ansehBAR in den eigenen Matrix-Raum geroutet werden (Receiver/Matcher in
+  deren Alertmanager-Konfiguration).
 - Engere Opencast-Rolle für das ansehBAR-Konto (Kollegen klären).
 
 ## 11. Dem Builder überlassen
