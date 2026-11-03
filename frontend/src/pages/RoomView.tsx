@@ -19,36 +19,17 @@ import { PlaybackOverlay, usePlayback } from "../components/PlaybackOverlay";
 import { HlsPlayer } from "../media/HlsPlayer";
 import { LevelMeter } from "../media/LevelMeter";
 import { useAudio } from "../media/AudioContextProvider";
-import { EventTimeline } from "../components/EventTimeline";
-import { LevelCurve } from "../components/LevelCurve";
-import { useEventDetail } from "../useEventDetail";
-import { useNow } from "../useNow";
-import { timelineEntries } from "../timeline";
+import { EventDetailPanel } from "../components/EventDetailPanel";
 
-/** Timeline and level curve of the running event; a leaf of its own, so its
- *  polling and clock never re-render the player. */
+/** Timeline and level curve of the running event. */
 function CurrentEventTimeline({ eventId, liveSince }: { eventId: number; liveSince: string | null }) {
   const { t } = useTranslation();
-  const { detail, error } = useEventDetail(eventId);
-  const now = useNow(30000);
   return (
     <section aria-labelledby="timeline-heading" className="space-y-2">
       <h2 id="timeline-heading" className="text-lg font-semibold">
         {t("Timeline")}
       </h2>
-      {error ? (
-        <p role="status" className="text-sm text-slate-700 dark:text-slate-300">
-          {t("Timeline could not be loaded")}
-        </p>
-      ) : null}
-      {detail ? (
-        <>
-          <EventTimeline entries={timelineEntries(detail, now, liveSince)} />
-          <LevelCurve detail={detail} />
-        </>
-      ) : !error ? (
-        <p className="text-sm text-slate-700 dark:text-slate-300">{t("Loading…")}</p>
-      ) : null}
+      <EventDetailPanel eventId={eventId} liveSince={liveSince} />
     </section>
   );
 }

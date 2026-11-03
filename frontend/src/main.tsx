@@ -15,6 +15,7 @@ import { AlarmsAdmin } from "./pages/admin/AlarmsAdmin";
 import { InvitationsAdmin } from "./pages/admin/InvitationsAdmin";
 import { RecordersAdmin } from "./pages/admin/RecordersAdmin";
 import { SettingsAdmin } from "./pages/admin/SettingsAdmin";
+import { RoomCalendar } from "./pages/RoomCalendar";
 import { RoomView } from "./pages/RoomView";
 
 const router = createBrowserRouter([
@@ -24,6 +25,7 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <Overview /> },
       { path: "raum/:id", element: <RoomView /> },
+      { path: "raum/:id/kalender", element: <RoomCalendar /> },
       {
         path: "verwaltung",
         element: <AdminLayout />,

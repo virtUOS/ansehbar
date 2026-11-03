@@ -239,5 +239,15 @@
   "Level curve: {{count}} measurements, {{silent}} below the threshold_one": "Pegelkurve: {{count}} Messung, {{silent}} unter der Schwelle",
   "Level curve: {{count}} measurements, {{silent}} below the threshold_other": "Pegelkurve: {{count}} Messungen, {{silent}} unter der Schwelle",
   "Silence threshold {{db}} dBFS": "Stille-Schwelle {{db}} dBFS",
-  "Timeline could not be loaded": "Zeitleiste konnte nicht geladen werden"
+  "Timeline could not be loaded": "Zeitleiste konnte nicht geladen werden",
+  "Calendar – {{room}}": "Kalender – {{room}}",
+  "Week": "Woche",
+  "Day": "Tag",
+  "Previous": "Früher",
+  "Next": "Später",
+  "No events": "Keine Termine",
+  "Stream missing {{minutes}} min": "Stream fehlte {{minutes}} min",
+  "Silent {{minutes}} min": "Still {{minutes}} min",
+  "No findings": "ohne Befund",
+  "Calendar could not be loaded": "Kalender konnte nicht geladen werden"
 }
