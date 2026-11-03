@@ -272,6 +272,28 @@ class DeliveryTests(TestCase):
         self.assertIsNone(incident.ended_at)
         self.assertIsNone(incident.all_clear_at)
 
+    def test_drop_after_all_clear_opens_new_incident_and_alarms(self):
+        # The drop at 10:20:50 is within 60 s of the return, but noticed only
+        # after the all-clear went out: a new incident with its own alarm.
+        self.set_state("offline", berlin(9, 50))
+        self.cycle(berlin(10, 5))
+        self.set_state("live")
+        self.cycle(berlin(10, 20))
+        self.cycle(berlin(10, 21, 1))
+        self.set_state("offline", berlin(10, 20, 50))
+        self.cycle(berlin(10, 21, 10))
+        first, second = Incident.objects.order_by("started_at", "pk")
+        self.assertEqual(first.ended_at, berlin(10, 20))
+        self.assertEqual(first.all_clear_at, berlin(10, 21, 1))
+        self.assertIsNone(second.ended_at)
+        self.assertEqual(second.started_at, berlin(10, 20, 50))
+        self.assertEqual(second.alerted_at, berlin(10, 21, 10))
+        self.assertEqual(
+            self.subjects(),
+            ["[ansehBAR] Stream fehlt: Hörsaal A"] * 4
+            + ["[ansehBAR] Stream wieder da: Hörsaal A"] * 2,
+        )
+
     def test_deactivated_recorder_not_alarmed(self):
         self.recorder.active = False
         self.recorder.save()
