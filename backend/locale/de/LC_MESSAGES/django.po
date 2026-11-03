@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ansehBAR\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-03 13:35+0100\n"
+"POT-Creation-Date: 2026-11-03 13:41+0100\n"
 "Language: de\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
@@ -25,6 +25,20 @@ msgstr "Dieses Feld darf nicht leer sein."
 msgid "Already invited."
 msgstr "Bereits eingeladen."
 
+#: alarms/delivery.py:159
+#, python-format
+msgid "[ansehBAR] Stream back: %(room)s"
+msgstr "[ansehBAR] Stream wieder da: %(room)s"
+
+#: alarms/delivery.py:161
+#, python-format
+msgid "[ansehBAR] Stream missing: %(room)s"
+msgstr "[ansehBAR] Stream fehlt: %(room)s"
+
+#: alarms/delivery.py:181
+msgid "[ansehBAR] Test alarm"
+msgstr "[ansehBAR] Testalarm"
+
 #: alarms/serializers.py:38
 msgid "This user has no e-mail address."
 msgstr "Dieser Benutzer hat keine E-Mail-Adresse."
@@ -36,6 +50,50 @@ msgstr "Gib eine E-Mail-Adresse oder einen Benutzer an."
 #: alarms/serializers.py:48
 msgid "This e-mail address is already a recipient."
 msgstr "Diese E-Mail-Adresse ist bereits Empfänger."
+
+#: alarms/templates/alarms/incident.txt:3
+msgid "Stream back"
+msgstr "Stream wieder da"
+
+#: alarms/templates/alarms/incident.txt:3
+msgid "Stream missing"
+msgstr "Stream fehlt"
+
+#: alarms/templates/alarms/incident.txt:5
+msgid "Room"
+msgstr "Raum"
+
+#: alarms/templates/alarms/incident.txt:6
+msgid "Stream"
+msgstr "Stream"
+
+#: alarms/templates/alarms/incident.txt:7
+msgid "Event"
+msgstr "Termin"
+
+#: alarms/templates/alarms/incident.txt:8
+msgid "Series"
+msgstr "Serie"
+
+#: alarms/templates/alarms/incident.txt:9
+msgid "Scheduled"
+msgstr "Geplant"
+
+#: alarms/templates/alarms/incident.txt:10
+msgid "Missing since"
+msgstr "Fehlt seit"
+
+#: alarms/templates/alarms/incident.txt:11
+msgid "Back since"
+msgstr "Wieder da seit"
+
+#: alarms/templates/alarms/test.txt:3
+msgid ""
+"This is a test message from ansehBAR. Stream alarms will reach you at this "
+"address."
+msgstr ""
+"Dies ist eine Testnachricht von ansehBAR. Stream-Alarme erreichen dich unter "
+"dieser Adresse."
 
 #: opencast/views.py:27
 msgid "Opencast is not configured."

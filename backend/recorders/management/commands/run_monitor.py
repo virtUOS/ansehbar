@@ -13,6 +13,7 @@ from django.core.management.base import BaseCommand
 from django.db import close_old_connections, connections
 from django.utils import timezone
 
+from alarms.delivery import deliver_alarms
 from opencast.client import OpencastClient, OpencastError
 from opencast.models import OpencastSyncState
 from opencast.sync import opencast_sync_enabled, run_opencast_sync
@@ -185,6 +186,11 @@ class Command(BaseCommand):
             except Exception:
                 # Incident bookkeeping must never stop the stream cycle.
                 logger.exception("updating incidents failed")
+            try:
+                deliver_alarms(now)
+            except Exception:
+                # Alarm delivery must never stop the stream cycle either.
+                logger.exception("delivering alarms failed")
             counts = {
                 state: RecorderStatus.objects.filter(
                     state=state, recorder__active=True
