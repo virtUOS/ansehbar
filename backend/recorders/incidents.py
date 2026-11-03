@@ -77,8 +77,9 @@ def update_incidents(now: datetime) -> None:
             incident.save(update_fields=["ended_at"])
 
         # Latest recovered incident per (recorder, event) that may still turn
-        # out to be a flicker. The window counts from the drop (offline_since),
-        # not from this run, so the margin covers the detection lag. Once its
+        # out to be a flicker. The window counts from the detected drop
+        # (offline_since, set when the monitor noticed it), not from this run,
+        # so the margin covers the time until this run. Once its
         # all-clear exists an incident stays closed: a later drop is new.
         recently_recovered = {}
         for incident in Incident.objects.filter(

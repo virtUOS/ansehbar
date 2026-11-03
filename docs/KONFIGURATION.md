@@ -414,9 +414,11 @@ Termin erst nach c.t., wird er nicht zusätzlich verschoben.
   Schwelle überschritten ist. Es werden nur Vorfälle alarmiert, deren Termin
   noch läuft: Alte offene Vorfälle (etwa nach einem Deploy) lösen nichts aus.
 - Kommt der Stream zurück und fällt innerhalb von 60 Sekunden wieder aus
-  (gemessen ab dem Ausfall), gilt es als derselbe Vorfall: kein neuer Alarm.
-- **Entwarnung:** Bleibt der Stream mindestens 60 Sekunden stabil, geht eine
-  Entwarnung an dieselben Empfänger. Endet der Termin bei fehlendem Stream,
+  (gemessen ab dem erkannten Ausfall, also dem Prüflauf, der ihn bemerkt),
+  gilt es als derselbe Vorfall: kein neuer Alarm.
+- **Entwarnung:** Bleibt der Stream nach einem Alarm mindestens 60 Sekunden
+  stabil, geht eine Entwarnung an die dann aktiven Empfänger. Ohne vorherigen
+  Alarm gibt es keine Entwarnung. Endet der Termin bei fehlendem Stream,
   gibt es keine Entwarnung. Fällt der Stream nach einer Entwarnung erneut aus,
   entsteht ein neuer Vorfall mit eigenem Alarm.
 

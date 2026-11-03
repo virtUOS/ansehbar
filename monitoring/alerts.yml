@@ -3,6 +3,8 @@
 #
 # Prometheus alert rules for ansehBAR. The operators of the monitoring stack
 # load this file; there are no all-clears from there (see docs/monitoring.md).
+# Rules cannot suppress Alertmanager's "resolved" notifications: set
+# `send_resolved: false` on the receiver (route) that handles ansehBAR alerts.
 groups:
   - name: ansehbar
     rules:

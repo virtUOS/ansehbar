@@ -18,7 +18,10 @@ Diese Anleitung richtet sich an die Betreuung des Servers.
 > **Zuständigkeit:** Die Betreiber des Monitorings spielen `monitoring/alerts.yml`
 > und den Scrape-Eintrag ein. **Entwarnungen gibt es dort nicht:** der
 > Monitoring-Dienst meldet nur den Alarm, die Entwarnung („Stream wieder da“)
-> kommt ausschließlich per E-Mail von ansehBAR.
+> kommt ausschließlich per E-Mail von ansehBAR. Die Regeln allein können
+> Alertmanager nicht davon abhalten, beim Ende eines Alarms eine
+> „resolved“-Meldung zu schicken: Im Receiver (bzw. der Route) für ansehBAR
+> deshalb `send_resolved: false` setzen.
 
 ## Überblick
 

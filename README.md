@@ -152,6 +152,7 @@ Umgebungsvariablen (siehe `.env.prod.example`).
 | `OPENCAST_LOOKBACK_DAYS` | Tage Rückblick für den Hinweis „Letzte Aufzeichnung hatte Probleme“ | `7` |
 | `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `EMAIL_USE_TLS` (`1`/`0`), `EMAIL_TIMEOUT` | SMTP-Zugang für Alarm-E-Mails (siehe [Konfigurationsanleitung](docs/KONFIGURATION.md#7-alarme-e-mail-und-metriken)) | `localhost`, `25`, leer, leer, `0`, `10` |
 | `DEFAULT_FROM_EMAIL` | Absender der Alarm-E-Mails | `ansehbar@localhost` |
+| `EMAIL_BACKEND` | Django-E-Mail-Backend, nur zum Überschreiben (etwa für Tests) | SMTP; mit `DEBUG` die Konsole |
 | `ALARM_LANGUAGE` | Sprache der Alarm-E-Mails (`de`/`en`), für alle Empfänger gleich | `de` |
 | `METRICS_TOKEN` | Bearer-Token für `/metrics`; leer = Endpoint aus (404). Siehe [Monitoring](docs/monitoring.md) | leer |
 | `ANSEHBAR_SITE_CONFIG` | Pfad der Standortkonfiguration für `load_site_config` (siehe „Standortkonfiguration“) | `backend/site.local.json` |
