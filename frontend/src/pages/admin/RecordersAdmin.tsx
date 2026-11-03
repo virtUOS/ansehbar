@@ -15,6 +15,7 @@ import { AgentStateText } from "../../components/AgentStateText";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { SyncNowButton } from "../../components/SyncNowButton";
 import { displayName, formatClock, opencastNotice, sortForAdmin } from "../../recorders";
+import { opencastNoticeText } from "../../opencastTexts";
 import type { MonitorHealth } from "../../api";
 
 const iconBtn =
@@ -140,19 +141,7 @@ export function RecordersAdmin() {
   };
 
   const notice = health ? opencastNotice(health) : { level: null, key: null };
-  // Literal keys, so check:i18n sees them.
-  const noticeTexts: Record<string, string> = {
-    "Opencast not reachable": t("Opencast not reachable"),
-    "Opencast rejected the login": t("Opencast rejected the login"),
-    "No permission in Opencast": t("No permission in Opencast"),
-    "Opencast did not answer in time": t("Opencast did not answer in time"),
-    "Opencast server error": t("Opencast server error"),
-    "Unexpected answer from Opencast": t("Unexpected answer from Opencast"),
-    "Opencast shows no scheduled recordings – check the account's permissions": t(
-      "Opencast shows no scheduled recordings – check the account's permissions",
-    ),
-  };
-  const noticeText = notice.key ? noticeTexts[notice.key] : "";
+  const noticeText = opencastNoticeText(t, notice.key);
 
   const current = typeof editing === "number" ? recorders.find((r) => r.id === editing) : undefined;
 
@@ -181,6 +170,11 @@ export function RecordersAdmin() {
             </span>
           ) : null}
         </div>
+      ) : health?.opencast.insecure_url ? (
+        <p role="status" className="inline-flex items-center gap-1 text-sm font-bold text-amber-900 dark:text-amber-300">
+          <span aria-hidden>⚠</span>
+          {noticeText}
+        </p>
       ) : null}
       <p role="status" className="min-h-5 text-sm text-slate-700 dark:text-slate-300">
         {message}

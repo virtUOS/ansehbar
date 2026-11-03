@@ -11,6 +11,9 @@ from accounts.permissions import HasAccess
 from opencast.models import IgnoredAgent, OpencastSyncState
 from opencast.sync import opencast_sync_enabled
 
+# "Sync now" right after an attempt adds nothing: ignore it for this long.
+SYNC_REQUEST_MIN_SECONDS = 10
+
 
 class OpencastSyncRequestView(APIView):
     """Ask the monitor for an Opencast sync soon. Read-only towards Opencast."""
@@ -23,8 +26,14 @@ class OpencastSyncRequestView(APIView):
         if not opencast_sync_enabled():
             return Response({"detail": _("Opencast is not configured.")}, status=409)
         state = OpencastSyncState.load()
-        state.requested_at = timezone.now()
-        state.save(update_fields=["requested_at"])
+        now = timezone.now()
+        recent = state.last_attempt_at is not None and (
+            (now - state.last_attempt_at).total_seconds() < SYNC_REQUEST_MIN_SECONDS
+        )
+        # Repeated clicks: a pending request or a fresh attempt already covers it.
+        if not state.sync_requested and not recent:
+            state.requested_at = now
+            state.save(update_fields=["requested_at"])
         return Response({"requested_at": state.requested_at}, status=202)
 
 

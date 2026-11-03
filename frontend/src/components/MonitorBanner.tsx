@@ -4,7 +4,8 @@
 import { useTranslation } from "react-i18next";
 import { Info, TriangleAlert } from "lucide-react";
 import { SyncNowButton } from "./SyncNowButton";
-import { formatClock, type OpencastNotice } from "../recorders";
+import { formatClock, OPENCAST_INSECURE, type OpencastNotice } from "../recorders";
+import { opencastNoticeText } from "../opencastTexts";
 
 /** Shown when the monitor process stopped delivering (statuses are frozen),
  *  and, independently, for Opencast: the immediate sync error or hint, else
@@ -30,18 +31,6 @@ export function MonitorBanner({
   if (!stale && !opencastStale && !showNotice) return null;
   const box =
     "flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border-2 border-amber-500 bg-amber-100 px-3 py-2 font-bold text-amber-950";
-  // Literal keys, so check:i18n sees them.
-  const texts: Record<string, string> = {
-    "Opencast not reachable": t("Opencast not reachable"),
-    "Opencast rejected the login": t("Opencast rejected the login"),
-    "No permission in Opencast": t("No permission in Opencast"),
-    "Opencast did not answer in time": t("Opencast did not answer in time"),
-    "Opencast server error": t("Opencast server error"),
-    "Unexpected answer from Opencast": t("Unexpected answer from Opencast"),
-    "Opencast shows no scheduled recordings – check the account's permissions": t(
-      "Opencast shows no scheduled recordings – check the account's permissions",
-    ),
-  };
   const syncButton = (
     <SyncNowButton
       requested={opencastRequested}
@@ -68,8 +57,9 @@ export function MonitorBanner({
           ) : (
             <TriangleAlert aria-hidden className="h-5 w-5 shrink-0" />
           )}
-          <span className="min-w-0 flex-1">{texts[opencastNotice.key ?? ""] ?? ""}</span>
-          {syncButton}
+          <span className="min-w-0 flex-1">{opencastNoticeText(t, opencastNotice.key)}</span>
+          {/* Syncing cannot help against a refused URL (the server says 409). */}
+          {opencastNotice.key === OPENCAST_INSECURE ? null : syncButton}
         </div>
       ) : opencastStale ? (
         <div role="status" className={box}>

@@ -251,8 +251,21 @@ class MonitorSettingsApiTests(TestCase):
         )
         self.assertEqual(
             set(block),
-            {"enabled", "last_success", "sync_seconds", "last_attempt", "error_kind", "requested"},
+            {
+                "enabled", "insecure_url", "last_success", "sync_seconds",
+                "last_attempt", "error_kind", "requested",
+            },
         )
+        self.assertEqual(block["insecure_url"], False)
+
+    @override_settings(OPENCAST_URL="http://opencast.example.org", DEBUG=False)
+    def test_health_reports_insecure_opencast_url(self):
+        block = self.client.get("/api/monitor/health/").json()["opencast"]
+        self.assertEqual(block["enabled"], False)
+        self.assertEqual(block["insecure_url"], True)
+        with override_settings(OPENCAST_URL=""):
+            block = self.client.get("/api/monitor/health/").json()["opencast"]
+        self.assertEqual(block["insecure_url"], False)
 
     @override_settings(OPENCAST_URL="https://opencast.example.org")
     def test_health_reports_request_and_error_kind(self):
@@ -549,7 +562,7 @@ class RunMonitorOpencastTests(TestCase):
         with self.assertLogs(MONITOR, level="DEBUG"):
             self._run(mock.Mock(side_effect=failing_sync))
         state = OpencastSyncState.load()
-        self.assertEqual(state.last_error_kind, "invalid")
+        self.assertEqual(state.last_error_kind, "internal")
         self.assertEqual(state.last_attempt_at, started[0])
 
     @override_settings(OPENCAST_URL="https://opencast.example.org")
@@ -1221,10 +1234,8 @@ class RecorderEventApiTests(TestCase):
                 self.assertEqual(self.problems(berlin(15, day=9)), [])
 
     def confirmed(self, at):
-        """Opencast sync last succeeded at `at`."""
-        OpencastSyncState.objects.update_or_create(
-            pk=1, defaults={"last_success_at": at}
-        )
+        """A successful Opencast sync last delivered the events at `at`."""
+        ScheduledEvent.objects.update(seen_at=at)
 
     def test_scheduled_after_end_is_not_started(self):
         self.ended("EVENTS.EVENTS.STATUS.SCHEDULED")
@@ -1264,6 +1275,16 @@ class RecorderEventApiTests(TestCase):
         self.assertEqual(
             self.problems(berlin(12, 31, day=9)), [{"kind": "not_finished"}]
         )
+
+    def test_event_deleted_in_opencast_is_not_confirmed(self):
+        # The sync succeeds after the deadline but no longer delivers the
+        # event (deleted in Opencast): its stored status stays unconfirmed.
+        self.ended("EVENTS.EVENTS.STATUS.SCHEDULED")
+        self.confirmed(berlin(11, day=9))
+        OpencastSyncState.objects.update_or_create(
+            pk=1, defaults={"last_success_at": berlin(13, day=9)}
+        )
+        self.assertEqual(self.problems(berlin(13, day=9)), [])
 
     def test_failure_kinds_do_not_need_confirmation(self):
         self.ended("EVENTS.EVENTS.STATUS.RECORDING_FAILURE")

@@ -166,5 +166,7 @@
   "Recording did not start": "Aufzeichnung wurde nicht gestartet",
   "Recording did not finish": "Aufzeichnung wurde nicht abgeschlossen",
   "Last recording had problems": "Letzte Aufzeichnung hatte Probleme",
-  "{{title}}, {{day}} {{from}}–{{to}}": "{{title}}, {{day}} {{from}}–{{to}}"
+  "{{title}}, {{day}} {{from}}–{{to}}": "{{title}}, {{day}} {{from}}–{{to}}",
+  "Internal error during the Opencast sync": "Interner Fehler beim Opencast-Abgleich",
+  "Opencast sync disabled – OPENCAST_URL must use https://": "Opencast-Abgleich abgeschaltet – OPENCAST_URL muss https:// verwenden"
 }
