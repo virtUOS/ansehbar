@@ -135,11 +135,17 @@ class MonitorHealthView(APIView):
         )["last"]
         # filter().first(): a GET must not create the singleton row.
         sync_state = OpencastSyncState.objects.filter(pk=1).first()
+        monitor_settings = MonitorSettings.objects.filter(pk=1).first() or MonitorSettings()
         return Response(
             {
                 "last_check": last_check,
                 "now": timezone.now(),
                 "interval_seconds": settings.MONITOR_INTERVAL_SECONDS,
+                # For grouping the schedule into recording slots.
+                "slots": {
+                    "minutes": monitor_settings.slot_minutes,
+                    "offset_minutes": monitor_settings.slot_offset_minutes,
+                },
                 "opencast": {
                     "enabled": opencast_sync_enabled(),
                     "last_success": sync_state.last_success_at if sync_state else None,

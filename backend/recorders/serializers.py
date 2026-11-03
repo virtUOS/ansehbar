@@ -4,6 +4,7 @@
 from datetime import timedelta
 
 from django.utils import timezone
+from django.utils.translation import gettext as _
 from rest_framework import serializers
 
 from recorders.missing import missing_since
@@ -28,6 +29,8 @@ class RecorderSerializer(serializers.ModelSerializer):
     current_event = serializers.SerializerMethodField()
     next_event = serializers.SerializerMethodField()
     next_event_tomorrow = serializers.SerializerMethodField()
+    upcoming_today = serializers.SerializerMethodField()
+    upcoming_tomorrow = serializers.SerializerMethodField()
     missing_since = serializers.SerializerMethodField()
     last_recording = serializers.SerializerMethodField()
 
@@ -45,6 +48,8 @@ class RecorderSerializer(serializers.ModelSerializer):
             "current_event",
             "next_event",
             "next_event_tomorrow",
+            "upcoming_today",
+            "upcoming_tomorrow",
             "missing_since",
             "last_recording",
         ]
@@ -126,6 +131,30 @@ class RecorderSerializer(serializers.ModelSerializer):
                 return self._event_data(event)
         return None
 
+    def get_upcoming_today(self, obj):
+        """All events starting later today (local), soonest first."""
+        now = self.context.get("now") or timezone.now()
+        day_end = self.context.get("day_end")
+        if day_end is None:
+            return []
+        return [
+            self._event_data(e)
+            for e in self._events(obj)
+            if now < e.start < day_end
+        ]
+
+    def get_upcoming_tomorrow(self, obj):
+        """All events starting within the next local day, soonest first."""
+        day_start = self.context.get("day_end")
+        day_end = self.context.get("tomorrow_end")
+        if day_start is None or day_end is None:
+            return []
+        return [
+            self._event_data(e)
+            for e in self._events(obj)
+            if day_start <= e.start < day_end
+        ]
+
     def get_last_recording(self, obj):
         """Latest ended event of the lookback window with its problems."""
         event = self.context.get("last_events", {}).get(obj.pk)
@@ -193,4 +222,21 @@ class RecorderSerializer(serializers.ModelSerializer):
 class MonitorSettingsSerializer(serializers.ModelSerializer):
     class Meta:
         model = MonitorSettings
-        fields = ["url_template", "stale_factor", "missing_grace_minutes"]
+        fields = [
+            "url_template",
+            "stale_factor",
+            "missing_grace_minutes",
+            "slot_minutes",
+            "slot_offset_minutes",
+        ]
+
+    def validate(self, attrs):
+        minutes = attrs.get("slot_minutes", self.instance and self.instance.slot_minutes)
+        offset = attrs.get(
+            "slot_offset_minutes", self.instance and self.instance.slot_offset_minutes
+        )
+        if minutes and offset is not None and offset >= minutes:
+            raise serializers.ValidationError(
+                {"slot_offset_minutes": _("Must be shorter than the slot length.")}
+            )
+        return attrs

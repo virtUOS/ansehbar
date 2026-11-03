@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ansehBAR\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-02 17:59+0100\n"
+"POT-Creation-Date: 2026-11-03 10:21+0100\n"
 "Language: de\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
@@ -25,9 +25,13 @@ msgstr "Dieses Feld darf nicht leer sein."
 msgid "Already invited."
 msgstr "Bereits eingeladen."
 
-#: opencast/views.py:22
+#: opencast/views.py:24
 msgid "Opencast is not configured."
 msgstr "Opencast ist nicht konfiguriert."
+
+#: recorders/serializers.py:240
+msgid "Must be shorter than the slot length."
+msgstr "Muss kürzer als die Slotlänge sein."
 
 #: recorders/validators.py:19
 msgid ""
@@ -50,6 +54,6 @@ msgstr "Die URL-Vorlage muss {stream} genau einmal enthalten."
 msgid "The URL template must not contain other braces."
 msgstr "Die URL-Vorlage darf keine weiteren geschweiften Klammern enthalten."
 
-#: recorders/views.py:47
+#: recorders/views.py:48
 msgid "Only deactivated recorders can be deleted."
 msgstr "Nur deaktivierte Rekorder können gelöscht werden."

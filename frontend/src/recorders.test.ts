@@ -27,8 +27,8 @@ import {
   sortForOverview,
   stateTransition,
   untilParts,
-  upcomingToday,
-  upcomingTomorrow,
+  groupBySlot,
+  slotOf,
   showTomorrow,
   problemTexts,
   lastRecordingRef,
@@ -49,6 +49,8 @@ function rec(id: number, room: string, state: Recorder["status"]["state"] = "off
     current_event: null,
     next_event: null,
     next_event_tomorrow: null,
+    upcoming_today: [],
+    upcoming_tomorrow: [],
     missing_since: null,
     last_recording: null,
   };
@@ -189,14 +191,14 @@ describe("monitorStale", () => {
   const now = "2026-01-01T12:00:00Z";
   const oc = { enabled: false, last_success: null, sync_seconds: 60, last_attempt: null, error_kind: "", requested: false };
   it("is fresh within three intervals (server clock)", () => {
-    expect(monitorStale({ now, last_check: "2026-01-01T11:59:30Z", interval_seconds: 10, opencast: oc }, true)).toBe(false);
+    expect(monitorStale({ now, last_check: "2026-01-01T11:59:30Z", interval_seconds: 10, slots: { minutes: 120, offset_minutes: 0 }, opencast: oc }, true)).toBe(false);
   });
   it("is stale beyond three intervals", () => {
-    expect(monitorStale({ now, last_check: "2026-01-01T11:59:29Z", interval_seconds: 10, opencast: oc }, true)).toBe(true);
+    expect(monitorStale({ now, last_check: "2026-01-01T11:59:29Z", interval_seconds: 10, slots: { minutes: 120, offset_minutes: 0 }, opencast: oc }, true)).toBe(true);
   });
   it("is stale without any check only while active recorders exist", () => {
-    expect(monitorStale({ now, last_check: null, interval_seconds: 10, opencast: oc }, true)).toBe(true);
-    expect(monitorStale({ now, last_check: null, interval_seconds: 10, opencast: oc }, false)).toBe(false);
+    expect(monitorStale({ now, last_check: null, interval_seconds: 10, slots: { minutes: 120, offset_minutes: 0 }, opencast: oc }, true)).toBe(true);
+    expect(monitorStale({ now, last_check: null, interval_seconds: 10, slots: { minutes: 120, offset_minutes: 0 }, opencast: oc }, false)).toBe(false);
   });
 });
 
@@ -226,7 +228,6 @@ describe("missing presentation", () => {
 
 describe("today mode, search and event helpers", () => {
   const withNext = { ...rec(1, "A"), next_event: ev("Lecture", "2026-01-01T13:00:00Z") };
-  const earlier = { ...rec(2, "B"), next_event: ev("Seminar", "2026-01-01T12:30:00Z") };
   const quiet = rec(3, "C");
   const inactive = { ...rec(4, "D"), active: false, next_event: ev("X", "2026-01-01T12:10:00Z") };
   const now = new Date("2026-01-01T12:00:00Z");
@@ -237,9 +238,6 @@ describe("today mode, search and event helpers", () => {
   it("search matches agent_id", () => {
     const r = { ...rec(5, "E"), agent_id: "rec-hall" };
     expect(filterOverview([r, quiet], "all", "REC-HALL").map((x) => x.id)).toEqual([5]);
-  });
-  it("upcomingToday sorts by start and skips inactive", () => {
-    expect(upcomingToday([withNext, earlier, quiet, inactive], now).map((r) => r.id)).toEqual([2, 1]);
   });
   it("quietToday lists active recorders without events", () => {
     expect(quietToday([withNext, quiet, inactive]).map((r) => r.id)).toEqual([3]);
@@ -269,7 +267,7 @@ describe("opencastStale", () => {
   const h = (enabled: boolean, last_success: string | null): MonitorHealth => ({
     last_check: null,
     now: "2026-01-01T12:00:00Z",
-    interval_seconds: 10,
+    interval_seconds: 10, slots: { minutes: 120, offset_minutes: 0 },
     opencast: { enabled, last_success, sync_seconds: 60, last_attempt: null, error_kind: "", requested: false },
   });
   it("is false when disabled, true without success", () => {
@@ -351,7 +349,7 @@ describe("opencastNotice", () => {
   const h = (enabled: boolean, error_kind: string): MonitorHealth => ({
     last_check: null,
     now: "2026-01-01T12:00:00Z",
-    interval_seconds: 10,
+    interval_seconds: 10, slots: { minutes: 120, offset_minutes: 0 },
     opencast: { enabled, last_success: null, sync_seconds: 60, last_attempt: null, error_kind, requested: false },
   });
   it("is empty without an error", () => {
@@ -390,15 +388,6 @@ describe("tomorrow preview", () => {
   const at = (h: number, m = 0) => new Date(2026, 10, 2, h, m);
   const today = { ...rec(1, "A"), next_event: ev("L", "2026-11-02T15:00:00Z") };
 
-  it("upcomingTomorrow sorts by start and skips inactive", () => {
-    const list = [
-      tom(1, "2026-11-03T09:00:00Z"),
-      tom(2, "2026-11-03T07:00:00Z"),
-      tom(3, "2026-11-03T06:00:00Z", { active: false }),
-      rec(4, "D"),
-    ];
-    expect(upcomingTomorrow(list).map((r) => r.id)).toEqual([2, 1]);
-  });
 
   it("is hidden before 17:00 while recordings remain today", () => {
     expect(showTomorrow([today, tom(2, "2026-11-03T07:00:00Z")], at(16, 59))).toBe(false);
@@ -501,5 +490,53 @@ describe("mergeRecorders last_recording", () => {
     expect(mergeRecorders(prev, [withLr("not_started")])).toBe(prev);
     expect(mergeRecorders(prev, [withLr("not_finished")])[0]).not.toBe(prev[0]);
     expect(mergeRecorders(prev, [rec(1, "a")])[0]).not.toBe(prev[0]);
+  });
+});
+
+describe("recording slots", () => {
+  // Local times, so the tests do not depend on the machine's time zone.
+  const local = (h: number, m = 0, day = 3) => new Date(2026, 10, day, h, m);
+  const span = (from: Date, to: Date): EventBrief => ({
+    title: "T",
+    series: "",
+    start: from.toISOString(),
+    end: to.toISOString(),
+  });
+  const two = { minutes: 120, offset_minutes: 0 };
+
+  it("slotOf finds 2-hour slots at even hours", () => {
+    expect(slotOf(local(10, 15), two)).toEqual({ start: local(10), end: local(12) });
+    expect(slotOf(local(11, 59), two)).toEqual({ start: local(10), end: local(12) });
+    expect(slotOf(local(12), two)).toEqual({ start: local(12), end: local(14) });
+  });
+  it("slotOf honours an offset, also before it on the same day", () => {
+    const cfg = { minutes: 90, offset_minutes: 15 };
+    expect(slotOf(local(8, 50), cfg)).toEqual({ start: local(7, 45), end: local(9, 15) });
+    expect(slotOf(local(0, 5), cfg)).toEqual({ start: local(22, 45, 2), end: local(0, 15) });
+  });
+  it("groups events by slot, marks deviations and sorts rooms numerically", () => {
+    const r = (id: number, room: string, events: EventBrief[]): Recorder => ({ ...rec(id, room), upcoming_today: events });
+    const list = [
+      r(1, "93/E31", [span(local(10), local(12)), span(local(14), local(16))]),
+      r(2, "15/E10", [span(local(10), local(12))]),
+      r(3, "15/E2", [span(local(10), local(12))]),
+      r(4, "35/E01", [span(local(10, 30), local(11, 45))]),
+      { ...r(5, "11/E1", [span(local(10), local(12))]), active: false },
+    ];
+    const groups = groupBySlot(list, "today", two);
+    expect(groups.map((g) => g.start)).toEqual([local(10), local(14)]);
+    expect(groups[0].rows.map((row) => row.recorder.room_name)).toEqual(["15/E2", "15/E10", "93/E31", "35/E01"]);
+    expect(groups[0].rows.map((row) => [row.startsOff, row.endsOff])).toEqual([
+      [false, false],
+      [false, false],
+      [false, false],
+      [true, true],
+    ]);
+  });
+  it("uses the tomorrow list for tomorrow", () => {
+    const r = { ...rec(1, "A"), upcoming_tomorrow: [span(local(8, 0, 4), local(10, 30, 4))] };
+    const [group] = groupBySlot([r], "tomorrow", two);
+    expect(group.start).toEqual(local(8, 0, 4));
+    expect([group.rows[0].startsOff, group.rows[0].endsOff]).toEqual([false, true]);
   });
 });

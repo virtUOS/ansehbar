@@ -363,6 +363,11 @@ eintragen, nie ins Repository.
    Vorschau) und die „Toleranz bis „Stream beendet““. Ein Stream gilt als live, solange
    sich seine Media-Sequence innerhalb von *Toleranz × Segmentdauer* ändert;
    Standard 3, erlaubt 2 bis 10.
+   Außerdem die **Aufzeichnungs-Slots**: Länge (Standard 120 Minuten, erlaubt
+   15 bis 480) und Beginn nach Mitternacht (Standard 0, also Slots zu geraden
+   Stunden; muss kürzer als die Länge sein). Die Übersicht gruppiert „Heute
+   noch geplant“ und „Morgen“ nach diesen Slots und markiert Termine, deren
+   Beginn oder Ende vom Slot abweicht.
 4. Unter **Verwaltung → Einladungen** weitere Personen ohne
    Gruppenmitgliedschaft freischalten.
 5. Sobald Gruppe und Einladungen tragen, kann `ANSEHBAR_BOOTSTRAP_USERS`

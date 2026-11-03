@@ -8,7 +8,7 @@ import { ApiError, api } from "../../api";
 import { useAppContext } from "../../appContext";
 import { Field, FormErrorSummary, inputCls } from "../../components/FormParts";
 
-const FIELDS = ["url_template", "stale_factor", "missing_grace_minutes"];
+const FIELDS = ["url_template", "stale_factor", "missing_grace_minutes", "slot_minutes", "slot_offset_minutes"];
 const NO_ERRORS: FormErrors = { fields: {}, general: [] };
 
 export function SettingsAdmin() {
@@ -17,6 +17,8 @@ export function SettingsAdmin() {
   const [template, setTemplate] = useState("");
   const [stale, setStale] = useState("3");
   const [grace, setGrace] = useState("10");
+  const [slotMinutes, setSlotMinutes] = useState("120");
+  const [slotOffset, setSlotOffset] = useState("0");
   const [firstStream, setFirstStream] = useState<string | undefined>();
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState("");
@@ -33,6 +35,8 @@ export function SettingsAdmin() {
         setTemplate(s.url_template);
         setStale(String(s.stale_factor));
         setGrace(String(s.missing_grace_minutes));
+        setSlotMinutes(String(s.slot_minutes));
+        setSlotOffset(String(s.slot_offset_minutes));
         setFirstStream(recs[0]?.stream_name);
         setLoaded(true);
       })
@@ -54,10 +58,14 @@ export function SettingsAdmin() {
     try {
       const result = await api.settings.put({ url_template: template.trim(), stale_factor: Number(stale),
         missing_grace_minutes: Number(grace),
+        slot_minutes: Number(slotMinutes),
+        slot_offset_minutes: Number(slotOffset),
       });
       setTemplate(result.url_template);
       setStale(String(result.stale_factor));
       setGrace(String(result.missing_grace_minutes));
+      setSlotMinutes(String(result.slot_minutes));
+      setSlotOffset(String(result.slot_offset_minutes));
       setSaved(true);
     } catch (err) {
       setErrors(splitErrors(err, FIELDS));
@@ -121,6 +129,44 @@ export function SettingsAdmin() {
               step={1}
               value={grace}
               onChange={(e) => { setGrace(e.target.value); setSaved(false); }}
+              className={`${inputCls} max-w-32`}
+            />
+          )}
+        </Field>
+        <Field
+          label={t("Recording slot length (minutes)")}
+          errors={errors.fields.slot_minutes}
+          hint={t("Groups the upcoming recordings; times that differ from their slot are marked.")}
+        >
+          {(p) => (
+            <input
+              {...p}
+              required
+              type="number"
+              min={15}
+              max={480}
+              step={5}
+              value={slotMinutes}
+              onChange={(e) => { setSlotMinutes(e.target.value); setSaved(false); }}
+              className={`${inputCls} max-w-32`}
+            />
+          )}
+        </Field>
+        <Field
+          label={t("First slot starts after midnight (minutes)")}
+          errors={errors.fields.slot_offset_minutes}
+          hint={t("0 with 120-minute slots: slots start at even hours (8:00, 10:00, …); 60: at odd hours.")}
+        >
+          {(p) => (
+            <input
+              {...p}
+              required
+              type="number"
+              min={0}
+              max={479}
+              step={5}
+              value={slotOffset}
+              onChange={(e) => { setSlotOffset(e.target.value); setSaved(false); }}
               className={`${inputCls} max-w-32`}
             />
           )}
