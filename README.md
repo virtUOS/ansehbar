@@ -187,7 +187,7 @@ Hinweise:
   ihn in der Raumansicht und alarmiert bei langer Stille. Kalibrieren der
   Schwelle: `docker compose exec backend python manage.py measure_audio <stream>`
   (siehe Konfigurationsanleitung, Abschnitt 7). Jede Messung lädt den Stream
-  etwa 10 Sekunden lang (ca. 2 bis 4 Mbit/s).
+  für `AUDIO_SAMPLE_SECONDS` (Standard 10 Sekunden, ca. 2 bis 4 Mbit/s).
 - Die Stream-URL-Vorlage und der Frische-Faktor stehen im Frontend unter
   „Verwaltung → Einstellungen“.
 - Backend-Texte sind englische gettext-Schlüssel, die deutschen Übersetzungen

@@ -515,7 +515,7 @@ class DeliveryTests(TestCase):
         (message,) = mail.outbox
         self.assertEqual(message.subject, "[ansehBAR] Testalarm")
         self.assertEqual(message.to, ["a@example.org"])
-        self.assertTrue(message.body)
+        self.assertIn("Stream- und Ton-Alarme", message.body)
         note = SentNotification.objects.get()
         self.assertEqual(note.subject, "[ansehBAR] Testalarm")
         self.assertEqual(note.sent_at, berlin(10, 5))

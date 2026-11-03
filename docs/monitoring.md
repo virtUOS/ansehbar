@@ -118,7 +118,7 @@ Alle Werte sind **Gauges**.
 | Kennzahl | Labels | Bedeutung |
 |---|---|---|
 | `ansehbar_stream_missing_alarm` | `room`, `stream` | `1`, wenn für den Rekorder ein offener, alarmierter Vorfall besteht, sonst `0`. Gemeldet für alle aktiven Rekorder, deren Alarmmodus nicht „aus“ ist. Entfällt ganz, wenn der Kanal „Metriken“ (Alarm-Einstellung `alarm_metrics_enabled`) aus ist. |
-| `ansehbar_audio_silent_alarm` | `room`, `stream` | `1`, wenn für den Rekorder ein offener, alarmierter Ton-Vorfall („Ton fehlt“) besteht, sonst `0`. Gleiche Rekorderauswahl und gleicher Kanal „Metriken“ wie bei `ansehbar_stream_missing_alarm`. |
+| `ansehbar_audio_silent_alarm` | `room`, `stream` | `1`, wenn für den Rekorder ein offener, alarmierter Ton-Vorfall („Ton fehlt“, Stille länger als die eingestellte Alarmzeit „Alarm bei Stille ab“) besteht, sonst `0`. Gleiche Rekorderauswahl und gleicher Kanal „Metriken“ wie bei `ansehbar_stream_missing_alarm`. |
 | `ansehbar_monitor_last_check_timestamp_seconds` | — | Unix-Zeit der letzten Prüfung eines aktiven Rekorders; fehlt, solange noch nie geprüft wurde. |
 | `ansehbar_opencast_enabled` | — | `1`, wenn die Opencast-Anbindung aktiv ist, sonst `0`. |
 | `ansehbar_opencast_last_success_timestamp_seconds` | — | Unix-Zeit des letzten erfolgreichen Opencast-Abgleichs; nur bei aktiver Anbindung und nach einem ersten Erfolg. |

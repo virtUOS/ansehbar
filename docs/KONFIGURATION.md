@@ -430,11 +430,16 @@ Termin erst nach c.t., wird er nicht zusätzlich verschoben.
 
 Zusätzlich zum Stream prüft der Monitor in einem eigenen Thread den Ton.
 Mit ffmpeg misst er den mittleren Pegel (`mean_volume`, dBFS) über ein Fenster
-von `AUDIO_SAMPLE_SECONDS` (10 s). ffmpeg ist im Docker-Image enthalten; fehlt
+von `AUDIO_SAMPLE_SECONDS` (Standard 10 s). ffmpeg ist im Docker-Image enthalten; fehlt
 es, meldet der Monitor einmal einen Fehler und misst nichts. Gemessen wird nur,
 wenn der Stream live ist und ein Opencast-Termin läuft. Ein Stream ohne
 Audiospur zählt als still; eine fehlgeschlagene Messung (Timeout, Netzfehler)
-zählt nie als Stille.
+zählt nie als Stille. Ist der Stream-Zustand „unbekannt“, wird nicht gemessen,
+aber eine laufende Stille bleibt bestehen; erst „offline“, ein deaktivierter
+Rekorder oder das Termin-Ende beenden sie. Liegen zwischen zwei erfolgreichen
+Messungen mehr als 5 Minuten, beginnt eine Stille neu: Was dazwischen war,
+weiß niemand. Ein offener Vorfall der alten Stille endet dann mit ihrer
+letzten stillen Messung.
 
 Unter **Verwaltung → Einstellungen → Ton**:
 
@@ -444,12 +449,25 @@ Unter **Verwaltung → Einstellungen → Ton**:
 | Stille protokollieren ab | Minuten Stille, ab denen ein Vorfall „Ton fehlt“ erfasst wird | 2 | 1 bis 30 |
 | Alarm bei Stille ab | Minuten Stille, ab denen alarmiert wird (nicht kürzer als „protokollieren ab“) | 15 | 5 bis 120 |
 
-Alarm: Die erste Stille von mindestens 15 Minuten pro Termin alarmiert per
+**Stille zählt erst ab der Alarmschwelle des Raums:** Vor Beginn der
+Vorlesung ist es oft still. Deshalb zählt Stille erst ab dem Zeitpunkt, ab
+dem auch „Stream fehlt“ alarmieren dürfte: bei „Pünktlich“ (und „Aus“) ab
+Terminbeginn plus Karenz, bei „Raster (c.t.)“ ab Slot-Beginn plus c.t. plus
+Toleranz (Standard: 10:00 + 15 + 5 = 10:20). Davor wird Stille weder
+protokolliert noch gezählt.
+
+Alarm: Die erste Stille pro Termin, die mindestens „Alarm bei Stille ab“
+dauert (Standard 15 Minuten), alarmiert per
 E-Mail und über `ansehbar_audio_silent_alarm` (Regel `AnsehbarAudioSilent`,
 Schweregrad `warning`). Kommt der Ton zurück, geht eine Entwarnung „Ton wieder
 da“ nur per E-Mail raus. Der Alarmmodus „Aus“ unterdrückt auch diesen Alarm
 (nur Protokoll). Weitere Stillen im selben Termin werden protokolliert, aber
 nicht mehr alarmiert.
+
+**„Letzte Aufzeichnung“** listet nur erhebliche Stillen: solche, die alarmiert
+haben oder mindestens „Alarm bei Stille ab“ dauerten. Kürzere Stillen bleiben
+gespeichert (für die Zeitleiste der Raumansicht in Stufe 3c), erscheinen dort
+aber nicht. „Stream fehlt“-Vorfälle erscheinen weiterhin alle.
 
 **Schwelle kalibrieren:** Der Befehl
 
@@ -462,7 +480,7 @@ Einige Räume während einer Vorlesung und in der Pause messen, die Schwelle
 dazwischen setzen.
 
 **Bandbreite:** Jede Messung lädt den vollständigen Stream (Video und Ton,
-etwa 2 bis 4 Mbit/s) für rund 10 Sekunden. Es werden nur Räume gemessen, die
+etwa 2 bis 4 Mbit/s) für `AUDIO_SAMPLE_SECONDS` (Standard 10 Sekunden). Es werden nur Räume gemessen, die
 live sind und einen laufenden Termin haben. Die Parallelität ist auf
 `AUDIO_MAX_PARALLEL` begrenzt; weitere Räume kommen nacheinander dran.
 
