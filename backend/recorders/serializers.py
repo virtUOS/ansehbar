@@ -206,6 +206,9 @@ class RecorderSerializer(serializers.ModelSerializer):
     def get_missing_since(self, obj):
         now = self.context.get("now") or timezone.now()
         grace = timedelta(minutes=self.context.get("grace_minutes", 0))
+        end_tolerance = timedelta(
+            minutes=self.context.get("end_tolerance_minutes", 0)
+        )
         since = missing_since(
             obj.active,
             obj.status.state,
@@ -213,6 +216,7 @@ class RecorderSerializer(serializers.ModelSerializer):
             self._current(obj),
             now,
             grace,
+            end_tolerance,
         )
         if since is None:
             return None

@@ -11,15 +11,22 @@ from opencast.models import ScheduledEvent
 from recorders.missing import missing_since
 from recorders.models import Incident, MonitorSettings, Recorder, RecorderStatus
 
+# A stream that drops again within this many seconds of coming back did not
+# return stably: the previous incident is reopened instead of a new one.
+STABLE_SECONDS = 60
+
 
 def update_incidents(now: datetime) -> None:
     """Open, close and finish incidents from the statuses the cycle just wrote.
 
-    Reads settings, active recorders with status, running events and open
-    incidents with their events (four queries, independent of the number of
-    recorders); closing writes one update per incident, opening one bulk insert.
+    Reads settings, active recorders with status, running events, open
+    incidents with their events and recently recovered incidents (five
+    queries, independent of the number of recorders); closing and reopening
+    write one update per incident, opening one bulk insert.
     """
-    grace = timedelta(minutes=MonitorSettings.load().missing_grace_minutes)
+    monitor_settings = MonitorSettings.load()
+    grace = timedelta(minutes=monitor_settings.missing_grace_minutes)
+    end_tolerance = timedelta(minutes=monitor_settings.end_tolerance_minutes)
     recorders = list(
         Recorder.objects.filter(active=True).select_related("status")
     )
@@ -47,12 +54,26 @@ def update_incidents(now: datetime) -> None:
                 # Recorder deactivated: no longer monitored, the gap ends now.
                 incident.ended_at = now
             elif state_by_recorder.get(incident.recorder_id) == RecorderStatus.LIVE:
+                # The stream came back.
                 incident.ended_at = now
+                incident.recovered = True
+                incident.save(update_fields=["ended_at", "recovered"])
+                continue
             else:
                 # Unknown (or offline) keeps it open.
                 open_keys.add((incident.recorder_id, incident.event_id))
                 continue
             incident.save(update_fields=["ended_at"])
+
+        # Latest incident per (recorder, event) that recovered too recently
+        # to count as a stable return.
+        recently_recovered = {}
+        for incident in Incident.objects.filter(
+            recovered=True,
+            ended_at__gte=now - timedelta(seconds=STABLE_SECONDS),
+            event__isnull=False,
+        ).order_by("ended_at", "pk"):
+            recently_recovered[(incident.recorder_id, incident.event_id)] = incident
 
         new = []
         for recorder in recorders:
@@ -66,8 +87,16 @@ def update_incidents(now: datetime) -> None:
                 current,
                 now,
                 grace,
+                end_tolerance,
             )
-            if since is None or (recorder.pk, current.pk) in open_keys:
+            key = (recorder.pk, current.pk) if current else None
+            if since is None or key in open_keys:
+                continue
+            flickered = recently_recovered.get(key)
+            if flickered is not None:
+                flickered.ended_at = None
+                flickered.recovered = False
+                flickered.save(update_fields=["ended_at", "recovered"])
                 continue
             new.append(
                 Incident(

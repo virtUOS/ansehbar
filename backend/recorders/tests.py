@@ -1115,6 +1115,18 @@ class RecorderEventApiTests(TestCase):
             berlin(10, 10),
         )
 
+    def test_missing_since_respects_end_tolerance_setting(self):
+        self.event(berlin(10), berlin(12))
+        self.set_status("offline", berlin(11, 56))
+        self.assertIsNone(self.get(berlin(11, 58))["missing_since"])
+        MonitorSettings.objects.update_or_create(
+            pk=1, defaults={"end_tolerance_minutes": 2}
+        )
+        self.assertEqual(
+            datetime.fromisoformat(self.get(berlin(11, 58))["missing_since"]),
+            berlin(11, 56),
+        )
+
     def test_unknown_during_event_is_never_missing(self):
         self.event(berlin(10), berlin(12))
         self.set_status("unknown")
@@ -1429,6 +1441,37 @@ class RecorderEventApiTests(TestCase):
         )
 
 
+class MissingSinceTests(TestCase):
+    GRACE = timedelta(minutes=3)
+    END_TOL = timedelta(minutes=5)
+
+    def setUp(self):
+        recorder = Recorder.objects.create(room_name="M", stream_name="rec-m")
+        self.ev = ScheduledEvent.objects.create(
+            identifier="ev-m", recorder=recorder, title="T",
+            start=berlin(10), end=berlin(12),
+        )
+
+    def test_stream_ending_within_end_tolerance_is_not_missing(self):
+        from recorders.missing import missing_since
+
+        self.assertIsNone(missing_since(True, "offline", berlin(11, 56), self.ev,
+                                        berlin(11, 58), self.GRACE, self.END_TOL))
+
+    def test_stream_ending_before_end_tolerance_is_missing(self):
+        from recorders.missing import missing_since
+
+        self.assertEqual(missing_since(True, "offline", berlin(11, 50), self.ev,
+                                       berlin(11, 58), self.GRACE, self.END_TOL),
+                         berlin(11, 50))
+
+    def test_end_tolerance_defaults_to_zero(self):
+        from recorders.missing import missing_since
+
+        self.assertEqual(missing_since(True, "offline", berlin(11, 56), self.ev,
+                                       berlin(11, 58), self.GRACE), berlin(11, 56))
+
+
 class UpdateIncidentsTests(TestCase):
     def setUp(self):
         from recorders.incidents import update_incidents
@@ -1515,6 +1558,53 @@ class UpdateIncidentsTests(TestCase):
         self.assertEqual(second.started_at, self.at(10, 20))
         self.assertIsNone(second.ended_at)
 
+    def at_s(self, hour, minute, second):
+        return datetime(2026, 11, 2, hour, minute, second, tzinfo=timezone.utc)
+
+    def recovered_at_10_20(self):
+        self.set_state("offline", self.at(9, 50))
+        self.update(self.at(10, 5))
+        self.set_state("live")
+        self.update(self.at(10, 20))
+
+    def test_live_closes_incident_as_recovered(self):
+        self.recovered_at_10_20()
+        (incident,) = self.incidents()
+        self.assertEqual(incident.ended_at, self.at(10, 20))
+        self.assertTrue(incident.recovered)
+
+    def test_event_end_closes_incident_not_recovered(self):
+        self.set_state("offline", self.at(9, 50))
+        self.update(self.at(10, 5))
+        self.update(self.at(12, 5))
+        (incident,) = self.incidents()
+        self.assertEqual(incident.ended_at, self.end)
+        self.assertFalse(incident.recovered)
+
+    def test_flicker_reopens_incident(self):
+        self.recovered_at_10_20()
+        self.set_state("offline", self.at_s(10, 20, 30))
+        self.update(self.at_s(10, 20, 40))
+        (incident,) = self.incidents()
+        self.assertIsNone(incident.ended_at)
+        self.assertFalse(incident.recovered)
+        self.assertEqual(incident.started_at, self.at(10, 3))
+
+    def test_drop_after_stable_return_opens_new_incident(self):
+        self.recovered_at_10_20()
+        self.set_state("offline", self.at_s(10, 21, 30))
+        self.update(self.at_s(10, 21, 40))
+        first, second = self.incidents()
+        self.assertEqual(first.ended_at, self.at(10, 20))
+        self.assertTrue(first.recovered)
+        self.assertEqual(second.started_at, self.at_s(10, 21, 30))
+        self.assertIsNone(second.ended_at)
+
+    def test_stream_ending_within_end_tolerance_opens_no_incident(self):
+        self.set_state("offline", self.at(11, 56))
+        self.update(self.at(11, 58))
+        self.assertEqual(self.incidents(), [])
+
     def test_inactive_recorder_no_incident(self):
         self.recorder.active = False
         self.recorder.save()
@@ -1530,6 +1620,7 @@ class UpdateIncidentsTests(TestCase):
         self.update(self.at(10, 30))
         (incident,) = self.incidents()
         self.assertEqual(incident.ended_at, self.at(10, 30))
+        self.assertFalse(incident.recovered)
 
     def test_incident_of_deleted_event_closed_now(self):
         self.set_state("offline", self.at(9, 50))
@@ -1539,6 +1630,7 @@ class UpdateIncidentsTests(TestCase):
         (incident,) = self.incidents()
         self.assertIsNone(incident.event)
         self.assertEqual(incident.ended_at, self.at(10, 30))
+        self.assertFalse(incident.recovered)
 
     def test_no_incident_without_running_event(self):
         self.set_state("offline", self.at(9, 0))

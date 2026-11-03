@@ -66,6 +66,7 @@ class RecorderViewSet(
         monitor_settings = MonitorSettings.load()
         context["url_template"] = monitor_settings.url_template
         context["grace_minutes"] = monitor_settings.missing_grace_minutes
+        context["end_tolerance_minutes"] = monitor_settings.end_tolerance_minutes
         # Current time and end of the local day once per request; events
         # that matter (running or starting today) in a single query.
         now = timezone.now()

@@ -139,6 +139,11 @@ class Incident(models.Model):
     kind = models.CharField(max_length=20, choices=KIND_CHOICES)
     started_at = models.DateTimeField()
     ended_at = models.DateTimeField(null=True, blank=True)
+    # Closed because the stream came back (not because the event ended).
+    recovered = models.BooleanField(default=False)
+    # When the incident became worth an alarm, independent of the channel.
+    alerted_at = models.DateTimeField(null=True, blank=True)
+    all_clear_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["started_at"]
