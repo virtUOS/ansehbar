@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import type { RecorderState } from "../api";
 
 /** Always text plus symbol, never colour alone. */
-type BadgeState = RecorderState | "inactive" | "missing";
+type BadgeState = RecorderState | "inactive" | "missing" | "silent";
 
 const STYLE: Record<
   BadgeState,
@@ -26,6 +26,12 @@ const STYLE: Record<
     symbol: "⚠",
     label: "Stream missing",
     cls: "bg-red-100 text-red-950 ring-1 ring-red-700 dark:bg-red-950 dark:text-red-100",
+  },
+  // Not the "unknown" amber fill: amber there means "status unknown".
+  silent: {
+    symbol: "◐",
+    label: "Silent",
+    cls: "bg-amber-100 text-amber-950 ring-1 ring-amber-700 dark:bg-amber-950 dark:text-amber-100",
   },
   inactive: {
     symbol: "–",

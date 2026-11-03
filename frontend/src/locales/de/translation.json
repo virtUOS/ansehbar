@@ -207,5 +207,16 @@
   "Tolerance after c.t. (minutes)": "Toleranz nach c.t. (Minuten)",
   "Grid mode: a missing stream raises an alarm this long after slot start + c.t.": "Raster-Modus: Ein fehlender Stream löst so lange nach Slot-Beginn + c.t. einen Alarm aus.",
   "End tolerance (minutes)": "Ende-Toleranz (Minuten)",
-  "A stream that ends this long before the scheduled end is not an incident.": "Endet ein Stream höchstens so lange vor dem geplanten Ende, ist das kein Vorfall."
+  "A stream that ends this long before the scheduled end is not an incident.": "Endet ein Stream höchstens so lange vor dem geplanten Ende, ist das kein Vorfall.",
+  "Silent": "Still",
+  "since {{time}}": "seit {{time}}",
+  "Server level: {{level}}": "Serverpegel: {{level}}",
+  "Silent {{minutes}} min from {{from}}_one": "{{minutes}} Minute still ab {{from}}",
+  "Silent {{minutes}} min from {{from}}_other": "{{minutes}} Minuten still ab {{from}}",
+  "Silence threshold (dBFS)": "Stille-Schwelle (dBFS)",
+  "Mean level in dBFS over 10 s below which a room counts as silent.": "Mittlerer Pegel in dBFS über 10 s, unter dem ein Raum als still gilt.",
+  "Log silence after (minutes)": "Stille protokollieren ab (Minuten)",
+  "A silence during a recording is logged once it lasts this long.": "Eine Stille während einer Aufzeichnung wird protokolliert, sobald sie so lange dauert.",
+  "Alarm for silence after (minutes)": "Alarm bei Stille ab (Minuten)",
+  "Only the first silence of a recording raises an alarm, once it lasts this long. At least the logging time.": "Nur die erste Stille einer Aufzeichnung löst einen Alarm aus, sobald sie so lange dauert. Mindestens so lang wie die Protokollierungszeit."
 }

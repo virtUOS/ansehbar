@@ -26,6 +26,15 @@ export function describeLevel(db: number): LevelDescription {
   return "normal";
 }
 
+/** Meter value and description for a level measured by the server; null
+ *  without one. */
+export function serverReading(
+  db: number | null | undefined,
+): { value: number; description: LevelDescription } | null {
+  if (db === null || db === undefined) return null;
+  return { value: dbfsToMeter(db), description: describeLevel(db) };
+}
+
 export type MeterReading = LevelDescription | "unavailable";
 
 /** A level is only reported for an element that is really playing; a stalled

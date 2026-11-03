@@ -29,7 +29,7 @@ export function StreamPlaceholder({
   missingSince = null,
   children,
 }: {
-  kind: Exclude<Presentation, "live" | "live-unknown">;
+  kind: Exclude<Presentation, "live" | "live-unknown" | "silent">;
   /** false: Opencast is on and nothing is scheduled today. */
   scheduled?: boolean;
   missingSince?: string | null;

@@ -42,6 +42,7 @@ export interface EventBrief {
 
 export type RecordingProblemKind =
   | "stream_missing"
+  | "audio_silent"
   | "processing_failed"
   | "recording_failed"
   | "not_started"
@@ -49,7 +50,7 @@ export type RecordingProblemKind =
 
 export interface RecordingProblem {
   kind: RecordingProblemKind;
-  /** Only on "stream_missing". */
+  /** Only on "stream_missing" and "audio_silent". */
   from?: string;
   to?: string;
   minutes?: number;
@@ -94,6 +95,10 @@ export interface Recorder {
   upcoming_tomorrow: EventBrief[];
   missing_since: string | null;
   last_recording: LastRecording | null;
+  /** Server-measured level (dBFS, ≥ −91); null without a measurement of the last 120 s. */
+  audio_level_db: number | null;
+  /** Start of the open silence in the running event; null otherwise. */
+  silent_since: string | null;
 }
 
 /** Monitor heartbeat; `now` is the server clock (compare against it, not the browser's). */
@@ -141,6 +146,9 @@ export interface MonitorSettings {
   end_tolerance_minutes: number;
   alarm_email_enabled: boolean;
   alarm_metrics_enabled: boolean;
+  silence_threshold_db: number;
+  silence_log_minutes: number;
+  silence_alarm_minutes: number;
 }
 
 export interface AlarmRecipient {

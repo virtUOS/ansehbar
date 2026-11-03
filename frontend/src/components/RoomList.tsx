@@ -18,6 +18,9 @@ export function RoomList({ recorders }: { recorders: Recorder[] }) {
       const from = r.current_event?.start ?? r.missing_since;
       return from ? `${t("from")} ${formatClock(from, i18n.language)}` : null;
     }
+    if (p === "silent" && r.silent_since) {
+      return t("since {{time}}", { time: formatClock(r.silent_since, i18n.language) });
+    }
     if ((p === "live" || p === "live-unknown") && r.status.live_since) {
       return `${t("since")} ${formatClock(r.status.live_since, i18n.language)}`;
     }
@@ -45,7 +48,7 @@ export function RoomList({ recorders }: { recorders: Recorder[] }) {
               className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 py-3 hover:bg-slate-50 sm:flex-nowrap dark:hover:bg-slate-900"
             >
               <span className="shrink-0">
-                <StatusBadge state={p === "missing" ? "missing" : r.status.state} />
+                <StatusBadge state={p === "missing" || p === "silent" ? p : r.status.state} />
               </span>
               <span className="order-first min-w-0 basis-full break-words text-lg font-bold sm:order-none sm:flex-1 sm:basis-0">
                 <RoomName recorder={r} />

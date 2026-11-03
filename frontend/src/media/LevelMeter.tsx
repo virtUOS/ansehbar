@@ -3,12 +3,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { dbfsToMeter, meterReading, rmsToDbfs, type MeterReading } from "./level";
+import { dbfsToMeter, meterReading, rmsToDbfs, serverReading, type MeterReading } from "./level";
 import { useAudio } from "./AudioContextProvider";
 
 const REDUCED_MOTION_INTERVAL_MS = 250;
 
-export function LevelMeter({ id }: { id: number }) {
+/** Browser level of the playing element; while the browser has none (not
+ *  unlocked, force-muted or no analyser), the server-measured level. */
+export function LevelMeter({ id, serverLevelDb = null }: { id: number; serverLevelDb?: number | null }) {
   const { t } = useTranslation();
   const { unlocked, analyser, analyserUnavailable, isForceMuted, isPlaying } = useAudio();
   // A force-muted element only feeds silence: never show "silent" for it.
@@ -50,17 +52,23 @@ export function LevelMeter({ id }: { id: number }) {
     return () => cancelAnimationFrame(raf);
   }, [node, id, isPlaying]);
 
+  // The server level stands in only while the browser delivers none.
+  const browserless = !unlocked || forced || (!node && analyserUnavailable(id));
+  const server = browserless ? serverReading(serverLevelDb) : null;
+
   // "unavailable": native playback, or the element is not really playing;
   // "not yet wired" shows no text.
-  const label = !unlocked || forced
-    ? t("Level after click")
-    : node
-      ? level === "unavailable"
-        ? t("Level unavailable")
-        : t(level)
-      : analyserUnavailable(id)
-        ? t("Level unavailable")
-        : "";
+  const label = server
+    ? t("Server level: {{level}}", { level: t(server.description) })
+    : !unlocked || forced
+      ? t("Level after click")
+      : node
+        ? level === "unavailable"
+          ? t("Level unavailable")
+          : t(level)
+        : analyserUnavailable(id)
+          ? t("Level unavailable")
+          : "";
 
   return (
     <div className="flex items-end" title={label}>
@@ -70,7 +78,7 @@ export function LevelMeter({ id }: { id: number }) {
         aria-label={t("Level")}
         aria-valuemin={0}
         aria-valuemax={1}
-        aria-valuenow={0}
+        aria-valuenow={server ? Number(server.value.toFixed(2)) : 0}
         aria-valuetext={label || t("Level")}
         className="relative h-full min-h-12 w-2.5 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700"
       >
@@ -79,6 +87,11 @@ export function LevelMeter({ id }: { id: number }) {
             ref={fill}
             className="absolute inset-x-0 bottom-0 bg-slate-600 dark:bg-slate-300"
             style={{ height: "0%" }}
+          />
+        ) : server ? (
+          <div
+            className="absolute inset-x-0 bottom-0 bg-slate-600 dark:bg-slate-300"
+            style={{ height: `${Math.round(server.value * 100)}%` }}
           />
         ) : null}
       </div>

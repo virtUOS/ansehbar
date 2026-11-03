@@ -16,6 +16,7 @@ export function LastRecordingWarning({ recorder, compact = false }: { recorder: 
   // Literal t() calls so that check:i18n sees the keys.
   const texts: Record<string, (p: Record<string, string | number>) => string> = {
     "Stream missing {{from}}–{{to}} ({{minutes}} min)": (p) => t("Stream missing {{from}}–{{to}} ({{minutes}} min)", p),
+    "Silent {{minutes}} min from {{from}}": (p) => t("Silent {{minutes}} min from {{from}}", p),
     "Processing in Opencast failed": () => t("Processing in Opencast failed"),
     "Recording failed on the recorder": () => t("Recording failed on the recorder"),
     "Recording did not start": () => t("Recording did not start"),

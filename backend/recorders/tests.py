@@ -29,6 +29,10 @@ from streams.sources import Probe
 
 User = get_user_model()
 
+# Queries of GET /api/recorders/: 6 before stage 3b, plus one for the open
+# silences; independent of the row count.
+LIST_QUERIES = 7
+
 
 class RecorderApiTests(TestCase):
     def setUp(self):
@@ -1451,6 +1455,93 @@ class RecorderEventApiTests(TestCase):
         make(7)
         large, _ = count_queries()
         self.assertEqual(small, large)
+
+    def test_audio_level_only_when_fresh(self):
+        now = berlin(11)
+        self.assertIsNone(self.get(now)["audio_level_db"])
+        RecorderStatus.objects.filter(recorder=self.recorder).update(
+            audio_level_db=-35.5, audio_checked_at=now - timedelta(seconds=120)
+        )
+        self.assertEqual(self.get(now)["audio_level_db"], -35.5)
+        RecorderStatus.objects.filter(recorder=self.recorder).update(
+            audio_checked_at=now - timedelta(seconds=121)
+        )
+        self.assertIsNone(self.get(now)["audio_level_db"])
+
+    def test_silent_since_only_in_running_event(self):
+        past = self.event(berlin(8), berlin(9), "past")
+        running = self.event(berlin(10), berlin(12), "running")
+        self.set_status("live")
+        # Open but on an ended event: not the current silence.
+        Incident.objects.create(
+            recorder=self.recorder, event=past, kind="audio_silent",
+            started_at=berlin(8, 30),
+        )
+        # A stream gap of the running event is not a silence.
+        Incident.objects.create(
+            recorder=self.recorder, event=running, kind="stream_missing",
+            started_at=berlin(10, 5),
+        )
+        self.assertIsNone(self.get(berlin(11))["silent_since"])
+        # Closed silence of the running event: over.
+        Incident.objects.create(
+            recorder=self.recorder, event=running, kind="audio_silent",
+            started_at=berlin(10, 10), ended_at=berlin(10, 20),
+        )
+        self.assertIsNone(self.get(berlin(11))["silent_since"])
+        Incident.objects.create(
+            recorder=self.recorder, event=running, kind="audio_silent",
+            started_at=berlin(10, 40),
+        )
+        body = self.get(berlin(11))
+        self.assertEqual(datetime.fromisoformat(body["silent_since"]), berlin(10, 40))
+        # After the event, the open incident no longer counts.
+        self.assertIsNone(self.get(berlin(12, 5))["silent_since"])
+
+    def test_last_recording_lists_audio_silent(self):
+        event = self.ended()  # 10:00-12:00
+        Incident.objects.create(
+            recorder=self.recorder, event=event, kind="audio_silent",
+            started_at=berlin(10, 30, day=9), ended_at=berlin(10, 47, day=9),
+        )
+        Incident.objects.create(
+            recorder=self.recorder, event=event, kind="stream_missing",
+            started_at=berlin(11, day=9), ended_at=berlin(11, 5, day=9),
+        )
+        problems = self.problems(berlin(13, day=9))
+        self.assertEqual(
+            [p["kind"] for p in problems], ["audio_silent", "stream_missing"]
+        )
+        self.assertEqual(datetime.fromisoformat(problems[0]["from"]), berlin(10, 30, day=9))
+        self.assertEqual(datetime.fromisoformat(problems[0]["to"]), berlin(10, 47, day=9))
+        self.assertEqual(problems[0]["minutes"], 17)
+
+    def test_list_query_count_with_silences(self):
+        def make(count):
+            for i in range(count):
+                rec = Recorder.objects.create(
+                    room_name=f"Q{count}-{i}", stream_name=f"q-{count}-{i}"
+                )
+                event = self.event(berlin(10), berlin(12), recorder=rec)
+                Incident.objects.create(
+                    recorder=rec, event=event, kind="audio_silent",
+                    started_at=berlin(10, 30),
+                )
+
+        def get_list():
+            with mock.patch("django.utils.timezone.now", return_value=berlin(11)):
+                response = self.client.get("/api/recorders/")
+            self.assertEqual(response.status_code, 200)
+            return response.json()
+
+        make(2)
+        get_list()  # warm up: creates the settings row
+        with self.assertNumQueries(LIST_QUERIES):
+            body = get_list()
+        self.assertTrue(all(r["silent_since"] for r in body if r["room_name"] != "Hall"))
+        make(5)
+        with self.assertNumQueries(LIST_QUERIES):
+            get_list()
 
     def test_settings_grace_bounds(self):
         for value, code in [(31, 400), (-1, 400), (30, 200), (0, 200)]:
