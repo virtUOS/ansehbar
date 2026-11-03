@@ -15,7 +15,7 @@ from rest_framework.views import APIView
 
 from accounts.permissions import HasAccess
 from opencast.models import IgnoredAgent, OpencastSyncState, ScheduledEvent
-from opencast.sync import opencast_sync_enabled, sync_window
+from opencast.sync import opencast_sync_enabled, opencast_url_insecure, sync_window
 from recorders.models import Incident, MonitorSettings, Recorder, RecorderStatus
 from recorders.serializers import MonitorSettingsSerializer, RecorderSerializer
 
@@ -92,12 +92,6 @@ class RecorderViewSet(
             kind=Incident.STREAM_MISSING,
         ):
             incidents_by_event[incident.event_id].append(incident)
-        # When Opencast last confirmed the stored statuses (one more query;
-        # filter().first(): a GET must not create the singleton row).
-        sync_state = OpencastSyncState.objects.filter(pk=1).first()
-        context["opencast_confirmed_at"] = (
-            sync_state.last_success_at if sync_state else None
-        )
         context["last_events"] = last_events
         context["incidents_by_event"] = incidents_by_event
         context["now"] = now
@@ -148,6 +142,8 @@ class MonitorHealthView(APIView):
                 },
                 "opencast": {
                     "enabled": opencast_sync_enabled(),
+                    # Set but refused: plain http:// would expose the password.
+                    "insecure_url": opencast_url_insecure(),
                     "last_success": sync_state.last_success_at if sync_state else None,
                     "sync_seconds": settings.OPENCAST_SYNC_SECONDS,
                     "last_attempt": sync_state.last_attempt_at if sync_state else None,

@@ -251,13 +251,19 @@ const OPENCAST_ERRORS: Record<string, string> = {
   timeout: "Opencast did not answer in time",
   server: "Opencast server error",
   invalid: "Unexpected answer from Opencast",
+  internal: "Internal error during the Opencast sync",
 };
 
-/** Immediate Opencast message: an error for a failed sync, a hint when the
- *  sync works but shows no scheduled recordings. Unknown kinds count as a
- *  server error; nothing when Opencast is off or the last sync was fine. */
+/** Notice key for an OPENCAST_URL refused as plain http://; no sync button. */
+export const OPENCAST_INSECURE = "Opencast sync disabled – OPENCAST_URL must use https://";
+
+/** Immediate Opencast message: an error for a failed sync or an insecure
+ *  URL, a hint when the sync works but shows no scheduled recordings.
+ *  Unknown kinds count as a server error; nothing when Opencast is off or the
+ *  last sync was fine. */
 export function opencastNotice(health: MonitorHealth): OpencastNotice {
-  const { enabled, error_kind: kind } = health.opencast;
+  const { enabled, error_kind: kind, insecure_url } = health.opencast;
+  if (insecure_url) return { level: "error", key: OPENCAST_INSECURE };
   if (!enabled || !kind) return { level: null, key: null };
   if (kind === "no_events")
     return { level: "hint", key: "Opencast shows no scheduled recordings – check the account's permissions" };

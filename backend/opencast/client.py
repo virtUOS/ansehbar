@@ -17,6 +17,7 @@ class OpencastError(Exception):
     """Request or response problem. Never contains credentials.
 
     `kind` is one of: unreachable, auth, forbidden, timeout, server, invalid.
+    (The monitor records "internal" for its own failures during a sync.)
     """
 
     def __init__(self, message: str, kind: str):

@@ -100,10 +100,12 @@ export interface MonitorHealth {
   slots: SlotConfig;
   opencast: {
     enabled: boolean;
+    /** OPENCAST_URL is set but refused (plain http:// in production). */
+    insecure_url: boolean;
     last_success: string | null;
     sync_seconds: number;
     last_attempt: string | null;
-    /** "" | "unreachable" | "auth" | "forbidden" | "timeout" | "server" | "invalid" | "no_events" */
+    /** "" | "unreachable" | "auth" | "forbidden" | "timeout" | "server" | "invalid" | "internal" | "no_events" */
     error_kind: string;
     /** A manual sync was requested and has not run yet. */
     requested: boolean;

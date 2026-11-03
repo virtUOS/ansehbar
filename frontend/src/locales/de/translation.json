@@ -172,5 +172,7 @@
   "Recording slot length (minutes)": "Länge eines Aufzeichnungs-Slots (Minuten)",
   "Groups the upcoming recordings; times that differ from their slot are marked.": "Gruppiert die anstehenden Aufzeichnungen; Zeiten, die vom Slot abweichen, werden markiert.",
   "First slot starts after midnight (minutes)": "Beginn der Slots nach Mitternacht (Minuten)",
-  "0 with 120-minute slots: slots start at even hours (8:00, 10:00, …); 60: at odd hours.": "0 bei 120-Minuten-Slots: Slots beginnen zu geraden Stunden (8:00, 10:00, …); 60: zu ungeraden."
+  "0 with 120-minute slots: slots start at even hours (8:00, 10:00, …); 60: at odd hours.": "0 bei 120-Minuten-Slots: Slots beginnen zu geraden Stunden (8:00, 10:00, …); 60: zu ungeraden.",
+  "Internal error during the Opencast sync": "Interner Fehler beim Opencast-Abgleich",
+  "Opencast sync disabled – OPENCAST_URL must use https://": "Opencast-Abgleich abgeschaltet – OPENCAST_URL muss https:// verwenden"
 }
