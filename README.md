@@ -29,14 +29,15 @@ Anmeldung läuft über OIDC (Keycloak); Zugang haben Mitglieder einer
 IdP-Gruppe und in ansehBAR eingeladene Personen. ansehBAR ändert nichts in
 Keycloak, Opencast oder an den Rekordern — es beobachtet nur.
 
-**Stand:** Stufe 3a (auf Stufe 2 aufbauend) — Monitor mit gepflegter Rekorderliste und
+**Stand:** Stufe 3b (auf Stufe 2 aufbauend) — Monitor mit gepflegter Rekorderliste und
 Live-Erkennung der HLS-Streams (derzeit ein HLS-Streaming-Server) sowie
 optionaler Anbindung an Opencast (geplante Aufzeichnungen, „Stream fehlt“,
 „Heute noch geplant“; nur lesend), mit verständlichen Fehlermeldungen, Abgleich
 auf Knopfdruck und Löschen deaktivierter Rekorder. Stufe 3a ergänzt Alarme „Stream fehlt“ per E-Mail und über `/metrics` für
 Prometheus (Alarmmodus pro Rekorder, Empfänger in der Verwaltung, Entwarnung nach
-stabiler Rückkehr). Geplant sind der Alarm „Ton fehlt“ (3b), Raumkalender mit
-Protokoll (3c) und lernende Toleranzen (Stufe 4); Details im
+stabiler Rückkehr). Stufe 3b ergänzt den Alarm „Ton fehlt“ (Pegelmessung mit
+ffmpeg, Badge „Still seit“, Entwarnung per E-Mail, Metrik für Prometheus).
+Geplant sind Raumkalender mit Protokoll (3c) und lernende Toleranzen (Stufe 4); Details im
 [Design-Dokument](docs/superpowers/specs/2026-10-30-ansehbar-design.md).
 
 **Technik:** erzeugt aus dem
