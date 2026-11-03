@@ -219,7 +219,7 @@
   "A silence during a recording is logged once it lasts this long.": "Eine Stille während einer Aufzeichnung wird protokolliert, sobald sie so lange dauert.",
   "Alarm for silence after (minutes)": "Alarm bei Stille ab (Minuten)",
   "Only the first silence of a recording raises an alarm, once it lasts this long. At least the logging time.": "Nur die erste Stille einer Aufzeichnung löst einen Alarm aus, sobald sie so lange dauert. Mindestens so lang wie die Protokollierungszeit.",
-  "History": "Aufbewahrung",
+  "Retention": "Aufbewahrung",
   "Keep level measurements (days)": "Pegelmessungen aufbewahren (Tage)",
   "Level measurements are deleted after this many days.": "Pegelmessungen werden nach so vielen Tagen gelöscht.",
   "Keep history (days)": "Verlauf aufbewahren (Tage)",

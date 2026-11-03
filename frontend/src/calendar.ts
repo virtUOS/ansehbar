@@ -74,14 +74,18 @@ export function eventMarkers(event: CalendarEvent, now: Date): Marker[] {
   let hasSilent = false;
   let alarm = false;
   for (const i of event.incidents) {
-    const start = Date.parse(i.started_at);
+    const eventStart = Date.parse(event.start);
+    const eventEnd = Date.parse(event.end);
+    const start = Math.max(Date.parse(i.started_at), eventStart);
+    // Count only the part inside the event window.
+    const clampEnd = (ms: number) => Math.min(ms, eventEnd);
     if (i.kind === "stream_missing") {
       hasMissing = true;
-      missingMs += Math.max(0, (i.ended_at ? Date.parse(i.ended_at) : nowMs) - start);
+      missingMs += Math.max(0, clampEnd(i.ended_at ? Date.parse(i.ended_at) : nowMs) - start);
     } else if (i.kind === "audio_silent") {
       hasSilent = true;
       const until = i.ended_at ?? i.silent_until;
-      silentMs += Math.max(0, (until ? Date.parse(until) : nowMs) - start);
+      silentMs += Math.max(0, clampEnd(until ? Date.parse(until) : nowMs) - start);
     }
     if (i.alerted_at) alarm = true;
   }

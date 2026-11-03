@@ -527,12 +527,12 @@ Zwei Fristen, einstellbar unter **Verwaltung → Einstellungen → Aufbewahrung*
 
 | Einstellung | Bedeutung | Standard | Bereich |
 | --- | --- | --- | --- |
-| Pegelmesswerte aufbewahren | Tage, die die einzelnen Pegelmessungen (Grundlage der Pegelkurve in Raumansicht und Kalender) gespeichert bleiben | 30 | 1 bis 365 |
+| Pegelmessungen aufbewahren | Tage, die die einzelnen Pegelmessungen (Grundlage der Pegelkurve in Raumansicht und Kalender) gespeichert bleiben | 30 | 1 bis 365 |
 | Verlauf aufbewahren | Tage, die Termine, Vorfälle und Benachrichtigungsprotokoll gespeichert bleiben | 400 | 183 bis 3650 |
 
 Gelöscht wird, was älter als die jeweilige Frist ist:
 
-- **Pegelmesswerte:** alle Messungen vor der Frist.
+- **Pegelmessungen:** alle Messungen vor der Frist.
 - **Verlauf:** Benachrichtigungen (Protokoll gesendeter Alarme) vor der Frist;
   Vorfälle, die vor der Frist begannen und deren Termin ebenfalls vor der Frist
   endete (oder die keinen Termin haben); Termine, die vor der Frist endeten.

@@ -29,7 +29,7 @@ const MARKER_STYLE: Record<Marker["kind"], { symbol: string; cls: string }> = {
   clean: { symbol: "✓", cls: "bg-slate-200 text-slate-800 dark:bg-slate-700 dark:text-slate-100" },
 };
 
-function Markers({ markers }: { markers: Marker[] }) {
+function Markers({ markers, inline = false }: { markers: Marker[]; inline?: boolean }) {
   const { t, i18n } = useTranslation();
   const text = (m: Marker): string => {
     switch (m.kind) {
@@ -45,20 +45,23 @@ function Markers({ markers }: { markers: Marker[] }) {
         return t("No findings");
     }
   };
+  // Inside a <button> only phrasing content is valid, so no list there.
+  const Wrap = inline ? "span" : "ul";
+  const Item = inline ? "span" : "li";
   const shown = markers.map((m) => ({ m, label: text(m) })).filter((x) => x.label !== "");
   if (shown.length === 0) return null;
   return (
-    <ul className="flex flex-wrap gap-1">
+    <Wrap className="flex flex-wrap gap-1">
       {shown.map(({ m, label }, i) => (
-        <li
+        <Item
           key={i}
           className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${MARKER_STYLE[m.kind].cls}`}
         >
           <span aria-hidden>{MARKER_STYLE[m.kind].symbol}</span>
           {label}
-        </li>
+        </Item>
       ))}
-    </ul>
+    </Wrap>
   );
 }
 
@@ -148,7 +151,7 @@ export function RoomCalendar() {
   }
 
   const streamName = (e: CalendarEvent) =>
-    multiple ? <p className="break-all font-mono text-xs text-slate-600 dark:text-slate-300">{streamOf(e.recorder_id)}</p> : null;
+    multiple ? <span className="block break-all font-mono text-xs text-slate-600 dark:text-slate-300">{streamOf(e.recorder_id)}</span> : null;
 
   return (
     <div className="mx-auto w-full min-w-0 max-w-6xl space-y-3">
@@ -157,7 +160,7 @@ export function RoomCalendar() {
           <ArrowLeft aria-hidden className="h-5 w-5" />
           {t("Back")}
         </Link>
-        <h1 className="min-w-0 flex-1 basis-56 break-words text-2xl font-bold">{t("Calendar – {{room}}", { room })}</h1>
+        <h1 className="min-w-0 flex-1 basis-56 break-words text-2xl font-bold">{room ? t("Calendar – {{room}}", { room }) : t("Calendar")}</h1>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -205,7 +208,7 @@ export function RoomCalendar() {
       {!data && !error ? <p role="status">{t("Loading…")}</p> : null}
 
       {data && view === "woche" ? (
-        <div className="grid grid-cols-1 gap-2 md:grid-cols-7">
+        <div className="grid grid-cols-1 gap-2 lg:grid-cols-7">
           {groupByDay(data.events, from, 7).map(({ day, events }) => {
             const d = parseIsoDay(day)!;
             const isToday = day === today;
@@ -238,7 +241,7 @@ export function RoomCalendar() {
                           <span className="block text-xs font-semibold tabular-nums">{timeWindow(e, lang)}</span>
                           <span className="block break-words text-sm font-semibold">{e.title}</span>
                           {streamName(e)}
-                          <Markers markers={eventMarkers(e, now)} />
+                          <Markers markers={eventMarkers(e, now)} inline />
                         </button>
                       </li>
                     ))}
@@ -271,7 +274,7 @@ export function RoomCalendar() {
                     </h2>
                     {streamName(e)}
                     <Markers markers={eventMarkers(e, now)} />
-                    <EventDetailPanel eventId={e.id} liveSince={liveSince} />
+                    <EventDetailPanel eventId={e.id} liveSince={liveSince} eventEnd={e.end} />
                   </section>
                 );
               })}

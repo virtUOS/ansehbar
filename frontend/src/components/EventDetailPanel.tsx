@@ -12,10 +12,12 @@ import { timelineEntries } from "../timeline";
  *  own, so its polling and clock never re-render the surrounding page.
  *  `liveSince`: the stream's live start, only while the event runs and the
  *  room is live; otherwise null. */
-export function EventDetailPanel({ eventId, liveSince }: { eventId: number; liveSince: string | null }) {
+export function EventDetailPanel({ eventId, liveSince, eventEnd }: { eventId: number; liveSince: string | null; eventEnd?: string }) {
   const { t } = useTranslation();
-  const { detail, error } = useEventDetail(eventId);
   const now = useNow(30000);
+  // An ended event no longer changes: load it once instead of polling.
+  const ended = eventEnd !== undefined && Date.parse(eventEnd) <= now.getTime();
+  const { detail, error } = useEventDetail(eventId, ended ? null : 30000);
   return (
     <>
       {error ? (

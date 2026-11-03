@@ -121,6 +121,12 @@ describe("eventMarkers", () => {
     expect(eventMarkers(ev({ incidents: [until] }), now)).toEqual([{ kind: "silent", minutes: 5 }]);
   });
 
+  it("clamps an open incident of an ended event to the event window", () => {
+    const open = incident({ started_at: "2026-11-03T11:00:00Z", ended_at: null });
+    // Event ends 11:30 (see ev()); now is much later.
+    expect(eventMarkers(ev({ incidents: [open] }), AFTER)).toEqual([{ kind: "missing", minutes: 30 }]);
+  });
+
   it("gives alarm when an incident was alerted", () => {
     const markers = eventMarkers(ev({ incidents: [incident({ alerted_at: "2026-11-03T10:13:00Z" })] }), AFTER);
     expect(markers.map((m) => m.kind)).toEqual(["missing", "alarm"]);

@@ -345,7 +345,7 @@ export function SettingsAdmin() {
           </Field>
         </fieldset>
         <fieldset className="space-y-4 rounded-lg border border-slate-200 p-4 dark:border-slate-800">
-          <legend className="px-1 text-lg font-bold">{t("History")}</legend>
+          <legend className="px-1 text-lg font-bold">{t("Retention")}</legend>
           <Field
             label={t("Keep level measurements (days)")}
             errors={errors.fields.sample_retention_days}

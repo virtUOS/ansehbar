@@ -2,12 +2,12 @@
 // Copyright 2026 Universität Osnabrück (virtUOS)
 
 /** Loads one event's detail (incidents, level samples) and reloads it every
- *  `refreshMs`; pauses while the tab is hidden. `id = null` loads nothing. A
+ *  `refreshMs` (`null`: load once, no reload); pauses while the tab is hidden. `id = null` loads nothing. A
  *  new id drops the old state at once; responses for a stale id are ignored. */
 import { useEffect, useState } from "react";
 import { api, type EventDetail } from "./api";
 
-export function useEventDetail(id: number | null, refreshMs = 30000) {
+export function useEventDetail(id: number | null, refreshMs: number | null = 30000) {
   // Keyed by id, so a stale detail is never returned, not even for one render.
   const [state, setState] = useState<{ id: number | null; detail: EventDetail | null; error: string | null }>({
     id,
@@ -16,7 +16,8 @@ export function useEventDetail(id: number | null, refreshMs = 30000) {
   });
 
   useEffect(() => {
-    setState({ id, detail: null, error: null });
+    // Keep the detail when only `refreshMs` changed (same id).
+    setState((prev) => (prev.id === id ? prev : { id, detail: null, error: null }));
     if (id === null) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -37,6 +38,7 @@ export function useEventDetail(id: number | null, refreshMs = 30000) {
     };
     // Exactly one pending timer: every (re)start clears the previous one.
     const schedule = () => {
+      if (refreshMs === null) return;
       if (timer) clearTimeout(timer);
       timer = setTimeout(async () => {
         await tick();
