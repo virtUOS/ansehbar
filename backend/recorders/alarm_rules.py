@@ -55,3 +55,30 @@ def alarm_due(incident: Incident, settings: MonitorSettings, now: datetime) -> b
     if threshold is None:
         return False
     return now >= max(threshold, incident.started_at)
+
+
+def audio_alarm_due(
+    incident: Incident,
+    settings: MonitorSettings,
+    now: datetime,
+    alerted_events: set[int],
+) -> bool:
+    """True if this open ``audio_silent`` incident should alarm now.
+
+    Only the first long silence per event alarms: ``alerted_events`` holds the
+    events in which an audio incident has already alerted. Silence is measured
+    up to the last silent measurement, so failed measurements never extend it.
+    """
+    event = incident.event
+    if incident.ended_at is not None or event is None:
+        return False
+    if not (event.start <= now < event.end):
+        return False
+    recorder = incident.recorder
+    if not recorder.active or recorder.alarm_mode == Recorder.ALARM_OFF:
+        return False
+    if event.pk in alerted_events or incident.silent_until is None:
+        return False
+    return incident.silent_until - incident.started_at >= timedelta(
+        minutes=settings.silence_alarm_minutes
+    )

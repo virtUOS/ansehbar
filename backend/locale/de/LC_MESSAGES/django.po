@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ansehBAR\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-03 17:38+0100\n"
+"POT-Creation-Date: 2026-11-03 17:49+0100\n"
 "Language: de\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
@@ -25,17 +25,27 @@ msgstr "Dieses Feld darf nicht leer sein."
 msgid "Already invited."
 msgstr "Bereits eingeladen."
 
-#: alarms/delivery.py:205
+#: alarms/delivery.py:222
+#, python-format
+msgid "[ansehBAR] Sound back: %(room)s"
+msgstr "[ansehBAR] Ton wieder da: %(room)s"
+
+#: alarms/delivery.py:224
+#, python-format
+msgid "[ansehBAR] Sound missing: %(room)s"
+msgstr "[ansehBAR] Ton fehlt: %(room)s"
+
+#: alarms/delivery.py:226
 #, python-format
 msgid "[ansehBAR] Stream back: %(room)s"
 msgstr "[ansehBAR] Stream wieder da: %(room)s"
 
-#: alarms/delivery.py:207
+#: alarms/delivery.py:228
 #, python-format
 msgid "[ansehBAR] Stream missing: %(room)s"
 msgstr "[ansehBAR] Stream fehlt: %(room)s"
 
-#: alarms/delivery.py:227
+#: alarms/delivery.py:249
 msgid "[ansehBAR] Test alarm"
 msgstr "[ansehBAR] Testalarm"
 
@@ -50,6 +60,14 @@ msgstr "Gib eine E-Mail-Adresse oder einen Benutzer an."
 #: alarms/serializers.py:48
 msgid "This e-mail address is already a recipient."
 msgstr "Diese E-Mail-Adresse ist bereits Empfänger."
+
+#: alarms/templates/alarms/incident.txt:3
+msgid "Sound back"
+msgstr "Ton wieder da"
+
+#: alarms/templates/alarms/incident.txt:3
+msgid "Sound missing"
+msgstr "Ton fehlt"
 
 #: alarms/templates/alarms/incident.txt:3
 msgid "Stream back"
@@ -78,6 +96,10 @@ msgstr "Serie"
 #: alarms/templates/alarms/incident.txt:9
 msgid "Scheduled"
 msgstr "Geplant"
+
+#: alarms/templates/alarms/incident.txt:10
+msgid "Silent since"
+msgstr "Still seit"
 
 #: alarms/templates/alarms/incident.txt:10
 msgid "Missing since"
@@ -117,7 +139,8 @@ msgstr "Muss kürzer als die Slotlänge sein."
 
 #: recorders/serializers.py:264
 msgid "Must not be shorter than the minimum logged silence."
-msgstr "Darf nicht kürzer sein als die Mindestdauer einer protokollierten Stille."
+msgstr ""
+"Darf nicht kürzer sein als die Mindestdauer einer protokollierten Stille."
 
 #: recorders/validators.py:19
 msgid ""

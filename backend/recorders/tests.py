@@ -22,7 +22,7 @@ from django.test.utils import CaptureQueriesContext
 from opencast.client import Agent, OpencastError
 from opencast.models import IgnoredAgent, OpencastSyncState, ScheduledEvent
 from opencast.sync import sync_agents
-from recorders.alarm_rules import alarm_due, alarm_threshold, slot_start
+from recorders.alarm_rules import alarm_due, alarm_threshold, audio_alarm_due, slot_start
 from recorders.models import Incident, MonitorSettings, Recorder, RecorderStatus
 from recorders.monitor import run_cycle
 from streams.sources import Probe
@@ -2192,3 +2192,62 @@ class RunMonitorAudioTests(TestCase):
                 mock.patch(f"{MONITOR}.run_audio_pass", return_value=0) as audio:
             call_command("run_monitor", "--once")
         audio.assert_called_once()
+
+
+class AudioAlarmDueTests(TestCase):
+    """Event 10:00-12:00 local, alarm after 15 minutes of silence."""
+
+    def setUp(self):
+        self.s = MonitorSettings(silence_alarm_minutes=15)
+        self.recorder = Recorder.objects.create(room_name="A", stream_name="rec-a")
+        self.ev = ScheduledEvent.objects.create(
+            identifier="ev-audio", recorder=self.recorder,
+            start=berlin(10), end=berlin(12),
+        )
+        self.now = berlin(10, 30)
+
+    def incident(self, silent_until=berlin(10, 15), **kwargs):
+        kwargs.setdefault("event", self.ev)
+        return Incident.objects.create(
+            recorder=self.recorder, kind=Incident.AUDIO_SILENT,
+            started_at=berlin(10), silent_until=silent_until, **kwargs,
+        )
+
+    def due(self, incident, alerted=frozenset(), now=None):
+        return audio_alarm_due(incident, self.s, now or self.now, set(alerted))
+
+    def test_due_at_exactly_alarm_minutes(self):
+        self.assertTrue(self.due(self.incident(berlin(10, 15))))
+
+    def test_not_due_just_below(self):
+        incident = self.incident(berlin(10, 14) + timedelta(seconds=59))
+        self.assertFalse(self.due(incident))
+
+    def test_off_mode_never_alarms(self):
+        self.recorder.alarm_mode = Recorder.ALARM_OFF
+        self.recorder.save()
+        self.assertFalse(self.due(self.incident(self.ev.start + timedelta(hours=1))))
+
+    def test_inactive_recorder_never_alarms(self):
+        self.recorder.active = False
+        self.recorder.save()
+        self.assertFalse(self.due(self.incident()))
+
+    def test_event_already_alerted(self):
+        self.assertFalse(self.due(self.incident(), alerted={self.ev.pk}))
+
+    def test_other_event_alerted_does_not_matter(self):
+        self.assertTrue(self.due(self.incident(), alerted={self.ev.pk + 1}))
+
+    def test_without_silent_until(self):
+        self.assertFalse(self.due(self.incident(silent_until=None)))
+
+    def test_closed_incident_or_ended_event(self):
+        self.assertFalse(self.due(self.incident(ended_at=berlin(10, 20))))
+        self.assertFalse(self.due(self.incident(), now=berlin(12, 1)))
+        self.assertFalse(self.due(self.incident(event=None)))
+
+    def test_failed_measurements_do_not_extend_silence(self):
+        # Silent since 10:00, last silent measurement 10:03, failures until 10:30.
+        incident = self.incident(silent_until=berlin(10, 3))
+        self.assertFalse(self.due(incident, now=berlin(10, 30)))

@@ -1,12 +1,12 @@
 {% comment %}SPDX-License-Identifier: Apache-2.0
-Copyright 2026 Universität Osnabrück (virtUOS){% endcomment %}{% load i18n %}{% autoescape off %}{% if all_clear %}{% translate "Stream back" %}{% else %}{% translate "Stream missing" %}{% endif %}
+Copyright 2026 Universität Osnabrück (virtUOS){% endcomment %}{% load i18n %}{% autoescape off %}{% if audio %}{% if all_clear %}{% translate "Sound back" %}{% else %}{% translate "Sound missing" %}{% endif %}{% elif all_clear %}{% translate "Stream back" %}{% else %}{% translate "Stream missing" %}{% endif %}
 
 {% translate "Room" %}: {{ room }}
 {% translate "Stream" %}: {{ stream }}
 {% if event %}{% translate "Event" %}: {{ event.title|default:"–" }}
 {% translate "Series" %}: {{ event.series|default:"–" }}
 {% translate "Scheduled" %}: {{ date }}, {{ start }}–{{ end }}
-{% endif %}{% translate "Missing since" %}: {{ missing_since }}
+{% endif %}{% if audio %}{% translate "Silent since" %}{% else %}{% translate "Missing since" %}{% endif %}: {{ missing_since }}
 {% if all_clear %}{% translate "Back since" %}: {{ back_since }}
 {% endif %}
 {{ link }}

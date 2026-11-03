@@ -541,3 +541,73 @@ class DeliveryTests(TestCase):
         self.assertTrue(any("delivering alarms failed" in m for m in logs.output))
         self.assertFalse(any("monitor cycle failed" in m for m in logs.output))
         self.assertTrue(any("monitor cycle:" in m for m in logs.output))
+
+    # Sound-missing alarm and all-clear
+
+    def audio_incident(self, started=berlin(10), until=berlin(10, 16), **kwargs):
+        kwargs.setdefault("event", self.event)
+        return Incident.objects.create(
+            recorder=self.recorder, kind=Incident.AUDIO_SILENT,
+            started_at=started, silent_until=until, **kwargs,
+        )
+
+    def test_queue_audio_alarm_once_per_event(self):
+        first = self.audio_incident(
+            berlin(10), berlin(10, 20), ended_at=berlin(10, 25), alerted_at=berlin(10, 15)
+        )
+        second = self.audio_incident(berlin(10, 40), berlin(11, 0))
+        deliver_alarms(berlin(11, 1))
+        second.refresh_from_db()
+        self.assertIsNone(second.alerted_at)
+        self.assertEqual(SentNotification.objects.count(), 0)
+        first.delete()
+        deliver_alarms(berlin(11, 2))
+        second.refresh_from_db()
+        self.assertEqual(second.alerted_at, berlin(11, 2))
+        notes = SentNotification.objects.all()
+        self.assertEqual(notes.count(), 2)
+        self.assertTrue(all(n.kind == SentNotification.ALARM for n in notes))
+
+    def test_two_open_incidents_alarm_once(self):
+        self.audio_incident(berlin(10), berlin(10, 20))
+        self.audio_incident(berlin(10, 30), berlin(10, 50))
+        deliver_alarms(berlin(11))
+        self.assertEqual(SentNotification.objects.count(), 2)
+        self.assertEqual(Incident.objects.filter(alerted_at__isnull=False).count(), 1)
+
+    def test_audio_alarm_mail_text(self):
+        incident = self.audio_incident()
+        deliver_alarms(berlin(10, 17))
+        message = next(m for m in mail.outbox if m.to == ["a@example.org"])
+        self.assertEqual(message.subject, "[ansehBAR] Ton fehlt: Hörsaal A")
+        self.assertIn("Still seit: 10:00", message.body)
+        self.assertIn(f"https://ansehbar.example.org/raum/{self.recorder.pk}", message.body)
+        self.assertNotIn("Fehlt seit", message.body)
+        self.assertEqual(incident.recorder, self.recorder)
+
+    def test_audio_all_clear(self):
+        incident = self.audio_incident()
+        deliver_alarms(berlin(10, 17))
+        Incident.objects.filter(pk=incident.pk).update(
+            ended_at=berlin(10, 30), recovered=True
+        )
+        deliver_alarms(berlin(10, 30, 30))
+        self.assertEqual(len(mail.outbox), 2)
+        deliver_alarms(berlin(10, 31, 1))
+        self.assertEqual(
+            self.subjects(),
+            ["[ansehBAR] Ton fehlt: Hörsaal A"] * 2
+            + ["[ansehBAR] Ton wieder da: Hörsaal A"] * 2,
+        )
+        note = SentNotification.objects.get(
+            key=f"incident:{incident.pk}:all_clear:email:a@example.org"
+        )
+        self.assertIn("Still seit: 10:00", note.body)
+        self.assertIn("Ton wieder da", note.body)
+
+    def test_audio_alarm_off_mode(self):
+        self.recorder.alarm_mode = Recorder.ALARM_OFF
+        self.recorder.save()
+        self.audio_incident()
+        deliver_alarms(berlin(10, 17))
+        self.assertEqual(mail.outbox, [])
