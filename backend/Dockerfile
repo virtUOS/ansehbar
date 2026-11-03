@@ -8,7 +8,7 @@ WORKDIR /app
 # gettext for compilemessages. psycopg[binary] and uvicorn[standard] ship
 # wheels, so no compiler or libpq headers are needed.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends gettext \
+    && apt-get install -y --no-install-recommends gettext ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

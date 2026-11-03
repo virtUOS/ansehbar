@@ -1,11 +1,19 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Universität Osnabrück (virtUOS)
 
+import subprocess
 import unittest
 from datetime import datetime, timedelta, timezone
 
 import httpx
 
+from streams.audio import (
+    AudioMeasurement,
+    ffmpeg_available,
+    ffmpeg_command,
+    measure_audio,
+    parse_volumedetect,
+)
 from streams.hls import parse_master, parse_media
 from streams.sources import HlsStreamSource, LiveState, Probe, evaluate
 
@@ -234,3 +242,85 @@ class EvaluateTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _proc(returncode, stderr):
+    return subprocess.CompletedProcess([], returncode, stdout="", stderr=stderr)
+
+
+class AudioMeasurementTests(unittest.TestCase):
+    URL = "https://example.org/live/cap-90-R12/playlist.m3u8"
+
+    def test_command_is_argument_list(self):
+        cmd = ffmpeg_command(self.URL, 10)
+        self.assertIsInstance(cmd, list)
+        self.assertEqual(cmd[0], "ffmpeg")
+        pairs = [
+            ["-protocol_whitelist", "http,https,tls,tcp,crypto,hls"],
+            ["-i", self.URL],
+            ["-map", "0:a:0"],
+            ["-t", "10"],
+            ["-af", "volumedetect"],
+            ["-f", "null"],
+        ]
+        last = -1
+        for pair in pairs:
+            idx = next(
+                i for i in range(len(cmd) - 1) if cmd[i : i + 2] == pair
+            )
+            self.assertGreater(idx, last)
+            last = idx
+        self.assertEqual(cmd[-1], "-")
+        self.assertIn("cap-90-R12", cmd[cmd.index("-i") + 1])
+
+    def test_parse_mean_volume(self):
+        text = "x\n[Parsed_volumedetect_0 @ 0x1] mean_volume: -23.4 dB\n"
+        self.assertEqual(parse_volumedetect(text), -23.4)
+        self.assertIsNone(parse_volumedetect("nothing here"))
+
+    def test_measure_level(self):
+        runner = lambda *a, **k: _proc(0, "mean_volume: -61.0 dB")  # noqa: E731
+        self.assertEqual(
+            measure_audio(self.URL, runner=runner), AudioMeasurement(True, -61.0)
+        )
+
+    def test_measure_no_audio_track(self):
+        runner = lambda *a, **k: _proc(  # noqa: E731
+            1, "Stream map '0:a:0' matches no streams."
+        )
+        result = measure_audio(self.URL, runner=runner)
+        self.assertTrue(result.ok)
+        self.assertIsNone(result.level_db)
+        self.assertIn("no audio", result.detail)
+
+    def test_measure_timeout(self):
+        def runner(*a, **k):
+            raise subprocess.TimeoutExpired("ffmpeg", 40)
+
+        self.assertFalse(measure_audio(self.URL, runner=runner).ok)
+
+    def test_measure_failure(self):
+        runner = lambda *a, **k: _proc(1, "HTTP error 404 " * 50)  # noqa: E731
+        result = measure_audio(self.URL, runner=runner)
+        self.assertFalse(result.ok)
+        self.assertLessEqual(len(result.detail), 200)
+
+    def test_measure_missing_ffmpeg(self):
+        def runner(*a, **k):
+            raise FileNotFoundError("ffmpeg")
+
+        self.assertFalse(measure_audio(self.URL, runner=runner).ok)
+
+    @unittest.skipUnless(ffmpeg_available(), "ffmpeg not installed")
+    def test_real_ffmpeg_sine(self):
+        # lavfi is not on the protocol whitelist, so call ffmpeg directly.
+        proc = subprocess.run(
+            ["ffmpeg", "-nostdin", "-hide_banner", "-f", "lavfi", "-i",
+             "sine=frequency=440:duration=2", "-af", "volumedetect",
+             "-f", "null", "-"],
+            capture_output=True, text=True, timeout=30,
+        )
+        level = parse_volumedetect(proc.stderr)
+        self.assertIsNotNone(level)
+        self.assertGreater(level, -40)
+        self.assertLess(level, 0)

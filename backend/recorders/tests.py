@@ -1804,3 +1804,30 @@ class AlarmDueTests(TestCase):
         inc = self.incident(berlin(10, 1))
         self.assertFalse(alarm_due(inc, self.s, berlin(10, 19)))
         self.assertTrue(alarm_due(inc, self.s, berlin(10, 20)))
+
+
+class MeasureAudioCommandTests(TestCase):
+    def run_command(self, result):
+        out = StringIO()
+        with mock.patch(
+            "recorders.management.commands.measure_audio.measure_audio",
+            return_value=result,
+        ) as measure:
+            call_command("measure_audio", "cap-90-R12", "--seconds", "5", stdout=out)
+        return out.getvalue(), measure
+
+    def test_prints_level(self):
+        from streams.audio import AudioMeasurement
+
+        text, measure = self.run_command(AudioMeasurement(True, -42.1))
+        self.assertIn("level: -42.1 dBFS", text)
+        self.assertIn("cap-90-R12", measure.call_args.args[0])
+        self.assertEqual(measure.call_args.args[1], 5)
+
+    def test_prints_no_audio_and_failure(self):
+        from streams.audio import AudioMeasurement
+
+        text, _ = self.run_command(AudioMeasurement(True, None, "no audio track"))
+        self.assertIn("level: no audio track", text)
+        text, _ = self.run_command(AudioMeasurement(False, None, "HTTP error 404"))
+        self.assertIn("failed: HTTP error 404", text)
