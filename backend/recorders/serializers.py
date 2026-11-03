@@ -43,6 +43,7 @@ class RecorderSerializer(serializers.ModelSerializer):
             "agent_id",
             "active",
             "needs_review",
+            "alarm_mode",
             "playback_url",
             "status",
             "current_event",
@@ -227,6 +228,11 @@ class MonitorSettingsSerializer(serializers.ModelSerializer):
             "missing_grace_minutes",
             "slot_minutes",
             "slot_offset_minutes",
+            "ct_minutes",
+            "ct_tolerance_minutes",
+            "end_tolerance_minutes",
+            "alarm_email_enabled",
+            "alarm_metrics_enabled",
         ]
 
     def validate(self, attrs):

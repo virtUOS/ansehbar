@@ -34,6 +34,15 @@ class RecorderApiTests(TestCase):
         member = User.objects.create_user(username="member", is_superuser=True)
         self.client.force_login(member)
 
+    def test_recorder_alarm_mode(self):
+        rec = Recorder.objects.create(room_name="A", stream_name="rec-a")
+        url = f"/api/recorders/{rec.pk}/"
+        self.assertEqual(self.client.get(url).json()["alarm_mode"], "exact")
+        ok = self.client.patch(url, {"alarm_mode": "grid"}, content_type="application/json")
+        self.assertEqual(ok.status_code, 200)
+        bad = self.client.patch(url, {"alarm_mode": "loud"}, content_type="application/json")
+        self.assertEqual(bad.status_code, 400)
+
     def test_stream_name_keeps_case(self):
         response = self.client.post(
             "/api/recorders/",
@@ -195,6 +204,20 @@ class MonitorSettingsApiTests(TestCase):
         body = self.client.get("/api/settings/monitor/").json()
         self.assertEqual(body["stale_factor"], 3)
         self.assertIn("{stream}", body["url_template"])
+
+    def test_alarm_settings_defaults_and_bounds(self):
+        body = self.client.get("/api/settings/monitor/").json()
+        self.assertEqual(
+            [body[k] for k in ["ct_minutes", "ct_tolerance_minutes", "end_tolerance_minutes",
+                               "alarm_email_enabled", "alarm_metrics_enabled"]],
+            [15, 5, 5, True, True],
+        )
+        base = {"url_template": body["url_template"], "stale_factor": 3}
+        for field, value, code in [("ct_minutes", 61, 400), ("ct_minutes", 0, 200),
+                                   ("ct_tolerance_minutes", 31, 400),
+                                   ("end_tolerance_minutes", 30, 200)]:
+            with self.subTest(field=field, value=value):
+                self.assertEqual(self.put({**base, field: value}).status_code, code)
 
     def test_slot_settings_defaults_and_validation(self):
         body = self.client.get("/api/settings/monitor/").json()
