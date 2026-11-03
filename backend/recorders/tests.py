@@ -1583,12 +1583,41 @@ class UpdateIncidentsTests(TestCase):
 
     def test_flicker_reopens_incident(self):
         self.recovered_at_10_20()
+        Incident.objects.update(alerted_at=self.at(10, 6))
         self.set_state("offline", self.at_s(10, 20, 30))
         self.update(self.at_s(10, 20, 40))
         (incident,) = self.incidents()
         self.assertIsNone(incident.ended_at)
         self.assertFalse(incident.recovered)
         self.assertEqual(incident.started_at, self.at(10, 3))
+        self.assertEqual(incident.alerted_at, self.at(10, 6))
+
+    def test_flicker_detected_late_reopens_incident(self):
+        # Drop 45 s after the return, noticed only 75 s after it.
+        self.recovered_at_10_20()
+        self.set_state("offline", self.at_s(10, 20, 45))
+        self.update(self.at_s(10, 21, 15))
+        (incident,) = self.incidents()
+        self.assertIsNone(incident.ended_at)
+        self.assertFalse(incident.recovered)
+
+    def test_recovered_incident_of_other_event_not_reopened(self):
+        event_b = ScheduledEvent.objects.create(
+            identifier="ev-2", recorder=self.recorder, title="B",
+            start=self.end, end=self.at(14, 0),
+        )
+        self.set_state("offline", self.at(9, 50))
+        self.update(self.at(10, 5))
+        self.set_state("live")
+        self.update(self.at_s(11, 59, 30))
+        self.set_state("offline", self.at(12, 0))
+        self.update(self.at_s(12, 3, 10))
+        first, second = self.incidents()
+        self.assertEqual(first.event, self.event)
+        self.assertTrue(first.recovered)
+        self.assertEqual(second.event, event_b)
+        self.assertEqual(second.started_at, self.at(12, 3))
+        self.assertIsNone(second.ended_at)
 
     def test_drop_after_stable_return_opens_new_incident(self):
         self.recovered_at_10_20()

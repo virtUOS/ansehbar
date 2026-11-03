@@ -14,6 +14,17 @@ from recorders.models import Incident, MonitorSettings, Recorder, RecorderStatus
 # A stream that drops again within this many seconds of coming back did not
 # return stably: the previous incident is reopened instead of a new one.
 STABLE_SECONDS = 60
+STABLE = timedelta(seconds=STABLE_SECONDS)
+# How long after a drop the monitor may notice it (cycle interval plus
+# 3 x TARGETDURATION, generously rounded up).
+DETECTION_MARGIN = timedelta(minutes=5)
+
+
+def _is_flicker(incident, offline_since: datetime | None, now: datetime) -> bool:
+    """Whether the stream dropped again within STABLE_SECONDS of returning."""
+    if offline_since is not None:
+        return offline_since <= incident.ended_at + STABLE
+    return incident.ended_at >= now - STABLE
 
 
 def update_incidents(now: datetime) -> None:
@@ -65,12 +76,13 @@ def update_incidents(now: datetime) -> None:
                 continue
             incident.save(update_fields=["ended_at"])
 
-        # Latest incident per (recorder, event) that recovered too recently
-        # to count as a stable return.
+        # Latest recovered incident per (recorder, event) that may still turn
+        # out to be a flicker. The window counts from the drop (offline_since),
+        # not from this run, so the margin covers the detection lag.
         recently_recovered = {}
         for incident in Incident.objects.filter(
             recovered=True,
-            ended_at__gte=now - timedelta(seconds=STABLE_SECONDS),
+            ended_at__gte=now - STABLE - DETECTION_MARGIN,
             event__isnull=False,
         ).order_by("ended_at", "pk"):
             recently_recovered[(incident.recorder_id, incident.event_id)] = incident
@@ -93,7 +105,9 @@ def update_incidents(now: datetime) -> None:
             if since is None or key in open_keys:
                 continue
             flickered = recently_recovered.get(key)
-            if flickered is not None:
+            if flickered is not None and _is_flicker(
+                flickered, recorder.status.offline_since, now
+            ):
                 flickered.ended_at = None
                 flickered.recovered = False
                 flickered.save(update_fields=["ended_at", "recovered"])
