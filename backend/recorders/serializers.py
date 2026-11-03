@@ -111,6 +111,7 @@ class RecorderSerializer(serializers.ModelSerializer):
         if event is None:
             return None
         return {
+            "id": event.pk,
             "title": event.title,
             "series": event.series,
             "start": event.start,

@@ -1038,9 +1038,11 @@ class RecorderEventApiTests(TestCase):
         )
 
     def test_current_and_next_event(self):
-        self.event(berlin(10), berlin(12), "first")
-        self.event(berlin(14), berlin(16), "second")
+        first = self.event(berlin(10), berlin(12), "first")
+        second = self.event(berlin(14), berlin(16), "second")
         body = self.get(berlin(11))
+        self.assertEqual(body["current_event"]["id"], first.pk)
+        self.assertEqual(body["next_event"]["id"], second.pk)
         self.assertEqual(body["current_event"]["title"], "first")
         self.assertEqual(body["current_event"]["series"], "S")
         self.assertEqual(body["next_event"]["title"], "second")

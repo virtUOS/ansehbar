@@ -14,7 +14,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from opencast import sync
 from opencast.client import Agent, Event, OpencastClient, OpencastError
 from opencast.models import IgnoredAgent, OpencastSyncState, ScheduledEvent
-from recorders.models import Incident, Recorder
+from recorders.models import AudioSample, Incident, MonitorSettings, Recorder
 
 FIXTURES = Path(__file__).parent / "fixtures"
 PASSWORD = "s3cret-pw"
@@ -767,3 +767,75 @@ class IgnoredAgentTests(TestCase):
             self.client.delete(f"/api/ignored-agents/{ignored.pk}/").status_code, 403
         )
         self.assertTrue(IgnoredAgent.objects.filter(pk=ignored.pk).exists())
+
+
+class EventDetailTests(TestCase):
+    def setUp(self):
+        self.client.force_login(User.objects.create_user(username="m", is_superuser=True))
+        self.recorder = Recorder.objects.create(room_name="Room A", stream_name="cap-1")
+        self.start = datetime(2026, 11, 2, 9, 0, tzinfo=timezone.utc)
+        self.end = self.start + timedelta(hours=1)
+        self.event = ScheduledEvent.objects.create(
+            identifier="e1", recorder=self.recorder, title="Lecture", series="Series",
+            start=self.start, end=self.end, opencast_status="EVENTS.EVENTS.STATUS.SCHEDULED",
+            first_audio_at=self.start + timedelta(minutes=2),
+        )
+
+    def sample(self, at, db, event=None):
+        return AudioSample.objects.create(
+            recorder=self.recorder, event=event or self.event, measured_at=at, level_db=db
+        )
+
+    def test_event_detail_returns_incidents_and_samples(self):
+        self.sample(self.start - timedelta(seconds=1), -20)
+        self.sample(self.start + timedelta(minutes=5), -35.24)
+        self.sample(self.start + timedelta(minutes=1), None)
+        self.sample(self.end, -40.06)
+        self.sample(self.end + timedelta(seconds=1), -20)
+        later = Incident.objects.create(
+            recorder=self.recorder, event=self.event, kind="audio_silent",
+            started_at=self.start + timedelta(minutes=20),
+        )
+        first = Incident.objects.create(
+            recorder=self.recorder, event=self.event, kind="stream_missing",
+            started_at=self.start + timedelta(minutes=10),
+            ended_at=self.start + timedelta(minutes=12), recovered=True,
+        )
+        response = self.client.get(f"/api/events/{self.event.pk}/")
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["id"], self.event.pk)
+        self.assertEqual(body["recorder_id"], self.recorder.pk)
+        self.assertEqual(body["title"], "Lecture")
+        self.assertEqual(body["series"], "Series")
+        self.assertEqual(body["opencast_status"], "EVENTS.EVENTS.STATUS.SCHEDULED")
+        self.assertEqual(body["threshold_db"], MonitorSettings.load().silence_threshold_db)
+        for key, value in (("start", self.start), ("end", self.end),
+                           ("first_audio_at", self.start + timedelta(minutes=2))):
+            self.assertEqual(datetime.fromisoformat(body[key].replace("Z", "+00:00")), value)
+        self.assertEqual([i["id"] for i in body["incidents"]], [first.pk, later.pk])
+        self.assertEqual(body["incidents"][0]["kind"], "stream_missing")
+        self.assertEqual([s["db"] for s in body["samples"]], [None, -35.2, -40.1])
+        times = [s["t"] for s in body["samples"]]
+        self.assertEqual(times, sorted(times))
+        self.assertEqual(len(times), 3)
+
+    def test_event_detail_404(self):
+        self.assertEqual(self.client.get("/api/events/99999/").status_code, 404)
+
+    def test_event_detail_requires_access(self):
+        self.client.force_login(User.objects.create_user(username="outsider"))
+        self.assertEqual(self.client.get(f"/api/events/{self.event.pk}/").status_code, 403)
+
+    def test_event_detail_query_count(self):
+        for minute in range(20):
+            self.sample(self.start + timedelta(minutes=minute), -30)
+        Incident.objects.create(
+            recorder=self.recorder, event=self.event, kind="stream_missing",
+            started_at=self.start,
+        )
+        MonitorSettings.load()  # the singleton row exists already in production
+        # Two queries are session and user; the view needs event, settings,
+        # incidents and samples, independent of the number of rows.
+        with self.assertNumQueries(2 + 4):
+            self.assertEqual(self.client.get(f"/api/events/{self.event.pk}/").status_code, 200)

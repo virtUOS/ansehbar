@@ -34,10 +34,64 @@ export type RecorderState = "live" | "offline" | "unknown";
 
 /** An Opencast event (ISO datetimes). */
 export interface EventBrief {
+  id: number;
   title: string;
   series: string;
   start: string;
   end: string;
+}
+
+export type IncidentKind = "stream_missing" | "audio_silent";
+
+export interface IncidentEntry {
+  id: number;
+  kind: IncidentKind;
+  started_at: string;
+  ended_at: string | null;
+  recovered: boolean;
+  alerted_at: string | null;
+  all_clear_at: string | null;
+  silent_until: string | null;
+}
+
+export interface CalendarEvent {
+  id: number;
+  recorder_id: number;
+  title: string;
+  series: string;
+  start: string;
+  end: string;
+  opencast_status: string;
+  first_audio_at: string | null;
+  incidents: IncidentEntry[];
+  problems: RecordingProblem[];
+}
+
+export interface CalendarResponse {
+  from: string;
+  to: string;
+  recorders: { id: number; room_name: string; stream_name: string; active: boolean }[];
+  events: CalendarEvent[];
+}
+
+export interface LevelSample {
+  t: string;
+  db: number | null;
+}
+
+export interface EventDetail {
+  id: number;
+  recorder_id: number;
+  title: string;
+  series: string;
+  start: string;
+  end: string;
+  opencast_status: string;
+  first_audio_at: string | null;
+  /** Current silence threshold (dBFS). */
+  threshold_db: number;
+  incidents: IncidentEntry[];
+  samples: LevelSample[];
 }
 
 export type RecordingProblemKind =
@@ -247,6 +301,11 @@ export const api = {
       request<Recorder>(`/api/recorders/${id}/`, { method: "PATCH", body: JSON.stringify(data) }),
     remove: (id: number) => request<void>(`/api/recorders/${id}/`, { method: "DELETE" }),
   },
+  calendar: (recorderId: number, from: string, days: number) =>
+    request<CalendarResponse>(
+      `/api/recorders/${recorderId}/calendar/?from=${encodeURIComponent(from)}&days=${days}`,
+    ),
+  event: (id: number) => request<EventDetail>(`/api/events/${id}/`),
   ignoredAgents: {
     list: () => request<IgnoredAgent[]>("/api/ignored-agents/"),
     remove: (id: number) => request<void>(`/api/ignored-agents/${id}/`, { method: "DELETE" }),
