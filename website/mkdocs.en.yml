@@ -1,0 +1,65 @@
+# SPDX-License-Identifier: Apache-2.0
+# English version of the project website, served under /en/. Inherits
+# theme, CSS, overrides, hooks and Markdown extensions from mkdocs.yml and
+# builds into site/en/ — build the German site first (its build cleans
+# site/). Build: mkdocs build --strict -f website/mkdocs.en.yml
+INHERIT: mkdocs.yml
+site_url: https://virtuos.github.io/ansehbar/en/
+site_description: >-
+  Live monitoring for lecture capture — streams, sound and Opencast schedules
+  of every lecture hall at a glance. Open source by virtUOS, Osnabrück
+  University.
+site_author: virtUOS, Osnabrück University
+copyright: >-
+  © 2026 Osnabrück University (virtUOS) · ansehBAR is licensed under the
+  Apache License 2.0
+
+docs_dir: en
+site_dir: ../site/en
+# Theme assets (CSS, logo) come from ../assets via hooks/i18n.py.
+exclude_docs: ""
+
+theme:
+  language: en
+  palette:
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: Light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-auto
+        name: System theme
+
+extra:
+  alternate:
+    - name: Deutsch
+      link: ../
+      lang: de
+    - name: English
+      link: ./
+      lang: en
+
+nav:
+  - Home: index.md
+  - Guide:
+      - guide/index.md
+      - Signing in: guide/sign-in.md
+      - Overview: guide/overview.md
+      - Room view: guide/room-view.md
+      - Room calendar: guide/calendar.md
+      - Alarms: guide/alarms.md
+      - Managing recorders: guide/recorders.md
+      - Access and invitations: guide/access.md
+      - Settings: guide/settings.md
+  - Installation: installation.md

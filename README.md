@@ -52,6 +52,9 @@ einer konkreten Einrichtung. Streaming-Server, Rekorder, Anmeldedienst und
 Domain richtet jeder Standort selbst ein, Schritt für Schritt beschrieben in
 der [Konfigurationsanleitung](docs/KONFIGURATION.md).
 
+**Website und Anleitung:** [virtuos.github.io/ansehbar](https://virtuos.github.io/ansehbar/)
+(Deutsch und Englisch, Quellen in [`website/`](website/README.md)).
+
 **Lizenz:** [Apache-2.0](LICENSE), siehe auch [NOTICE](NOTICE).
 
 ## Entwicklung

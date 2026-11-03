@@ -37,6 +37,9 @@ Frontend 5179, Backend 8007, Keycloak 8086, Postgres 5438.
   `admin/`; Zeitleiste/Pegelkurve: `timeline.ts`, `EventTimeline`, `LevelCurve`),
   `components/` (Kachel, Raumliste, StatusBadge, Formularteile, Dialog),
   `api.ts` (Client), `locales/` (Übersetzungen).
+- Website (GitHub Pages, DE/EN): `website/` (MkDocs Material, siehe
+  `website/README.md`); Screenshots per `frontend/e2e/docs-screenshots.spec.ts`
+  mit erfundenen API-Antworten (`frontend/e2e/docs-data.ts`).
 - Spec: `docs/superpowers/specs/2026-10-30-ansehbar-design.md`,
   Plan: `docs/superpowers/plans/2026-10-30-ansehbar-stufe-1.md`.
 
@@ -51,6 +54,7 @@ docker compose exec backend python manage.py run_monitor --once  # ein Prüflauf
 docker compose exec backend python manage.py measure_audio <stream>  # Pegel eines Streams messen (Kalibrierung der Stille-Schwelle)
 docker compose exec backend python manage.py load_site_config    # Rekorder/Stream-URL aus backend/site.local.json laden
 docker compose exec backend sh -c "pip install -q ruff && ruff check ."  # Lint (wie CI, Config in backend/pyproject.toml)
+cd frontend && npm run docs:shots                      # Website-Screenshots (DE; DOCS_SHOTS_LANG=en für EN), braucht Chrome + ffmpeg
 ```
 
 ## Workflow
