@@ -55,6 +55,8 @@ function rec(id: number, room: string, state: Recorder["status"]["state"] = "off
     upcoming_tomorrow: [],
     missing_since: null,
     last_recording: null,
+    audio_level_db: null,
+    silent_since: null,
   };
 }
 
@@ -546,5 +548,55 @@ describe("recording slots", () => {
     const [group] = groupBySlot([r], "tomorrow", two);
     expect(group.start).toEqual(local(8, 0, 4));
     expect([group.rows[0].startsOff, group.rows[0].endsOff]).toEqual([false, true]);
+  });
+});
+
+describe("silent presentation", () => {
+  const silent = (id: number, room: string, state: Recorder["status"]["state"] = "live"): Recorder => ({
+    ...rec(id, room, state),
+    silent_since: "2026-11-03T09:40:00Z",
+  });
+
+  it("is silent only while live with silent_since", () => {
+    expect(presentation(silent(1, "a"))).toBe("silent");
+    expect(keepsPlayer(silent(1, "a"))).toBe(true);
+    expect(presentation(rec(1, "a", "live"))).toBe("live");
+    // Not live: the stream state wins, "missing" keeps priority.
+    expect(presentation(silent(1, "a", "offline"))).toBe("offline");
+    expect(presentation({ ...silent(1, "a", "offline"), missing_since: "2026-11-03T09:00:00Z" })).toBe("missing");
+    expect(presentation({ ...silent(1, "a"), active: false })).toBe("inactive");
+  });
+
+  it("sorts missing, silent, live, offline", () => {
+    const list = [
+      rec(1, "A offline"),
+      rec(2, "B live", "live"),
+      silent(3, "C silent"),
+      { ...rec(4, "D missing"), missing_since: "2026-11-03T09:00:00Z" },
+    ];
+    expect(sortForOverview(list).map((r) => r.id)).toEqual([4, 3, 2, 1]);
+  });
+
+  it("merge replaces a recorder when level or silence changes", () => {
+    const prev = [rec(1, "a", "live")];
+    expect(mergeRecorders(prev, [rec(1, "a", "live")])).toBe(prev);
+    expect(mergeRecorders(prev, [{ ...rec(1, "a", "live"), audio_level_db: -35 }])[0]).not.toBe(prev[0]);
+    expect(mergeRecorders(prev, [silent(1, "a")])[0]).not.toBe(prev[0]);
+  });
+
+  it("formats audio_silent with start time, minutes and plural count", () => {
+    const from = "2026-11-02T08:10:00Z";
+    const [x] = problemTexts(
+      {
+        title: "T",
+        start: "2026-11-02T08:00:00Z",
+        end: "2026-11-02T10:00:00Z",
+        opencast_status: "",
+        problems: [{ kind: "audio_silent", from, to: "2026-11-02T08:27:00Z", minutes: 17 }],
+      },
+      "de",
+    );
+    expect(x.key).toBe("Silent {{minutes}} min from {{from}}");
+    expect(x.params).toEqual({ from: formatClock(from, "de"), minutes: 17, count: 17 });
   });
 });

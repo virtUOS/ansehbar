@@ -67,6 +67,7 @@ class RecorderViewSet(
         context["url_template"] = monitor_settings.url_template
         context["grace_minutes"] = monitor_settings.missing_grace_minutes
         context["end_tolerance_minutes"] = monitor_settings.end_tolerance_minutes
+        context["silence_alarm_minutes"] = monitor_settings.silence_alarm_minutes
         # Current time and end of the local day once per request; events
         # that matter (running or starting today) in a single query.
         now = timezone.now()
@@ -90,9 +91,20 @@ class RecorderViewSet(
         incidents_by_event = defaultdict(list)
         for incident in Incident.objects.filter(
             event__in=[e.pk for e in last_events.values()],
-            kind=Incident.STREAM_MISSING,
+            kind__in=[Incident.STREAM_MISSING, Incident.AUDIO_SILENT],
         ):
             incidents_by_event[incident.event_id].append(incident)
+        # Open silences of running events, one query: recorder -> (event,
+        # start); the serializer keeps it only for the recorder's current event.
+        open_silences = {}
+        for recorder_id, event_id, started_at in Incident.objects.filter(
+            kind=Incident.AUDIO_SILENT,
+            ended_at__isnull=True,
+            event__start__lte=now,
+            event__end__gt=now,
+        ).order_by("started_at").values_list("recorder_id", "event_id", "started_at"):
+            open_silences.setdefault(recorder_id, (event_id, started_at))
+        context["open_silences"] = open_silences
         context["last_events"] = last_events
         context["incidents_by_event"] = incidents_by_event
         context["now"] = now

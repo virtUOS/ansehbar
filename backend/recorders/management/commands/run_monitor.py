@@ -6,6 +6,7 @@ import logging
 import signal
 import threading
 import time
+from functools import partial
 
 import httpx
 from django.conf import settings
@@ -17,16 +18,18 @@ from alarms.delivery import deliver_alarms
 from opencast.client import OpencastClient, OpencastError
 from opencast.models import OpencastSyncState
 from opencast.sync import opencast_sync_enabled, run_opencast_sync
+from recorders.audio_monitor import run_audio_pass, update_audio_incidents
 from recorders.incidents import update_incidents
 from recorders.models import MonitorSettings, RecorderStatus
 from recorders.monitor import run_cycle
+from streams.audio import ffmpeg_available, measure_audio
 from streams.sources import HlsStreamSource
 
 logger = logging.getLogger(__name__)
 
 # Unchanged cycle summaries are logged at INFO at most this often.
 SUMMARY_EVERY_SECONDS = 60
-# On shutdown, wait at most this long for a running Opencast sync.
+# On shutdown, wait at most this long for a running Opencast sync (and audio pass).
 SYNC_JOIN_SECONDS = 5
 
 
@@ -44,6 +47,9 @@ class Command(BaseCommand):
         self._opencast_status = "pending"
         self._insecure_logged = False
         self._sync_thread = None
+        self._audio_thread = None
+        self._last_audio_at = None  # time.monotonic() of the last pass start
+        self._ffmpeg_ok = None  # checked once, on the first due pass
         self._stop = stop = threading.Event()
         previous = {}
         # Signal handlers only work in the main thread (not under test runners).
@@ -58,12 +64,16 @@ class Command(BaseCommand):
                 if options["once"]:
                     self._sync_opencast(oc_http)
                     self._cycle(client)
+                    if self._audio_due():
+                        self._run_audio(client)
                 else:
                     try:
                         while True:
                             # The sync runs in its own thread so a slow Opencast
                             # never delays the stream checks.
                             self._start_sync(oc_http)
+                            # Audio measurements take seconds each: own thread too.
+                            self._start_audio(client)
                             self._cycle(client)
                             if stop.wait(interval):
                                 break
@@ -73,6 +83,8 @@ class Command(BaseCommand):
                         stop.set()
                         if self._sync_thread is not None:
                             self._sync_thread.join(SYNC_JOIN_SECONDS)
+                        if self._audio_thread is not None:
+                            self._audio_thread.join(SYNC_JOIN_SECONDS)
         finally:
             for sig, handler in previous.items():
                 signal.signal(sig, handler)
@@ -175,6 +187,63 @@ class Command(BaseCommand):
             except Exception:
                 logger.exception("could not record opencast sync failure")
 
+    def _audio_available(self):
+        """True if audio monitoring is on and ffmpeg exists (checked once)."""
+        if not settings.AUDIO_MONITOR_ENABLED:
+            return False
+        if self._ffmpeg_ok is None:
+            self._ffmpeg_ok = ffmpeg_available()
+            if not self._ffmpeg_ok:
+                logger.error("ffmpeg not found; audio monitoring disabled")
+        return self._ffmpeg_ok
+
+    def _audio_due(self):
+        """True if audio monitoring is available and a pass is due."""
+        if not self._audio_available():
+            return False
+        now = time.monotonic()
+        if (
+            self._last_audio_at is not None
+            and now - self._last_audio_at < settings.AUDIO_INTERVAL_SECONDS
+        ):
+            return False
+        self._last_audio_at = now
+        return True
+
+    def _start_audio(self, http_client):
+        """Start an audio pass thread if due; skip while the previous one runs."""
+        if self._audio_thread is not None and self._audio_thread.is_alive():
+            logger.debug("audio pass still running, skipped")
+            return
+        if not self._audio_due():
+            return
+        self._audio_thread = threading.Thread(
+            target=self._audio_worker, args=(http_client,), name="audio-monitor",
+            daemon=True,
+        )
+        self._audio_thread.start()
+
+    def _audio_worker(self, http_client):
+        close_old_connections()
+        try:
+            self._run_audio(http_client)
+        finally:
+            # This thread's DB connection is not reused by anyone else.
+            connections.close_all()
+
+    def _run_audio(self, http_client):
+        """One audio pass; never raises."""
+        try:
+            # Reloaded each pass; the pass only uses playback_url, never the client.
+            source = HlsStreamSource(MonitorSettings.load().url_template, http_client)
+            run_audio_pass(
+                partial(measure_audio, seconds=settings.AUDIO_SAMPLE_SECONDS),
+                source,
+                max_workers=settings.AUDIO_MAX_PARALLEL,
+            )
+        except Exception:
+            logger.exception("audio pass failed")
+
     def _cycle(self, client):
         try:
             # Reload each cycle so template changes apply without a restart.
@@ -186,6 +255,13 @@ class Command(BaseCommand):
             except Exception:
                 # Incident bookkeeping must never stop the stream cycle.
                 logger.exception("updating incidents failed")
+            if not self._audio_available():
+                # No audio passes: still close audio incidents (event end,
+                # stream offline) so no alarm stays raised.
+                try:
+                    update_audio_incidents(now)
+                except Exception:
+                    logger.exception("updating audio incidents failed")
             try:
                 deliver_alarms(now)
             except Exception:

@@ -2,7 +2,7 @@
 // Copyright 2026 Universität Osnabrück (virtUOS)
 
 import { describe, expect, it } from "vitest";
-import { dbfsToMeter, describeLevel, meterReading, rmsToDbfs } from "./level";
+import { dbfsToMeter, describeLevel, meterReading, rmsToDbfs, serverReading } from "./level";
 
 describe("level", () => {
   it("rmsToDbfs of full-scale sine is about -3.01", () => {
@@ -35,5 +35,17 @@ describe("meterReading", () => {
   it("playing describes the level", () => {
     expect(meterReading(true, -Infinity)).toBe("silent");
     expect(meterReading(true, -10)).toBe("normal");
+  });
+});
+
+describe("serverReading", () => {
+  it("is null without a server level", () => {
+    expect(serverReading(null)).toBeNull();
+    expect(serverReading(undefined)).toBeNull();
+  });
+  it("maps the server dB to meter value and description", () => {
+    expect(serverReading(-35)).toEqual({ value: dbfsToMeter(-35), description: "low" });
+    expect(serverReading(-91)).toEqual({ value: 0, description: "silent" });
+    expect(serverReading(-20)).toEqual({ value: dbfsToMeter(-20), description: "normal" });
   });
 });

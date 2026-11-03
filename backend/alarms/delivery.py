@@ -20,7 +20,7 @@ from django.utils import formats, timezone, translation
 from django.utils.translation import gettext as _
 
 from alarms.models import AlarmRecipient, SentNotification
-from recorders.alarm_rules import alarm_due
+from recorders.alarm_rules import alarm_due, audio_alarm_due
 from recorders.incidents import STABLE_SECONDS
 from recorders.models import Incident, MonitorSettings
 
@@ -55,9 +55,22 @@ def _queue_alarms(monitor_settings: MonitorSettings, now: datetime) -> None:
     candidates = Incident.objects.filter(
         ended_at__isnull=True, alerted_at__isnull=True
     ).select_related("recorder", "event")
+    # Events in which a sound-missing alarm already went out (first one only).
+    alerted_events = set(
+        Incident.objects.filter(
+            kind=Incident.AUDIO_SILENT,
+            alerted_at__isnull=False,
+            event__isnull=False,
+        ).values_list("event_id", flat=True)
+    )
     for incident in candidates:
         try:
-            if not alarm_due(incident, monitor_settings, now):
+            audio = incident.kind == Incident.AUDIO_SILENT
+            if audio:
+                due = audio_alarm_due(incident, monitor_settings, now, alerted_events)
+            else:
+                due = alarm_due(incident, monitor_settings, now)
+            if not due:
                 continue
             with transaction.atomic():
                 marked = Incident.objects.filter(
@@ -65,6 +78,8 @@ def _queue_alarms(monitor_settings: MonitorSettings, now: datetime) -> None:
                 ).update(alerted_at=now)
                 if marked and monitor_settings.alarm_email_enabled:
                     _queue(incident, SentNotification.ALARM)
+                if marked and audio:
+                    alerted_events.add(incident.event_id)
         except Exception:
             logger.exception("queueing alarm for incident %s failed", incident.pk)
 
@@ -199,14 +214,21 @@ def _render_incident(incident: Incident, kind: str) -> tuple[str, str]:
     event = incident.event
     room = _room(recorder)
     all_clear = kind == SentNotification.ALL_CLEAR
+    audio = incident.kind == Incident.AUDIO_SILENT
     base = settings.FRONTEND_BASE_URL.rstrip("/")
     with translation.override(settings.ALARM_LANGUAGE):
-        if all_clear:
+        if audio:
+            if all_clear:
+                subject = _("[ansehBAR] Sound back: %(room)s") % {"room": room}
+            else:
+                subject = _("[ansehBAR] Sound missing: %(room)s") % {"room": room}
+        elif all_clear:
             subject = _("[ansehBAR] Stream back: %(room)s") % {"room": room}
         else:
             subject = _("[ansehBAR] Stream missing: %(room)s") % {"room": room}
         context = {
             "all_clear": all_clear,
+            "audio": audio,
             "room": room,
             "stream": recorder.stream_name,
             "event": event,

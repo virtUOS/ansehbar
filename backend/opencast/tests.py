@@ -377,6 +377,19 @@ class SyncTests(TestCase):
         self.assertFalse(ScheduledEvent.objects.filter(identifier="b").exists())
         self.assertTrue(ScheduledEvent.objects.filter(pk=before.pk).exists())
 
+    def test_sync_keeps_first_audio_at(self):
+        Recorder.objects.create(
+            stream_name="rec-hall", room_name="Hall", agent_id="rec-hall"
+        )
+        ws, we = sync.sync_window(NOW, 7)
+        sync.sync_events([self.event("a", title="Old")], ws, we, now=NOW)
+        first = utc(2026, 11, 4, 8, 3)
+        ScheduledEvent.objects.filter(identifier="a").update(first_audio_at=first)
+        sync.sync_events([self.event("a", title="New")], ws, we, now=NOW)
+        ev = ScheduledEvent.objects.get(identifier="a")
+        self.assertEqual(ev.title, "New")
+        self.assertEqual(ev.first_audio_at, first)
+
     def test_event_for_unknown_agent_is_unmatched(self):
         ws, we = sync.sync_window(NOW, 7)
         result = sync.sync_events([self.event("a", agent_id="nobody")], ws, we, now=NOW)

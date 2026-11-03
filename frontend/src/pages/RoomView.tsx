@@ -98,7 +98,7 @@ export function RoomView() {
   const shown = recorder ? presentation(recorder) : undefined;
   const event = recorder?.current_event ?? null;
   // Unknown but last seen live: keep the player (and its controls) on.
-  const live = shown === "live" || shown === "live-unknown";
+  const live = shown === "live" || shown === "live-unknown" || shown === "silent";
   const audible = audibleId === id;
   const playback = usePlayback(`${id}-${live}`);
 
@@ -230,7 +230,7 @@ export function RoomView() {
               <PlaybackOverlay state={playback.state} onReload={playback.reload} />
             </div>
             <div className="flex shrink-0 items-stretch bg-white/90 p-1.5 dark:bg-slate-900/90">
-              <LevelMeter key={recorder.id} id={recorder.id} />
+              <LevelMeter key={recorder.id} id={recorder.id} serverLevelDb={recorder.audio_level_db} />
             </div>
           </div>
         ) : !shown ? null : (
@@ -246,9 +246,19 @@ export function RoomView() {
             ) : null}
           </StreamPlaceholder>
         )}
-        <div className="absolute left-2 top-2 z-10">
+        <div className="absolute left-2 top-2 z-10 flex flex-wrap items-center gap-1.5">
           {shown === "live" ? (
             <LiveBadge since={recorder.status.live_since} />
+          ) : shown === "silent" ? (
+            <>
+              <LiveBadge since={recorder.status.live_since} />
+              <StatusBadge state="silent" />
+              {recorder.silent_since ? (
+                <span className="whitespace-nowrap rounded-full bg-white/90 px-2 py-0.5 text-xs font-bold tabular-nums text-slate-900 dark:bg-slate-900/90 dark:text-slate-100">
+                  {t("since {{time}}", { time: formatClock(recorder.silent_since, i18n.language) })}
+                </span>
+              ) : null}
+            </>
           ) : (
             <StatusBadge state={shown === "inactive" || shown === "missing" ? shown : recorder.status.state} />
           )}

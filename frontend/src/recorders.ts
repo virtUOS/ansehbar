@@ -29,6 +29,8 @@ function same(a: Recorder, b: Recorder): boolean {
     a.id === b.id &&
     a.agent_id === b.agent_id &&
     a.missing_since === b.missing_since &&
+    a.audio_level_db === b.audio_level_db &&
+    a.silent_since === b.silent_since &&
     a.status.agent_state === b.status.agent_state &&
     a.status.agent_updated_at === b.status.agent_updated_at &&
     sameEvent(a.current_event, b.current_event) &&
@@ -60,20 +62,22 @@ export function mergeRecorders(prev: Recorder[], next: Recorder[]): Recorder[] {
 }
 
 /** How a recorder is presented. "live-unknown": the last definite state was
- *  live (live_since survives an "unknown" check), so the player stays on. */
-export type Presentation = "live" | "live-unknown" | "unknown" | "offline" | "inactive" | "missing";
+ *  live (live_since survives an "unknown" check), so the player stays on.
+ *  "silent": live, but the server measures an open silence. */
+export type Presentation = "live" | "live-unknown" | "silent" | "unknown" | "offline" | "inactive" | "missing";
 
 export function presentation(r: Recorder): Presentation {
   if (!r.active) return "inactive";
-  if (r.status.state === "live") return "live";
+  if (r.status.state === "live") return r.silent_since ? "silent" : "live";
   if (r.status.state === "unknown") return r.status.live_since ? "live-unknown" : "unknown";
   return r.missing_since ? "missing" : "offline";
 }
 
-/** True while the player should be mounted ("live", or unknown but last seen live). */
+/** True while the player should be mounted ("live" or "silent", or unknown
+ *  but last seen live). */
 export function keepsPlayer(r: Recorder): boolean {
   const p = presentation(r);
-  return p === "live" || p === "live-unknown";
+  return p === "live" || p === "live-unknown" || p === "silent";
 }
 
 export function displayName(r: Recorder): string {
@@ -85,7 +89,10 @@ export function roomNameMissing(r: Recorder): boolean {
 }
 
 export function sortForOverview(list: Recorder[]): Recorder[] {
-  const group = (r: Recorder) => (presentation(r) === "missing" ? 0 : keepsPlayer(r) ? 1 : 2);
+  const group = (r: Recorder) => {
+    const p = presentation(r);
+    return p === "missing" ? 0 : p === "silent" ? 1 : keepsPlayer(r) ? 2 : 3;
+  };
   return [...list].sort((a, b) => {
     const d = group(a) - group(b);
     if (d !== 0) return d;
@@ -344,6 +351,16 @@ export function problemTexts(
             from: p.from ? formatClock(p.from, locale) : "",
             to: p.to ? formatClock(p.to, locale) : "",
             minutes: p.minutes ?? 0,
+          },
+        }];
+      case "audio_silent":
+        // `count` selects the plural form.
+        return [{
+          key: "Silent {{minutes}} min from {{from}}",
+          params: {
+            from: p.from ? formatClock(p.from, locale) : "",
+            minutes: p.minutes ?? 0,
+            count: p.minutes ?? 0,
           },
         }];
       case "processing_failed":

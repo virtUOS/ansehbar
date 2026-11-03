@@ -30,8 +30,9 @@ function RecorderTileInner({
   const { unlocked, unlock, audibleId, setAudible } = useAudio();
   const shown = presentation(recorder);
   // Unknown but last seen live: keep the player (and its controls) on.
-  const live = shown === "live" || shown === "live-unknown";
+  const live = shown === "live" || shown === "live-unknown" || shown === "silent";
   const missing = shown === "missing";
+  const silent = shown === "silent";
   const event = recorder.current_event;
   const audible = audibleId === recorder.id;
   const playback = usePlayback(live);
@@ -75,7 +76,7 @@ function RecorderTileInner({
               />
             </div>
             <div className="flex shrink-0 items-stretch bg-white/90 p-1.5 dark:bg-slate-900/90">
-              <LevelMeter id={recorder.id} />
+              <LevelMeter id={recorder.id} serverLevelDb={recorder.audio_level_db} />
             </div>
           </div>
         ) : (
@@ -85,12 +86,21 @@ function RecorderTileInner({
             scheduled={recordingScheduled(recorder, opencast, opencastStale)}
           />
         )}
-        <div className="absolute left-2 top-2 z-10">
+        <div className="absolute left-2 top-2 z-10 flex items-center gap-1.5">
           <StatusBadge
             state={
-              shown === "inactive" || missing ? shown : recorder.status.state
+              shown === "inactive" || missing || silent
+                ? shown
+                : recorder.status.state
             }
           />
+          {silent && recorder.silent_since ? (
+            <span className="whitespace-nowrap rounded-full bg-white/90 px-2 py-0.5 text-xs font-bold tabular-nums text-slate-900 dark:bg-slate-900/90 dark:text-slate-100">
+              {t("since {{time}}", {
+                time: formatClock(recorder.silent_since, i18n.language),
+              })}
+            </span>
+          ) : null}
         </div>
       </div>
       <div className="flex items-start gap-3 p-3">

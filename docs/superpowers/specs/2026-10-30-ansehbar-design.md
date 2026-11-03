@@ -488,7 +488,7 @@ zuletzt beendeten Termin des Raums innerhalb von `OPENCAST_LOOKBACK_DAYS`
    - **3a Alarme „Stream fehlt“** (umgesetzt): Alarmmodus pro Rekorder,
      Raster-Einstellungen, Vorfall-Logik mit Entwarnung, Empfänger,
      E-Mail-Zustellung und `/metrics` für den Monitoring-Dienst.
-   - **3b Ton:** Backend-Pegelmessung und der Alarm „Ton fehlt“.
+   - **3b Ton** (umgesetzt): Backend-Pegelmessung und der Alarm „Ton fehlt“.
    - **3c Raumkalender und Protokoll** pro Raum.
 4. **Pünktlichkeit lernen.**
 
@@ -500,6 +500,9 @@ Jede Stufe ist für sich nutzbar und wird einzeln geplant und gebaut.
   Beim Einreichen der Regeldatei mit den Betreibern abstimmen, wie Alarme von
   ansehBAR in den eigenen Matrix-Raum geroutet werden (Receiver/Matcher in
   deren Alertmanager-Konfiguration).
+- **Stille-Schwelle kalibrieren** (3b): Der Startwert −50 dBFS ist ein
+  Schätzwert; er muss an echten Streams (Vorlesung gegen Pause) mit
+  `measure_audio` geprüft werden.
 - Engere Opencast-Rolle für das ansehBAR-Konto (Kollegen klären).
 
 ## 11. Dem Builder überlassen

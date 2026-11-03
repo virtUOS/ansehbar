@@ -45,7 +45,9 @@ def update_incidents(now: datetime) -> None:
     for event in ScheduledEvent.objects.filter(start__lte=now, end__gt=now):
         running[event.recorder_id].append(event)
     open_incidents = list(
-        Incident.objects.filter(ended_at__isnull=True).select_related("event")
+        Incident.objects.filter(
+            kind=Incident.STREAM_MISSING, ended_at__isnull=True
+        ).select_related("event")
     )
 
     state_by_recorder = {
@@ -83,6 +85,7 @@ def update_incidents(now: datetime) -> None:
         # all-clear exists an incident stays closed: a later drop is new.
         recently_recovered = {}
         for incident in Incident.objects.filter(
+            kind=Incident.STREAM_MISSING,
             recovered=True,
             ended_at__gte=now - STABLE - DETECTION_MARGIN,
             event__isnull=False,

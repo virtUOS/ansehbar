@@ -22,6 +22,9 @@ class ScheduledEvent(models.Model):
     # When a successful sync last delivered this event (confirms the status).
     # Ended events that vanished from Opencast keep their old value.
     seen_at = models.DateTimeField(null=True, blank=True)
+    # First audio measurement above the threshold within the event (written
+    # by the audio monitor, never by the Opencast sync).
+    first_audio_at = models.DateTimeField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

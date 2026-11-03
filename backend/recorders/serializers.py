@@ -8,7 +8,10 @@ from django.utils.translation import gettext as _
 from rest_framework import serializers
 
 from recorders.missing import missing_since
-from recorders.models import MonitorSettings, Recorder, RecorderStatus
+from recorders.models import Incident, MonitorSettings, Recorder, RecorderStatus
+
+# The API reports a level only from a measurement at most this old.
+AUDIO_FRESH_SECONDS = 120
 
 
 class RecorderStatusSerializer(serializers.ModelSerializer):
@@ -33,6 +36,8 @@ class RecorderSerializer(serializers.ModelSerializer):
     upcoming_tomorrow = serializers.SerializerMethodField()
     missing_since = serializers.SerializerMethodField()
     last_recording = serializers.SerializerMethodField()
+    audio_level_db = serializers.SerializerMethodField()
+    silent_since = serializers.SerializerMethodField()
 
     class Meta:
         model = Recorder
@@ -53,6 +58,8 @@ class RecorderSerializer(serializers.ModelSerializer):
             "upcoming_tomorrow",
             "missing_since",
             "last_recording",
+            "audio_level_db",
+            "silent_since",
         ]
 
     def validate_agent_id(self, value):
@@ -164,6 +171,12 @@ class RecorderSerializer(serializers.ModelSerializer):
         now = self.context.get("now") or timezone.now()
         to_iso = serializers.DateTimeField().to_representation
         problems = []
+        significant = timedelta(
+            minutes=self.context.get(
+                "silence_alarm_minutes",
+                MonitorSettings._meta.get_field("silence_alarm_minutes").default,
+            )
+        )
         for incident in self.context.get("incidents_by_event", {}).get(event.pk, []):
             # Only the part within the event counts; an incident still open
             # on an ended event stops at the event end.
@@ -171,10 +184,18 @@ class RecorderSerializer(serializers.ModelSerializer):
             ended = min(incident.ended_at or event.end, event.end)
             if ended <= began:
                 continue
+            # Short silences stay stored (for the timeline), but only those
+            # that alerted or reached the alarm time are a problem here.
+            if (
+                incident.kind == Incident.AUDIO_SILENT
+                and incident.alerted_at is None
+                and ended - began < significant
+            ):
+                continue
             seconds = (ended - began).total_seconds()
             problems.append(
                 {
-                    "kind": "stream_missing",
+                    "kind": incident.kind,
                     "from": to_iso(began),
                     "to": to_iso(ended),
                     "minutes": max(1, round(seconds / 60)),
@@ -202,6 +223,26 @@ class RecorderSerializer(serializers.ModelSerializer):
             "opencast_status": status,
             "problems": problems,
         }
+
+    def get_audio_level_db(self, obj):
+        """Last measured level, only while the measurement is fresh."""
+        status = obj.status
+        if status.audio_checked_at is None or status.audio_level_db is None:
+            return None
+        now = self.context.get("now") or timezone.now()
+        if now - status.audio_checked_at > timedelta(seconds=AUDIO_FRESH_SECONDS):
+            return None
+        return status.audio_level_db
+
+    def get_silent_since(self, obj):
+        """Start of the open silence incident of the running event."""
+        current = self._current(obj)
+        if current is None:
+            return None
+        silence = self.context.get("open_silences", {}).get(obj.pk)
+        if silence is None or silence[0] != current.pk:
+            return None
+        return serializers.DateTimeField().to_representation(silence[1])
 
     def get_missing_since(self, obj):
         now = self.context.get("now") or timezone.now()
@@ -237,6 +278,9 @@ class MonitorSettingsSerializer(serializers.ModelSerializer):
             "end_tolerance_minutes",
             "alarm_email_enabled",
             "alarm_metrics_enabled",
+            "silence_threshold_db",
+            "silence_log_minutes",
+            "silence_alarm_minutes",
         ]
 
     def validate(self, attrs):
@@ -247,5 +291,19 @@ class MonitorSettingsSerializer(serializers.ModelSerializer):
         if minutes and offset is not None and offset >= minutes:
             raise serializers.ValidationError(
                 {"slot_offset_minutes": _("Must be shorter than the slot length.")}
+            )
+        log = attrs.get(
+            "silence_log_minutes", self.instance and self.instance.silence_log_minutes
+        )
+        alarm = attrs.get(
+            "silence_alarm_minutes", self.instance and self.instance.silence_alarm_minutes
+        )
+        if log is not None and alarm is not None and alarm < log:
+            raise serializers.ValidationError(
+                {
+                    "silence_alarm_minutes": _(
+                        "Must not be shorter than the minimum logged silence."
+                    )
+                }
             )
         return attrs

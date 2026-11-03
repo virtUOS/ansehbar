@@ -20,7 +20,7 @@ WORKDIR /app
 # gettext for compilemessages (add `RUN python manage.py compilemessages` once
 # the tool ships a locale/ directory). No compiler needed — wheels only.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends gettext \
+    && apt-get install -y --no-install-recommends gettext ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 COPY backend/requirements.txt .

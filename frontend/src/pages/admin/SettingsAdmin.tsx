@@ -11,6 +11,7 @@ import { Field, FormErrorSummary, inputCls } from "../../components/FormParts";
 const FIELDS = [
   "url_template", "stale_factor", "missing_grace_minutes", "slot_minutes", "slot_offset_minutes",
   "ct_minutes", "ct_tolerance_minutes", "end_tolerance_minutes", "alarm_email_enabled", "alarm_metrics_enabled",
+  "silence_threshold_db", "silence_log_minutes", "silence_alarm_minutes",
 ];
 const NO_ERRORS: FormErrors = { fields: {}, general: [] };
 
@@ -27,6 +28,9 @@ export function SettingsAdmin() {
   const [endTolerance, setEndTolerance] = useState("5");
   const [alarmEmail, setAlarmEmail] = useState(true);
   const [alarmMetrics, setAlarmMetrics] = useState(true);
+  const [silenceThreshold, setSilenceThreshold] = useState("-50");
+  const [silenceLog, setSilenceLog] = useState("2");
+  const [silenceAlarm, setSilenceAlarm] = useState("15");
   const [firstStream, setFirstStream] = useState<string | undefined>();
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState("");
@@ -45,6 +49,9 @@ export function SettingsAdmin() {
     setEndTolerance(String(s.end_tolerance_minutes));
     setAlarmEmail(s.alarm_email_enabled);
     setAlarmMetrics(s.alarm_metrics_enabled);
+    setSilenceThreshold(String(s.silence_threshold_db));
+    setSilenceLog(String(s.silence_log_minutes));
+    setSilenceAlarm(String(s.silence_alarm_minutes));
   };
 
   useEffect(() => {
@@ -82,6 +89,9 @@ export function SettingsAdmin() {
         end_tolerance_minutes: Number(endTolerance),
         alarm_email_enabled: alarmEmail,
         alarm_metrics_enabled: alarmMetrics,
+        silence_threshold_db: Number(silenceThreshold),
+        silence_log_minutes: Number(silenceLog),
+        silence_alarm_minutes: Number(silenceAlarm),
       });
       apply(result);
       setSaved(true);
@@ -262,6 +272,66 @@ export function SettingsAdmin() {
                 step={1}
                 value={endTolerance}
                 onChange={(e) => { setEndTolerance(e.target.value); setSaved(false); }}
+                className={`${inputCls} max-w-32`}
+              />
+            )}
+          </Field>
+        </fieldset>
+        <fieldset className="space-y-4 rounded-lg border border-slate-200 p-4 dark:border-slate-800">
+          <legend className="px-1 text-lg font-bold">{t("Sound")}</legend>
+          <Field
+            label={t("Silence threshold (dBFS)")}
+            errors={errors.fields.silence_threshold_db}
+            hint={t("Mean level in dBFS over 10 s below which a room counts as silent.")}
+          >
+            {(p) => (
+              <input
+                {...p}
+                required
+                type="number"
+                min={-90}
+                max={-20}
+                step={1}
+                value={silenceThreshold}
+                onChange={(e) => { setSilenceThreshold(e.target.value); setSaved(false); }}
+                className={`${inputCls} max-w-32`}
+              />
+            )}
+          </Field>
+          <Field
+            label={t("Log silence after (minutes)")}
+            errors={errors.fields.silence_log_minutes}
+            hint={t("A silence during a recording is logged once it lasts this long.")}
+          >
+            {(p) => (
+              <input
+                {...p}
+                required
+                type="number"
+                min={1}
+                max={30}
+                step={1}
+                value={silenceLog}
+                onChange={(e) => { setSilenceLog(e.target.value); setSaved(false); }}
+                className={`${inputCls} max-w-32`}
+              />
+            )}
+          </Field>
+          <Field
+            label={t("Alarm for silence after (minutes)")}
+            errors={errors.fields.silence_alarm_minutes}
+            hint={t("Only the first silence of a recording raises an alarm, once it lasts this long. At least the logging time.")}
+          >
+            {(p) => (
+              <input
+                {...p}
+                required
+                type="number"
+                min={5}
+                max={120}
+                step={1}
+                value={silenceAlarm}
+                onChange={(e) => { setSilenceAlarm(e.target.value); setSaved(false); }}
                 className={`${inputCls} max-w-32`}
               />
             )}

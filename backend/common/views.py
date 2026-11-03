@@ -38,21 +38,35 @@ def render_prometheus() -> str:
     active = Recorder.objects.filter(active=True)
 
     if MonitorSettings.load().alarm_metrics_enabled:
-        alarmed = set(
-            Incident.objects.filter(
-                ended_at__isnull=True, alerted_at__isnull=False
-            ).values_list("recorder_id", flat=True)
-        )
-        gauge(
+        rooms = list(active.exclude(alarm_mode=Recorder.ALARM_OFF).order_by("pk"))
+
+        def alarm_gauge(name, help_text, kind):
+            alarmed = set(
+                Incident.objects.filter(
+                    kind=kind, ended_at__isnull=True, alerted_at__isnull=False
+                ).values_list("recorder_id", flat=True)
+            )
+            gauge(
+                name,
+                help_text,
+                samples=[
+                    (
+                        {"room": _room(r), "stream": r.stream_name},
+                        1 if r.pk in alarmed else 0,
+                    )
+                    for r in rooms
+                ],
+            )
+
+        alarm_gauge(
             "ansehbar_stream_missing_alarm",
             "1 while an alerted stream-missing incident is open",
-            samples=[
-                (
-                    {"room": _room(r), "stream": r.stream_name},
-                    1 if r.pk in alarmed else 0,
-                )
-                for r in active.exclude(alarm_mode=Recorder.ALARM_OFF).order_by("pk")
-            ],
+            Incident.STREAM_MISSING,
+        )
+        alarm_gauge(
+            "ansehbar_audio_silent_alarm",
+            "1 while an alerted audio-silent incident is open",
+            Incident.AUDIO_SILENT,
         )
 
     last_check = RecorderStatus.objects.filter(recorder__active=True).aggregate(

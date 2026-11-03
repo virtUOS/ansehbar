@@ -29,14 +29,15 @@ Anmeldung läuft über OIDC (Keycloak); Zugang haben Mitglieder einer
 IdP-Gruppe und in ansehBAR eingeladene Personen. ansehBAR ändert nichts in
 Keycloak, Opencast oder an den Rekordern — es beobachtet nur.
 
-**Stand:** Stufe 3a (auf Stufe 2 aufbauend) — Monitor mit gepflegter Rekorderliste und
+**Stand:** Stufe 3b (auf Stufe 2 aufbauend) — Monitor mit gepflegter Rekorderliste und
 Live-Erkennung der HLS-Streams (derzeit ein HLS-Streaming-Server) sowie
 optionaler Anbindung an Opencast (geplante Aufzeichnungen, „Stream fehlt“,
 „Heute noch geplant“; nur lesend), mit verständlichen Fehlermeldungen, Abgleich
 auf Knopfdruck und Löschen deaktivierter Rekorder. Stufe 3a ergänzt Alarme „Stream fehlt“ per E-Mail und über `/metrics` für
 Prometheus (Alarmmodus pro Rekorder, Empfänger in der Verwaltung, Entwarnung nach
-stabiler Rückkehr). Geplant sind der Alarm „Ton fehlt“ (3b), Raumkalender mit
-Protokoll (3c) und lernende Toleranzen (Stufe 4); Details im
+stabiler Rückkehr). Stufe 3b ergänzt den Alarm „Ton fehlt“ (Pegelmessung mit
+ffmpeg, Badge „Still seit“, Entwarnung per E-Mail, Metrik für Prometheus).
+Geplant sind Raumkalender mit Protokoll (3c) und lernende Toleranzen (Stufe 4); Details im
 [Design-Dokument](docs/superpowers/specs/2026-10-30-ansehbar-design.md).
 
 **Technik:** erzeugt aus dem
@@ -144,6 +145,10 @@ Umgebungsvariablen (siehe `.env.prod.example`).
 | `ANSEHBAR_BOOTSTRAP_USERS` | Kommagetrennte Benutzernamen/E-Mails mit Zugang ohne Gruppe (erste Einrichtung); weitere Personen lädt die Verwaltung unter „Einladungen“ ein | leer |
 | `ANSEHBAR_ACCESS_CONTACT` | Kontakt (z. B. Mailadresse), der Personen ohne Zugang angezeigt wird | leer |
 | `MONITOR_INTERVAL_SECONDS` | Sekunden zwischen zwei Prüfläufen des Monitors | `10` |
+| `AUDIO_MONITOR_ENABLED` | `1` = Pegelmessung (Ton, Alarm „Ton fehlt“) an, `0` = aus; Details in der [Konfigurationsanleitung](docs/KONFIGURATION.md#7-alarme-e-mail-und-metriken) | `1` |
+| `AUDIO_MAX_PARALLEL` | Gleichzeitige Pegelmessungen | `4` |
+| `AUDIO_SAMPLE_SECONDS` | Länge eines Messfensters (Sekunden) | `10` |
+| `AUDIO_INTERVAL_SECONDS` | Mindestabstand zwischen den Starts zweier Messdurchläufe | `30` |
 | `OPENCAST_URL` | Basisadresse von Opencast (nur `https://`, außer mit `DJANGO_DEBUG=1`); leer = Opencast-Anbindung aus (siehe [Konfigurationsanleitung](docs/KONFIGURATION.md#5-opencast-anbinden-optional)) | leer |
 | `OPENCAST_USER` | Benutzer (nur Leserechte) für die Opencast External API | leer |
 | `OPENCAST_PASSWORD` | Passwort dieses Benutzers | leer |
@@ -178,6 +183,12 @@ Hinweise:
 - In der Entwicklung braucht die `.env` keine Mail-Einstellungen: Mit
   `DJANGO_DEBUG=1` schreibt der Monitor Alarm-E-Mails auf die Konsole
   (`docker compose logs monitor`).
+- **Ton (Stufe 3b):** Der Monitor misst den Pegel live laufender Räume mit
+  ffmpeg (im Image enthalten; `audio_monitor.py`, `streams/audio.py`), zeigt
+  ihn in der Raumansicht und alarmiert bei langer Stille. Kalibrieren der
+  Schwelle: `docker compose exec backend python manage.py measure_audio <stream>`
+  (siehe Konfigurationsanleitung, Abschnitt 7). Jede Messung lädt den Stream
+  für `AUDIO_SAMPLE_SECONDS` (Standard 10 Sekunden, ca. 2 bis 4 Mbit/s).
 - Die Stream-URL-Vorlage und der Frische-Faktor stehen im Frontend unter
   „Verwaltung → Einstellungen“.
 - Backend-Texte sind englische gettext-Schlüssel, die deutschen Übersetzungen
