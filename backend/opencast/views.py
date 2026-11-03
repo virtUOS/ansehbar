@@ -11,7 +11,6 @@ from accounts.permissions import HasAccess
 from opencast.models import IgnoredAgent, OpencastSyncState
 from opencast.sync import opencast_sync_enabled
 
-
 # "Sync now" right after an attempt adds nothing: ignore it for this long.
 SYNC_REQUEST_MIN_SECONDS = 10
 
