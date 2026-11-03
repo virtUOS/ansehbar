@@ -36,7 +36,7 @@ class Migration(migrations.Migration):
             name='SentNotification',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('key', models.CharField(max_length=200, unique=True)),
+                ('key', models.CharField(max_length=320, unique=True)),
                 ('channel', models.CharField(choices=[('email', 'e-mail')], default='email', max_length=20)),
                 ('kind', models.CharField(choices=[('alarm', 'alarm'), ('all_clear', 'all clear'), ('test', 'test')], max_length=20)),
                 ('recipient', models.EmailField(max_length=254)),
