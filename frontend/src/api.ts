@@ -64,6 +64,10 @@ export interface LastRecording {
   problems: RecordingProblem[];
 }
 
+/** "exact": alarm from the Opencast start; "grid": from the slot start + c.t.;
+ *  "off": incidents are only logged. */
+export type AlarmMode = "exact" | "grid" | "off";
+
 export interface Recorder {
   id: number;
   room_name: string;
@@ -71,6 +75,7 @@ export interface Recorder {
   agent_id: string | null;
   active: boolean;
   needs_review: boolean;
+  alarm_mode: AlarmMode;
   playback_url: string;
   status: {
     state: RecorderState;
@@ -131,6 +136,22 @@ export interface MonitorSettings {
   missing_grace_minutes: number;
   slot_minutes: number;
   slot_offset_minutes: number;
+  ct_minutes: number;
+  ct_tolerance_minutes: number;
+  end_tolerance_minutes: number;
+  alarm_email_enabled: boolean;
+  alarm_metrics_enabled: boolean;
+}
+
+export interface AlarmRecipient {
+  id: number;
+  email: string;
+  user: number | null;
+  /** "" without a linked user. */
+  display_name: string;
+  active: boolean;
+  created_at: string;
+  created_by: string;
 }
 
 export interface IgnoredAgent {
@@ -232,6 +253,16 @@ export const api = {
     create: (data: { identifier: string; note: string }) =>
       request<Invitation>("/api/invitations/", { method: "POST", body: JSON.stringify(data) }),
     remove: (id: number) => request<void>(`/api/invitations/${id}/`, { method: "DELETE" }),
+  },
+  alarmRecipients: {
+    list: () => request<AlarmRecipient[]>("/api/alarm-recipients/"),
+    create: (data: { email: string } | { user: number }) =>
+      request<AlarmRecipient>("/api/alarm-recipients/", { method: "POST", body: JSON.stringify(data) }),
+    setActive: (id: number, active: boolean) =>
+      request<AlarmRecipient>(`/api/alarm-recipients/${id}/`, { method: "PATCH", body: JSON.stringify({ active }) }),
+    remove: (id: number) => request<void>(`/api/alarm-recipients/${id}/`, { method: "DELETE" }),
+    /** Queues one test e-mail per active recipient; the monitor sends them. */
+    test: () => request<{ queued: number }>("/api/alarm-recipients/test/", { method: "POST" }),
   },
   users: {
     search: (q: string) => request<UserHit[]>(`/api/users/?search=${encodeURIComponent(q)}`),

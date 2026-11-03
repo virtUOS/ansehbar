@@ -1,1 +1,4 @@
-{}
+{
+  "{{count}} test e-mails queued_one": "{{count}} test e-mail queued",
+  "{{count}} test e-mails queued_other": "{{count}} test e-mails queued"
+}

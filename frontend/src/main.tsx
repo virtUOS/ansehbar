@@ -11,6 +11,7 @@ import { ThemeProvider } from "@basicbar/ui";
 import App from "./App";
 import { Overview } from "./pages/Overview";
 import { AdminLayout } from "./pages/admin/AdminLayout";
+import { AlarmsAdmin } from "./pages/admin/AlarmsAdmin";
 import { InvitationsAdmin } from "./pages/admin/InvitationsAdmin";
 import { RecordersAdmin } from "./pages/admin/RecordersAdmin";
 import { SettingsAdmin } from "./pages/admin/SettingsAdmin";
@@ -30,6 +31,7 @@ const router = createBrowserRouter([
           { index: true, element: <Navigate to="/verwaltung/rekorder" replace /> },
           { path: "rekorder", element: <RecordersAdmin /> },
           { path: "einladungen", element: <InvitationsAdmin /> },
+          { path: "alarme", element: <AlarmsAdmin /> },
           { path: "einstellungen", element: <SettingsAdmin /> },
         ],
       },

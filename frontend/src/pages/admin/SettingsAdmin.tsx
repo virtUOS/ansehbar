@@ -4,11 +4,14 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { previewUrl, splitErrors, type FormErrors } from "../../admin";
-import { ApiError, api } from "../../api";
+import { ApiError, api, type MonitorSettings } from "../../api";
 import { useAppContext } from "../../appContext";
 import { Field, FormErrorSummary, inputCls } from "../../components/FormParts";
 
-const FIELDS = ["url_template", "stale_factor", "missing_grace_minutes", "slot_minutes", "slot_offset_minutes"];
+const FIELDS = [
+  "url_template", "stale_factor", "missing_grace_minutes", "slot_minutes", "slot_offset_minutes",
+  "ct_minutes", "ct_tolerance_minutes", "end_tolerance_minutes", "alarm_email_enabled", "alarm_metrics_enabled",
+];
 const NO_ERRORS: FormErrors = { fields: {}, general: [] };
 
 export function SettingsAdmin() {
@@ -19,6 +22,11 @@ export function SettingsAdmin() {
   const [grace, setGrace] = useState("10");
   const [slotMinutes, setSlotMinutes] = useState("120");
   const [slotOffset, setSlotOffset] = useState("0");
+  const [ct, setCt] = useState("15");
+  const [ctTolerance, setCtTolerance] = useState("5");
+  const [endTolerance, setEndTolerance] = useState("5");
+  const [alarmEmail, setAlarmEmail] = useState(true);
+  const [alarmMetrics, setAlarmMetrics] = useState(true);
   const [firstStream, setFirstStream] = useState<string | undefined>();
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState("");
@@ -26,17 +34,26 @@ export function SettingsAdmin() {
   const [saved, setSaved] = useState(false);
   const [errors, setErrors] = useState<FormErrors>(NO_ERRORS);
 
+  const apply = (s: MonitorSettings) => {
+    setTemplate(s.url_template);
+    setStale(String(s.stale_factor));
+    setGrace(String(s.missing_grace_minutes));
+    setSlotMinutes(String(s.slot_minutes));
+    setSlotOffset(String(s.slot_offset_minutes));
+    setCt(String(s.ct_minutes));
+    setCtTolerance(String(s.ct_tolerance_minutes));
+    setEndTolerance(String(s.end_tolerance_minutes));
+    setAlarmEmail(s.alarm_email_enabled);
+    setAlarmMetrics(s.alarm_metrics_enabled);
+  };
+
   useEffect(() => {
     let cancelled = false;
     Promise.all([api.settings.get(), api.recorders.list()])
       .then(([s, recs]) => {
         if (cancelled) return;
         // Initial load only; the effect never reruns over unsaved edits.
-        setTemplate(s.url_template);
-        setStale(String(s.stale_factor));
-        setGrace(String(s.missing_grace_minutes));
-        setSlotMinutes(String(s.slot_minutes));
-        setSlotOffset(String(s.slot_offset_minutes));
+        apply(s);
         setFirstStream(recs[0]?.stream_name);
         setLoaded(true);
       })
@@ -60,12 +77,13 @@ export function SettingsAdmin() {
         missing_grace_minutes: Number(grace),
         slot_minutes: Number(slotMinutes),
         slot_offset_minutes: Number(slotOffset),
+        ct_minutes: Number(ct),
+        ct_tolerance_minutes: Number(ctTolerance),
+        end_tolerance_minutes: Number(endTolerance),
+        alarm_email_enabled: alarmEmail,
+        alarm_metrics_enabled: alarmMetrics,
       });
-      setTemplate(result.url_template);
-      setStale(String(result.stale_factor));
-      setGrace(String(result.missing_grace_minutes));
-      setSlotMinutes(String(result.slot_minutes));
-      setSlotOffset(String(result.slot_offset_minutes));
+      apply(result);
       setSaved(true);
     } catch (err) {
       setErrors(splitErrors(err, FIELDS));
@@ -177,6 +195,78 @@ export function SettingsAdmin() {
             {previewUrl(template, firstStream)}
           </p>
         </div>
+        <fieldset className="space-y-4 rounded-lg border border-slate-200 p-4 dark:border-slate-800">
+          <legend className="px-1 text-lg font-bold">{t("Alarms")}</legend>
+          <Checkbox
+            label={t("Alarms by e-mail")}
+            checked={alarmEmail}
+            errors={errors.fields.alarm_email_enabled}
+            onChange={(v) => { setAlarmEmail(v); setSaved(false); }}
+          />
+          <Checkbox
+            label={t("Alarms to the monitoring service")}
+            checked={alarmMetrics}
+            errors={errors.fields.alarm_metrics_enabled}
+            onChange={(v) => { setAlarmMetrics(v); setSaved(false); }}
+          />
+          <Field
+            label={t("c.t. offset (minutes)")}
+            errors={errors.fields.ct_minutes}
+            hint={t("Only for rooms with alarm mode “Grid (c.t.)”: recordings start this long after the slot start.")}
+          >
+            {(p) => (
+              <input
+                {...p}
+                required
+                type="number"
+                min={0}
+                max={60}
+                step={1}
+                value={ct}
+                onChange={(e) => { setCt(e.target.value); setSaved(false); }}
+                className={`${inputCls} max-w-32`}
+              />
+            )}
+          </Field>
+          <Field
+            label={t("Tolerance after c.t. (minutes)")}
+            errors={errors.fields.ct_tolerance_minutes}
+            hint={t("Grid mode: a missing stream raises an alarm this long after slot start + c.t.")}
+          >
+            {(p) => (
+              <input
+                {...p}
+                required
+                type="number"
+                min={0}
+                max={30}
+                step={1}
+                value={ctTolerance}
+                onChange={(e) => { setCtTolerance(e.target.value); setSaved(false); }}
+                className={`${inputCls} max-w-32`}
+              />
+            )}
+          </Field>
+          <Field
+            label={t("End tolerance (minutes)")}
+            errors={errors.fields.end_tolerance_minutes}
+            hint={t("A stream that ends this long before the scheduled end is not an incident.")}
+          >
+            {(p) => (
+              <input
+                {...p}
+                required
+                type="number"
+                min={0}
+                max={30}
+                step={1}
+                value={endTolerance}
+                onChange={(e) => { setEndTolerance(e.target.value); setSaved(false); }}
+                className={`${inputCls} max-w-32`}
+              />
+            )}
+          </Field>
+        </fieldset>
         <div className="flex items-center gap-3">
           <button type="submit" disabled={saving} className="btn-primary">
             {t("Save")}
@@ -187,5 +277,22 @@ export function SettingsAdmin() {
         </div>
       </form>
     </section>
+  );
+}
+
+function Checkbox({ label, checked, errors, onChange }: { label: string; checked: boolean; errors?: string[]; onChange: (v: boolean) => void }) {
+  return (
+    <div>
+      <label className="flex items-center gap-2 text-sm font-medium">
+        <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="h-4 w-4" />
+        {label}
+      </label>
+      {errors?.length ? (
+        <p role="alert" className="mt-1 text-sm font-medium text-red-800 dark:text-red-300">
+          <span aria-hidden>⚠ </span>
+          {errors.join(" ")}
+        </p>
+      ) : null}
+    </div>
   );
 }

@@ -55,3 +55,8 @@ export function syncWaitDone({ requested, seenRequested, elapsedMs }: { requeste
   if (requested) return false;
   return seenRequested || elapsedMs >= 10000;
 }
+
+/** POST body for a new alarm recipient: a picked user wins over the typed text. */
+export function recipientPayload(input: string, userId: number | null): { email: string } | { user: number } {
+  return userId !== null ? { user: userId } : { email: input.trim() };
+}
