@@ -2,20 +2,23 @@
 # Copyright 2026 Universität Osnabrück (virtUOS)
 
 from collections import defaultdict
-from datetime import timedelta
+from datetime import date, timedelta
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Max
+from django.db.models import Max, Q, Subquery
+from django.http import Http404
 from django.utils import timezone
 from django.utils.translation import gettext as _
 from rest_framework import mixins, viewsets
+from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.permissions import HasAccess
 from opencast.models import IgnoredAgent, OpencastSyncState, ScheduledEvent
 from opencast.sync import opencast_sync_enabled, opencast_url_insecure, sync_window
+from recorders.history import calendar_range, incident_data, recording_problems
 from recorders.models import Incident, MonitorSettings, Recorder, RecorderStatus
 from recorders.serializers import MonitorSettingsSerializer, RecorderSerializer
 
@@ -59,6 +62,90 @@ class RecorderViewSet(
                 )
             recorder.delete()
         return Response(status=204)
+
+    @action(detail=True, methods=["get"])
+    def calendar(self, request, pk=None):
+        """Events (with incidents) of the recorder's room within a period."""
+        try:
+            day = (
+                date.fromisoformat(request.query_params["from"])
+                if "from" in request.query_params
+                else timezone.localdate()
+            )
+        except ValueError:
+            return Response({"detail": _("Invalid date in \"from\".")}, status=400)
+        try:
+            days = int(request.query_params.get("days", 7))
+        except ValueError:
+            days = 0
+        if not 1 <= days <= 7:
+            return Response(
+                {"detail": _("\"days\" must be a number from 1 to 7.")}, status=400
+            )
+        try:
+            pk = int(pk)
+        except (TypeError, ValueError):
+            raise Http404
+        start, end = calendar_range(day, days)
+        # One query for the recorder and all recorders of the same room (an
+        # empty room name matches nobody else).
+        room = Subquery(Recorder.objects.filter(pk=pk).values("room_name")[:1])
+        recorders = list(
+            Recorder.objects.filter(Q(pk=pk) | (Q(room_name=room) & ~Q(room_name="")))
+            .order_by("-active", "stream_name")
+        )
+        if not any(r.pk == pk for r in recorders):
+            raise Http404
+        events = list(
+            ScheduledEvent.objects.filter(
+                recorder__in=[r.pk for r in recorders], start__lt=end, end__gt=start
+            ).order_by("start", "id")
+        )
+        incidents_by_event = defaultdict(list)
+        for incident in Incident.objects.filter(
+            event__in=[e.pk for e in events]
+        ).order_by("started_at", "id"):
+            incidents_by_event[incident.event_id].append(incident)
+        silence_alarm = MonitorSettings.load().silence_alarm_minutes
+        now = timezone.now()
+        return Response(
+            {
+                "from": start,
+                "to": end,
+                "recorders": [
+                    {
+                        "id": r.pk,
+                        "room_name": r.room_name,
+                        "stream_name": r.stream_name,
+                        "active": r.active,
+                    }
+                    for r in recorders
+                ],
+                "events": [
+                    {
+                        "id": e.pk,
+                        "recorder_id": e.recorder_id,
+                        "title": e.title,
+                        "series": e.series,
+                        "start": e.start,
+                        "end": e.end,
+                        "opencast_status": e.opencast_status,
+                        "first_audio_at": e.first_audio_at,
+                        "incidents": [
+                            incident_data(i) for i in incidents_by_event[e.pk]
+                        ],
+                        "problems": (
+                            recording_problems(
+                                e, incidents_by_event[e.pk], now, silence_alarm
+                            )
+                            if e.end <= now
+                            else []
+                        ),
+                    }
+                    for e in events
+                ],
+            }
+        )
 
     def get_serializer_context(self):
         context = super().get_serializer_context()

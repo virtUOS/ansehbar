@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ansehBAR\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-03 19:00+0100\n"
+"POT-Creation-Date: 2026-11-03 20:58+0100\n"
 "Language: de\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
@@ -133,11 +133,11 @@ msgstr "Raster (c.t.)"
 msgid "Off (log only)"
 msgstr "Aus (nur protokollieren)"
 
-#: recorders/serializers.py:293
+#: recorders/serializers.py:260
 msgid "Must be shorter than the slot length."
 msgstr "Muss kürzer als die Slotlänge sein."
 
-#: recorders/serializers.py:305
+#: recorders/serializers.py:272
 msgid "Must not be shorter than the minimum logged silence."
 msgstr ""
 "Darf nicht kürzer sein als die Mindestdauer einer protokollierten Stille."
@@ -163,6 +163,14 @@ msgstr "Die URL-Vorlage muss {stream} genau einmal enthalten."
 msgid "The URL template must not contain other braces."
 msgstr "Die URL-Vorlage darf keine weiteren geschweiften Klammern enthalten."
 
-#: recorders/views.py:48
+#: recorders/views.py:51
 msgid "Only deactivated recorders can be deleted."
 msgstr "Nur deaktivierte Rekorder können gelöscht werden."
+
+#: recorders/views.py:76
+msgid "Invalid date in \"from\"."
+msgstr "Ungültiges Datum in \"from\"."
+
+#: recorders/views.py:83
+msgid "\"days\" must be a number from 1 to 7."
+msgstr "\"days\" muss eine Zahl von 1 bis 7 sein."
