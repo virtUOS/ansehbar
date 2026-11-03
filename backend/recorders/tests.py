@@ -1884,3 +1884,286 @@ class MeasureAudioCommandTests(TestCase):
         self.assertIn("level: no audio track", text)
         text, _ = self.run_command(AudioMeasurement(False, None, "HTTP error 404"))
         self.assertIn("failed: HTTP error 404", text)
+
+
+def utc(hour, minute, second=0):
+    return datetime(2026, 1, 1, hour, minute, second, tzinfo=timezone.utc)
+
+
+class FakeMeasure:
+    """measure(url) -> AudioMeasurement by stream name (last URL segment)."""
+
+    def __init__(self, results):
+        self.results = results
+        self.calls = []
+
+    def __call__(self, url):
+        name = url.rsplit("/", 1)[-1]
+        self.calls.append(name)
+        return self.results[name]
+
+
+class AudioPassTests(TestCase):
+    """Event 10:00-12:00, threshold -50 dBFS, log after 2 minutes."""
+
+    def setUp(self):
+        Recorder.objects.all().delete()
+        self.recorder = self.make("rec-a")
+        self.event = self.make_event(self.recorder, "ev-a", utc(10, 0), utc(12, 0))
+
+    def make(self, stream_name, state=RecorderStatus.LIVE, active=True):
+        recorder = Recorder.objects.create(
+            room_name=stream_name, stream_name=stream_name, active=active
+        )
+        RecorderStatus.objects.update_or_create(
+            recorder=recorder, defaults={"state": state}
+        )
+        return recorder
+
+    def make_event(self, recorder, identifier, start, end):
+        return ScheduledEvent.objects.create(
+            identifier=identifier, recorder=recorder, start=start, end=end
+        )
+
+    def run_pass(self, at, results):
+        from recorders.audio_monitor import run_audio_pass
+
+        measure = FakeMeasure(results)
+        count = run_audio_pass(measure, FakeSource({}), now_fn=lambda: at)
+        return count, measure
+
+    def measure_a(self, at, level, ok=True, detail=""):
+        from streams.audio import AudioMeasurement
+
+        self.run_pass(at, {"rec-a": AudioMeasurement(ok, level, detail)})
+        status = RecorderStatus.objects.get(recorder=self.recorder)
+        return status
+
+    def audio_incidents(self):
+        return list(Incident.objects.filter(kind=Incident.AUDIO_SILENT).order_by("pk"))
+
+    def test_only_live_with_running_event_measured(self):
+        from streams.audio import AudioMeasurement
+
+        no_event = self.make("rec-b")
+        offline = self.make("rec-c", state=RecorderStatus.OFFLINE)
+        inactive = self.make("rec-d", active=False)
+        self.make_event(offline, "ev-c", utc(10, 0), utc(12, 0))
+        self.make_event(inactive, "ev-d", utc(10, 0), utc(12, 0))
+        self.make_event(no_event, "ev-b", utc(8, 0), utc(10, 0))  # already over
+        results = {
+            name: AudioMeasurement(True, -20.0)
+            for name in ("rec-a", "rec-b", "rec-c", "rec-d")
+        }
+        count, measure = self.run_pass(utc(10, 30), results)
+        self.assertEqual(count, 1)
+        self.assertEqual(measure.calls, ["rec-a"])
+
+    def test_silence_starts_and_sound_clears(self):
+        status = self.measure_a(utc(10, 10), -60.0)
+        self.assertEqual(status.silent_since, utc(10, 10))
+        self.assertEqual(status.audio_level_db, -60.0)
+        self.assertEqual(status.audio_checked_at, utc(10, 10))
+        status = self.measure_a(utc(10, 11), -30.0)
+        self.assertIsNone(status.silent_since)
+        self.assertEqual(status.audio_level_db, -30.0)
+        self.event.refresh_from_db()
+        self.assertEqual(self.event.first_audio_at, utc(10, 11))
+        self.measure_a(utc(10, 12), -25.0)
+        self.event.refresh_from_db()
+        self.assertEqual(self.event.first_audio_at, utc(10, 11))
+
+    def test_no_audio_track_is_silent(self):
+        status = self.measure_a(utc(10, 10), None, detail="no audio track")
+        self.assertEqual(status.silent_since, utc(10, 10))
+        self.assertIsNone(status.audio_level_db)
+        self.assertEqual(status.audio_detail, "no audio track")
+
+    def test_minus_infinity_is_clamped_and_silent(self):
+        from recorders.audio_monitor import AUDIO_FLOOR_DB
+
+        status = self.measure_a(utc(10, 10), float("-inf"))
+        self.assertEqual(status.audio_level_db, AUDIO_FLOOR_DB)
+        self.assertEqual(status.silent_since, utc(10, 10))
+
+    def test_failed_measurement_keeps_state(self):
+        self.measure_a(utc(10, 0), -60.0)
+        self.measure_a(utc(10, 3), -60.0)
+        for minute in range(4, 31):
+            status = self.measure_a(utc(10, minute), None, ok=False, detail="timeout")
+        self.assertEqual(status.silent_since, utc(10, 0))
+        self.assertEqual(status.audio_checked_at, utc(10, 3))
+        self.assertEqual(status.audio_level_db, -60.0)
+        self.assertEqual(status.audio_detail, "timeout")
+        [incident] = self.audio_incidents()
+        self.assertIsNone(incident.ended_at)
+        self.assertEqual(incident.silent_until, utc(10, 3))
+
+    def test_incident_opens_after_log_minutes(self):
+        self.measure_a(utc(10, 20), -60.0)
+        self.measure_a(utc(10, 21), -60.0)
+        self.assertEqual(self.audio_incidents(), [])
+        self.measure_a(utc(10, 22, 30), -60.0)
+        [incident] = self.audio_incidents()
+        self.assertEqual(incident.started_at, utc(10, 20))
+        self.assertEqual(incident.silent_until, utc(10, 22, 30))
+        self.assertEqual(incident.event, self.event)
+        self.assertIsNone(incident.ended_at)
+        self.measure_a(utc(10, 23), -60.0)
+        [incident] = self.audio_incidents()
+        self.assertEqual(incident.silent_until, utc(10, 23))
+
+    def test_incident_recovers_on_sound(self):
+        self.measure_a(utc(10, 20), -60.0)
+        self.measure_a(utc(10, 25), -60.0)
+        self.measure_a(utc(10, 40), -30.0)
+        [incident] = self.audio_incidents()
+        self.assertEqual(incident.ended_at, utc(10, 40))
+        self.assertTrue(incident.recovered)
+        self.assertEqual(incident.silent_until, utc(10, 25))
+
+    def test_incident_closed_when_stream_drops(self):
+        self.measure_a(utc(10, 20), -60.0)
+        self.measure_a(utc(10, 25), -60.0)
+        RecorderStatus.objects.filter(recorder=self.recorder).update(
+            state=RecorderStatus.OFFLINE
+        )
+        count, measure = self.run_pass(utc(10, 26), {})
+        self.assertEqual(count, 0)
+        [incident] = self.audio_incidents()
+        self.assertEqual(incident.ended_at, utc(10, 26))
+        self.assertFalse(incident.recovered)
+        status = RecorderStatus.objects.get(recorder=self.recorder)
+        self.assertIsNone(status.silent_since)
+        self.assertIsNone(status.audio_level_db)
+
+    def test_silence_across_back_to_back_events(self):
+        second = self.make_event(self.recorder, "ev-b", utc(12, 0), utc(14, 0))
+        self.measure_a(utc(11, 50), -60.0)
+        self.measure_a(utc(11, 53), -60.0)
+        [first_incident] = self.audio_incidents()
+        self.assertEqual(first_incident.event, self.event)
+        self.measure_a(utc(12, 1), -60.0)
+        [first_incident] = self.audio_incidents()
+        self.assertEqual(first_incident.ended_at, utc(12, 0))
+        self.assertFalse(first_incident.recovered)
+        self.measure_a(utc(12, 2), -60.0)
+        first_incident, second_incident = self.audio_incidents()
+        self.assertEqual(second_incident.event, second)
+        self.assertEqual(second_incident.started_at, utc(12, 0))
+        self.assertEqual(second_incident.silent_until, utc(12, 2))
+
+    def test_status_fields_not_clobbered(self):
+        from recorders.audio_monitor import run_audio_pass
+        from streams.audio import AudioMeasurement
+
+        RecorderStatus.objects.filter(recorder=self.recorder).update(
+            media_sequence=100, agent_state="capturing"
+        )
+
+        calls = []
+
+        def now_fn():
+            calls.append(1)
+            if len(calls) == 2:
+                # After the measurements: statuses loaded, not yet written.
+                RecorderStatus.objects.filter(recorder=self.recorder).update(
+                    state=RecorderStatus.OFFLINE, media_sequence=200, agent_state="idle"
+                )
+            return utc(10, 10)
+
+        run_audio_pass(
+            FakeMeasure({"rec-a": AudioMeasurement(True, -60.0)}),
+            FakeSource({}),
+            now_fn=now_fn,
+        )
+        status = RecorderStatus.objects.get(recorder=self.recorder)
+        self.assertEqual(status.state, RecorderStatus.OFFLINE)
+        self.assertEqual(status.media_sequence, 200)
+        self.assertEqual(status.agent_state, "idle")
+        self.assertEqual(status.audio_level_db, -60.0)
+
+    def test_measure_exception_is_a_failed_measurement(self):
+        from recorders.audio_monitor import run_audio_pass
+
+        def boom(url):
+            raise RuntimeError("bad")
+
+        run_audio_pass(boom, FakeSource({}), now_fn=lambda: utc(10, 10))
+        status = RecorderStatus.objects.get(recorder=self.recorder)
+        self.assertEqual(status.audio_detail, "RuntimeError: bad")
+        self.assertIsNone(status.audio_checked_at)
+        self.assertIsNone(status.silent_since)
+
+
+class RunMonitorAudioTests(TestCase):
+    def _bare_cmd(self):
+        from recorders.management.commands import run_monitor
+
+        cmd = run_monitor.Command()
+        cmd._audio_thread = None
+        cmd._last_audio_at = None
+        cmd._ffmpeg_ok = None
+        return cmd
+
+    @override_settings(AUDIO_MONITOR_ENABLED=True, AUDIO_INTERVAL_SECONDS=30)
+    def test_pass_skipped_while_previous_runs(self):
+        from recorders.management.commands import run_monitor
+
+        cmd = self._bare_cmd()
+        clock = [1000.0]
+        with mock.patch.object(run_monitor.time, "monotonic", lambda: clock[0]), \
+                mock.patch(f"{MONITOR}.ffmpeg_available", return_value=True), \
+                mock.patch.object(run_monitor.threading, "Thread") as thread:
+            thread.return_value.is_alive.return_value = True
+            cmd._start_audio(mock.Mock())
+            self.assertEqual(thread.call_count, 1)
+            self.assertEqual(thread.call_args.kwargs["name"], "audio-monitor")
+            clock[0] += 60  # interval over, but the first pass still runs
+            cmd._start_audio(mock.Mock())
+            self.assertEqual(thread.call_count, 1)
+            thread.return_value.is_alive.return_value = False
+            cmd._start_audio(mock.Mock())  # 60 s since the last start: due
+            self.assertEqual(thread.call_count, 2)
+            clock[0] += 29  # finished, but the interval is not over
+            cmd._start_audio(mock.Mock())
+            self.assertEqual(thread.call_count, 2)
+            clock[0] += 1
+            cmd._start_audio(mock.Mock())
+            self.assertEqual(thread.call_count, 3)
+
+    @override_settings(AUDIO_MONITOR_ENABLED=False)
+    def test_disabled_never_starts(self):
+        from recorders.management.commands import run_monitor
+
+        cmd = self._bare_cmd()
+        with mock.patch.object(run_monitor.threading, "Thread") as thread:
+            cmd._start_audio(mock.Mock())
+        thread.assert_not_called()
+
+    @override_settings(AUDIO_MONITOR_ENABLED=True)
+    def test_missing_ffmpeg_logged_once(self):
+        from recorders.management.commands import run_monitor
+
+        cmd = self._bare_cmd()
+        with mock.patch(f"{MONITOR}.ffmpeg_available", return_value=False), \
+                mock.patch.object(run_monitor.threading, "Thread") as thread, \
+                self.assertLogs(MONITOR, level="ERROR") as logs:
+            cmd._start_audio(mock.Mock())
+            cmd._last_audio_at = None
+            cmd._start_audio(mock.Mock())
+        thread.assert_not_called()
+        self.assertEqual(
+            logs.output, [f"ERROR:{MONITOR}:ffmpeg not found; audio monitoring disabled"]
+        )
+
+    @override_settings(OPENCAST_URL="", AUDIO_MONITOR_ENABLED=True)
+    def test_once_runs_audio_pass_inline(self):
+        Recorder.objects.all().delete()
+        Recorder.objects.create(room_name="A", stream_name="rec-a")
+        source = FakeSource({"rec-a": Probe(True, True, 100, 6.0)})
+        with mock.patch(f"{MONITOR}.HlsStreamSource", return_value=source), \
+                mock.patch(f"{MONITOR}.ffmpeg_available", return_value=True), \
+                mock.patch(f"{MONITOR}.run_audio_pass", return_value=0) as audio:
+            call_command("run_monitor", "--once")
+        audio.assert_called_once()

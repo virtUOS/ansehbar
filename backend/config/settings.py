@@ -168,6 +168,12 @@ ANSEHBAR_ACCESS_GROUP = os.environ.get("ANSEHBAR_ACCESS_GROUP", "ansehbar-users"
 ANSEHBAR_BOOTSTRAP_USERS = _env_list("ANSEHBAR_BOOTSTRAP_USERS", "")
 ANSEHBAR_ACCESS_CONTACT = os.environ.get("ANSEHBAR_ACCESS_CONTACT", "")
 MONITOR_INTERVAL_SECONDS = _int_or_default("MONITOR_INTERVAL_SECONDS", 10)
+# Audio level measurement with ffmpeg (live streams during events only).
+AUDIO_MONITOR_ENABLED = os.environ.get("AUDIO_MONITOR_ENABLED", "1") == "1"
+AUDIO_MAX_PARALLEL = _int_or_default("AUDIO_MAX_PARALLEL", 4)
+AUDIO_SAMPLE_SECONDS = _int_or_default("AUDIO_SAMPLE_SECONDS", 10)
+# Minimum seconds between the starts of two audio passes.
+AUDIO_INTERVAL_SECONDS = _int_or_default("AUDIO_INTERVAL_SECONDS", 30)
 # Opencast External API (read-only). Empty URL = Opencast integration off;
 # code checks bool(settings.OPENCAST_URL) at call time.
 OPENCAST_URL = os.environ.get("OPENCAST_URL", "").rstrip("/")
