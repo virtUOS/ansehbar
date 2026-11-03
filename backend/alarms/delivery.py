@@ -8,10 +8,12 @@ and incidents are marked with conditional updates, so a second run (or a
 parallel one) creates nothing twice.
 """
 import logging
+import re
+import smtplib
 from datetime import datetime, timedelta
 
 from django.conf import settings
-from django.core.mail import send_mail
+from django.core.mail import get_connection, send_mail
 from django.db import transaction
 from django.template.loader import render_to_string
 from django.utils import formats, timezone, translation
@@ -26,6 +28,9 @@ logger = logging.getLogger(__name__)
 
 # After this many failed attempts a message stays in the log with last_error.
 MAX_ATTEMPTS = 5
+# Attempt k (0-based) is made no earlier than created_at + BACKOFF_MINUTES[k],
+# so the five attempts span about 81 minutes.
+BACKOFF_MINUTES = (0, 1, 5, 15, 60)
 
 
 def deliver_alarms(now: datetime) -> None:
@@ -110,38 +115,79 @@ def _send_pending(now: datetime) -> None:
     pending = SentNotification.objects.filter(
         sent_at__isnull=True, attempts__lt=MAX_ATTEMPTS
     ).order_by("created_at", "pk")
-    for note in pending:
-        fields = ["attempts", "sent_at", "last_error"]
-        if note.kind == SentNotification.TEST and not note.subject:
-            # Test messages are queued by the API without content.
-            note.subject, note.body = _render_test()
-            fields += ["subject", "body"]
-        note.attempts += 1
-        try:
-            send_mail(
-                note.subject,
-                note.body,
-                settings.DEFAULT_FROM_EMAIL,
-                [note.recipient],
-                fail_silently=False,
-            )
-        except Exception as exc:
-            note.last_error = f"{type(exc).__name__}: {exc}"[:1000]
-            logger.warning(
-                "sending %s failed (attempt %s): %s", note.key, note.attempts, exc
-            )
-        else:
-            note.sent_at = now
-            note.last_error = ""
-        try:
-            note.save(update_fields=fields)
-        except Exception:
-            logger.exception("recording delivery of %s failed", note.key)
+    connection = None
+    try:
+        for note in pending:
+            if now < note.created_at + timedelta(
+                minutes=BACKOFF_MINUTES[note.attempts]
+            ):
+                continue
+            if connection is None:
+                connection = get_connection(fail_silently=False)
+            if not _send_one(note, connection, now):
+                break  # Server unreachable: the rest waits for the next cycle.
+    finally:
+        if connection is not None:
+            try:
+                connection.close()
+            except Exception:
+                logger.warning("closing the mail connection failed", exc_info=True)
+
+
+def _is_connection_error(exc: Exception) -> bool:
+    """Server unreachable or gone, as opposed to a problem with one message."""
+    if isinstance(exc, (smtplib.SMTPConnectError, smtplib.SMTPServerDisconnected)):
+        return True
+    # SMTPException is an OSError too, but its other subclasses concern the message.
+    return isinstance(exc, OSError) and not isinstance(exc, smtplib.SMTPException)
+
+
+def _send_one(note: SentNotification, connection, now: datetime) -> bool:
+    """Try to send ``note``; False if the connection failed (stop this cycle)."""
+    fields = ["attempts", "sent_at", "last_error"]
+    if note.kind == SentNotification.TEST and not note.subject:
+        # Test messages are queued by the API without content.
+        note.subject, note.body = _render_test()
+        fields += ["subject", "body"]
+    note.attempts += 1
+    connected = True
+    try:
+        connection.open()  # No-op while open: one SMTP session per cycle.
+        send_mail(
+            note.subject,
+            note.body,
+            settings.DEFAULT_FROM_EMAIL,
+            [note.recipient],
+            fail_silently=False,
+            connection=connection,
+        )
+    except Exception as exc:
+        connected = not _is_connection_error(exc)
+        note.last_error = f"{type(exc).__name__}: {exc}"[:1000]
+        level = logging.ERROR if note.attempts >= MAX_ATTEMPTS else logging.WARNING
+        logger.log(
+            level,
+            "sending %s failed (attempt %s of %s%s): %s",
+            note.key,
+            note.attempts,
+            MAX_ATTEMPTS,
+            ", giving up" if note.attempts >= MAX_ATTEMPTS else "",
+            exc,
+        )
+    else:
+        note.sent_at = now
+        note.last_error = ""
+    try:
+        note.save(update_fields=fields)
+    except Exception:
+        logger.exception("recording delivery of %s failed", note.key)
+    return connected
 
 
 def _room(recorder) -> str:
-    """Mirrors displayName in frontend/src/recorders.ts."""
-    return recorder.room_name.strip() or recorder.agent_id or recorder.stream_name
+    """Mirrors displayName in frontend/src/recorders.ts; single line (subject)."""
+    room = recorder.room_name.strip() or recorder.agent_id or recorder.stream_name
+    return re.sub(r"[\r\n]+", " ", room)
 
 
 def _clock(value: datetime) -> str:

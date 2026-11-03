@@ -1,8 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Universität Osnabrück (virtUOS)
 
+import socket
 from datetime import datetime
-from smtplib import SMTPException
+from smtplib import (
+    SMTPException,
+    SMTPRecipientsRefused,
+    SMTPServerDisconnected,
+)
 from unittest import mock
 from zoneinfo import ZoneInfo
 
@@ -11,7 +16,7 @@ from django.core import mail
 from django.core.management import call_command
 from django.test import TestCase, override_settings
 
-from alarms.delivery import deliver_alarms
+from alarms import delivery
 from alarms.models import AlarmRecipient, SentNotification
 from opencast.models import ScheduledEvent
 from recorders.incidents import update_incidents
@@ -102,6 +107,12 @@ MONITOR = "recorders.management.commands.run_monitor"
 def berlin(hour, minute=0, second=0, day=10):
     """Local time on 2026-11-<day> (CET)."""
     return datetime(2026, 11, day, hour, minute, second, tzinfo=BERLIN)
+
+
+def deliver_alarms(now):
+    """Run delivery with the clock at ``now`` (created_at follows the test clock)."""
+    with mock.patch("django.utils.timezone.now", return_value=now):
+        delivery.deliver_alarms(now)
 
 
 @override_settings(
@@ -316,18 +327,121 @@ class DeliveryTests(TestCase):
         incident.refresh_from_db()
         self.assertIsNone(incident.alerted_at)
 
-    def test_smtp_failure_is_retried_and_capped(self):
+    def note(self, key, created_at, **kwargs):
+        """A pending message created at ``created_at`` (test clock)."""
+        kwargs.setdefault("kind", SentNotification.ALARM)
+        kwargs.setdefault("subject", "s")
+        kwargs.setdefault("body", "b")
+        with mock.patch("django.utils.timezone.now", return_value=created_at):
+            return SentNotification.objects.create(
+                key=key, recipient=key.rsplit(":", 1)[1], **kwargs
+            )
+
+    def test_smtp_failure_is_retried_with_backoff_and_capped(self):
         self.incident()
+        # Attempt k no earlier than 10:05 + 0, 1, 5, 15, 60 minutes.
+        schedule = [
+            (berlin(10, 5), 1),
+            (berlin(10, 5, 59), 1),
+            (berlin(10, 6), 2),
+            (berlin(10, 9), 2),
+            (berlin(10, 10), 3),
+            (berlin(10, 19), 3),
+            (berlin(10, 20), 4),
+            (berlin(11, 4), 4),
+            (berlin(11, 5), 5),
+            (berlin(13), 5),
+        ]
         with mock.patch(
             "alarms.delivery.send_mail", side_effect=SMTPException("boom")
         ) as send, self.assertLogs("alarms.delivery", level="WARNING"):
-            for minute in range(5, 11):
-                deliver_alarms(berlin(10, minute))
+            for now, attempts in schedule:
+                deliver_alarms(now)
+                self.assertEqual(
+                    sorted(n.attempts for n in SentNotification.objects.all()),
+                    [attempts, attempts],
+                    now,
+                )
         self.assertEqual(send.call_count, 10)  # 2 recipients x 5 attempts
         for note in SentNotification.objects.all():
-            self.assertEqual(note.attempts, 5)
             self.assertIsNone(note.sent_at)
             self.assertIn("boom", note.last_error)
+
+    def test_giving_up_is_logged_as_error(self):
+        note = self.note("n:1:email:a@example.org", berlin(9))
+        SentNotification.objects.filter(pk=note.pk).update(attempts=3)
+        with mock.patch(
+            "alarms.delivery.send_mail", side_effect=SMTPException("boom")
+        ), self.assertLogs("alarms.delivery", level="WARNING") as logs:
+            deliver_alarms(berlin(10, 5))
+        self.assertEqual([r.levelname for r in logs.records], ["WARNING"])
+        with mock.patch(
+            "alarms.delivery.send_mail", side_effect=SMTPException("boom")
+        ), self.assertLogs("alarms.delivery", level="WARNING") as logs:
+            deliver_alarms(berlin(10, 5))
+        self.assertEqual([r.levelname for r in logs.records], ["ERROR"])
+        self.assertIn("giving up", logs.output[0])
+        note.refresh_from_db()
+        self.assertEqual(note.attempts, 5)
+
+    def test_connection_error_stops_the_cycle(self):
+        for error in (
+            SMTPServerDisconnected("gone"),
+            socket.timeout("timed out"),
+            ConnectionRefusedError("refused"),
+        ):
+            with self.subTest(error=type(error).__name__):
+                SentNotification.objects.all().delete()
+                first = self.note("n:1:email:a@example.org", berlin(10))
+                self.note("n:2:email:b@example.org", berlin(10, 1))
+                with mock.patch(
+                    "alarms.delivery.send_mail", side_effect=error
+                ) as send, self.assertLogs("alarms.delivery", level="WARNING"):
+                    deliver_alarms(berlin(10, 5))
+                self.assertEqual(send.call_count, 1)
+                first.refresh_from_db()
+                self.assertEqual(first.attempts, 1)
+                self.assertIn(type(error).__name__, first.last_error)
+                rest = SentNotification.objects.get(recipient="b@example.org")
+                self.assertEqual(rest.attempts, 0)
+                self.assertEqual(rest.last_error, "")
+
+    def test_message_error_continues_with_next(self):
+        self.note("n:1:email:a@example.org", berlin(10))
+        self.note("n:2:email:b@example.org", berlin(10, 1))
+        real = mail.send_mail
+
+        def refuse_a(subject, message, from_email, recipient_list, **kwargs):
+            if recipient_list == ["a@example.org"]:
+                raise SMTPRecipientsRefused({"a@example.org": (550, b"no")})
+            return real(subject, message, from_email, recipient_list, **kwargs)
+
+        with mock.patch("alarms.delivery.send_mail", side_effect=refuse_a), \
+                self.assertLogs("alarms.delivery", level="WARNING"):
+            deliver_alarms(berlin(10, 5))
+        self.assertEqual([m.to for m in mail.outbox], [["b@example.org"]])
+        failed = SentNotification.objects.get(recipient="a@example.org")
+        self.assertEqual(failed.attempts, 1)
+        self.assertIn("SMTPRecipientsRefused", failed.last_error)
+
+    def test_one_connection_per_cycle(self):
+        self.incident()
+        with mock.patch(
+            "alarms.delivery.get_connection", wraps=delivery.get_connection
+        ) as get_connection:
+            deliver_alarms(berlin(10, 5))
+        get_connection.assert_called_once()
+        self.assertEqual(len(mail.outbox), 2)
+
+    def test_line_breaks_in_room_name_do_not_reach_the_subject(self):
+        self.recorder.room_name = "Hörsaal A\r\nBcc: x@example.org"
+        self.recorder.save()
+        self.incident()
+        deliver_alarms(berlin(10, 5))
+        self.assertEqual(
+            mail.outbox[0].subject,
+            "[ansehBAR] Stream fehlt: Hörsaal A Bcc: x@example.org",
+        )
 
     def test_one_failure_does_not_block_others(self):
         self.incident()
@@ -390,10 +504,12 @@ class DeliveryTests(TestCase):
         self.assertEqual(mail.outbox[0].subject, "[ansehBAR] Stream fehlt: cap-A-01")
 
     def test_test_notification_is_sent(self):
-        SentNotification.objects.create(
-            key="test:1:email:a@example.org",
+        self.note(
+            "test:1:email:a@example.org",
+            berlin(10, 5),
             kind=SentNotification.TEST,
-            recipient="a@example.org",
+            subject="",
+            body="",
         )
         deliver_alarms(berlin(10, 5))
         (message,) = mail.outbox
