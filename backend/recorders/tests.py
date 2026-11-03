@@ -237,6 +237,34 @@ class MonitorSettingsApiTests(TestCase):
         # Changing only the length still checks it against the stored offset.
         self.assertEqual(self.put({**base, "slot_minutes": 60}).status_code, 400)
 
+    def test_settings_defaults_audio(self):
+        body = self.client.get("/api/settings/monitor/").json()
+        self.assertEqual(
+            [body[k] for k in ["silence_threshold_db", "silence_log_minutes",
+                               "silence_alarm_minutes"]],
+            [-50, 2, 15],
+        )
+
+    def test_settings_alarm_shorter_than_log_rejected(self):
+        body = self.client.get("/api/settings/monitor/").json()
+        base = {"url_template": body["url_template"], "stale_factor": 3}
+        response = self.put(
+            {**base, "silence_log_minutes": 10, "silence_alarm_minutes": 5}
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json()["silence_alarm_minutes"],
+            ["Must not be shorter than the minimum logged silence."],
+        )
+        # Partial update is checked against the stored value.
+        self.assertEqual(self.put({**base, "silence_log_minutes": 20}).status_code, 400)
+        self.assertEqual(
+            self.put(
+                {**base, "silence_log_minutes": 5, "silence_alarm_minutes": 5}
+            ).status_code,
+            200,
+        )
+
     def test_health_reports_slots(self):
         settings_ = MonitorSettings.load()
         settings_.slot_minutes = 90
@@ -1501,6 +1529,31 @@ class UpdateIncidentsTests(TestCase):
 
     def incidents(self):
         return list(Incident.objects.order_by("started_at", "pk"))
+
+    def test_update_incidents_ignores_audio_incidents(self):
+        # Open audio incident, stream live: stays open, not "recovered".
+        self.set_state("live")
+        audio = Incident.objects.create(
+            recorder=self.recorder, event=self.event, kind=Incident.AUDIO_SILENT,
+            started_at=self.at(10, 5), silent_until=self.at(10, 9),
+        )
+        self.update(self.at(10, 10))
+        audio.refresh_from_db()
+        self.assertIsNone(audio.ended_at)
+        self.assertFalse(audio.recovered)
+        # A recovered audio incident is not reopened as a stream flicker.
+        audio.ended_at, audio.recovered = self.at(10, 10), True
+        audio.save()
+        self.set_state("offline", self.at(10, 10))
+        self.update(self.at(10, 14))
+        audio.refresh_from_db()
+        self.assertEqual(audio.ended_at, self.at(10, 10))
+        self.assertTrue(audio.recovered)
+        # Only the genuine stream gap opens a (new) stream incident.
+        self.assertEqual(
+            [i.kind for i in Incident.objects.exclude(pk=audio.pk)],
+            ["stream_missing"],
+        )
 
     def test_incident_opened_after_grace(self):
         self.set_state("offline", self.at(9, 50))

@@ -237,6 +237,9 @@ class MonitorSettingsSerializer(serializers.ModelSerializer):
             "end_tolerance_minutes",
             "alarm_email_enabled",
             "alarm_metrics_enabled",
+            "silence_threshold_db",
+            "silence_log_minutes",
+            "silence_alarm_minutes",
         ]
 
     def validate(self, attrs):
@@ -247,5 +250,19 @@ class MonitorSettingsSerializer(serializers.ModelSerializer):
         if minutes and offset is not None and offset >= minutes:
             raise serializers.ValidationError(
                 {"slot_offset_minutes": _("Must be shorter than the slot length.")}
+            )
+        log = attrs.get(
+            "silence_log_minutes", self.instance and self.instance.silence_log_minutes
+        )
+        alarm = attrs.get(
+            "silence_alarm_minutes", self.instance and self.instance.silence_alarm_minutes
+        )
+        if log is not None and alarm is not None and alarm < log:
+            raise serializers.ValidationError(
+                {
+                    "silence_alarm_minutes": _(
+                        "Must not be shorter than the minimum logged silence."
+                    )
+                }
             )
         return attrs

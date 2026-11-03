@@ -69,6 +69,12 @@ class RecorderStatus(models.Model):
     agent_state = models.CharField(max_length=20, blank=True)
     agent_updated_at = models.DateTimeField(null=True, blank=True)
     offline_since = models.DateTimeField(null=True, blank=True)
+    # Audio level (written only by the audio monitor): last successful
+    # measurement, its mean level and the start of the current silence.
+    audio_level_db = models.FloatField(null=True, blank=True)
+    audio_checked_at = models.DateTimeField(null=True, blank=True)
+    audio_detail = models.CharField(max_length=200, blank=True)
+    silent_since = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return f"{self.recorder.stream_name}: {self.state}"
@@ -110,6 +116,17 @@ class MonitorSettings(models.Model):
     )
     alarm_email_enabled = models.BooleanField(default=True)
     alarm_metrics_enabled = models.BooleanField(default=True)
+    # Silence detection: level below the threshold counts as silent; logged
+    # after silence_log_minutes, alarmed after silence_alarm_minutes.
+    silence_threshold_db = models.SmallIntegerField(
+        default=-50, validators=[MinValueValidator(-90), MaxValueValidator(-20)]
+    )
+    silence_log_minutes = models.PositiveSmallIntegerField(
+        default=2, validators=[MinValueValidator(1), MaxValueValidator(30)]
+    )
+    silence_alarm_minutes = models.PositiveSmallIntegerField(
+        default=15, validators=[MinValueValidator(5), MaxValueValidator(120)]
+    )
 
     @classmethod
     def load(cls) -> "MonitorSettings":
@@ -125,7 +142,11 @@ class Incident(models.Model):
     """A gap in the stream during a scheduled event (recorded by the monitor)."""
 
     STREAM_MISSING = "stream_missing"
-    KIND_CHOICES = [(STREAM_MISSING, "stream missing")]
+    AUDIO_SILENT = "audio_silent"
+    KIND_CHOICES = [
+        (STREAM_MISSING, "stream missing"),
+        (AUDIO_SILENT, "audio silent"),
+    ]
 
     recorder = models.ForeignKey(
         Recorder, on_delete=models.CASCADE, related_name="incidents"
@@ -144,6 +165,8 @@ class Incident(models.Model):
     # When the incident became worth an alarm, independent of the channel.
     alerted_at = models.DateTimeField(null=True, blank=True)
     all_clear_at = models.DateTimeField(null=True, blank=True)
+    # Last silent measurement of an audio_silent incident.
+    silent_until = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["started_at"]

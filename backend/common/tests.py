@@ -96,6 +96,19 @@ class MetricsTests(TestCase):
         self.assertNotIn("Room C", body)
         self.assertNotIn("Room D", body)
 
+    def test_metrics_stream_gauge_ignores_audio(self):
+        room = _recorder("Room A", "cap-90-A")
+        Incident.objects.create(
+            recorder=room,
+            kind=Incident.AUDIO_SILENT,
+            started_at=timezone.now() - timedelta(minutes=20),
+            alerted_at=timezone.now(),
+        )
+        self.assertIn(
+            'ansehbar_stream_missing_alarm{room="Room A",stream="cap-90-A"} 0',
+            self._body(),
+        )
+
     def test_unalerted_or_ended_incident_is_not_an_alarm(self):
         pending = _recorder("Room A", "cap-90-A")
         _open_incident(pending, alerted=False)

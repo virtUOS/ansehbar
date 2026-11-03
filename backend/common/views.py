@@ -40,7 +40,9 @@ def render_prometheus() -> str:
     if MonitorSettings.load().alarm_metrics_enabled:
         alarmed = set(
             Incident.objects.filter(
-                ended_at__isnull=True, alerted_at__isnull=False
+                kind=Incident.STREAM_MISSING,
+                ended_at__isnull=True,
+                alerted_at__isnull=False,
             ).values_list("recorder_id", flat=True)
         )
         gauge(
