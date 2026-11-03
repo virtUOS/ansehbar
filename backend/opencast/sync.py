@@ -186,6 +186,7 @@ def sync_events(
                 "start": event.start,
                 "end": event.end,
                 "opencast_status": event.status[:STATUS_MAX],
+                "seen_at": now,
             },
         )
         # Only stored events count as fetched: events of an agent that no

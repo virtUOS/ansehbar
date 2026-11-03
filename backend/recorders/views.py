@@ -92,12 +92,6 @@ class RecorderViewSet(
             kind=Incident.STREAM_MISSING,
         ):
             incidents_by_event[incident.event_id].append(incident)
-        # When Opencast last confirmed the stored statuses (one more query;
-        # filter().first(): a GET must not create the singleton row).
-        sync_state = OpencastSyncState.objects.filter(pk=1).first()
-        context["opencast_confirmed_at"] = (
-            sync_state.last_success_at if sync_state else None
-        )
         context["last_events"] = last_events
         context["incidents_by_event"] = incidents_by_event
         context["now"] = now

@@ -518,6 +518,14 @@ class SyncTests(TestCase):
         sync.sync_events([self.event("a")], ws, we, now=NOW)
         self.assertEqual(ScheduledEvent.objects.get(identifier="a").opencast_status, "")
 
+    def test_sync_marks_delivered_events_seen(self):
+        Recorder.objects.create(
+            stream_name="rec-hall", room_name="Hall", agent_id="rec-hall"
+        )
+        ws, we = sync.sync_window(NOW, 7)
+        sync.sync_events([self.event("a")], ws, we, now=NOW)
+        self.assertEqual(ScheduledEvent.objects.get(identifier="a").seen_at, NOW)
+
     def test_run_sync_applies_nothing_on_error(self):
         client = FakeClient(agents=[self.agent()], fail_events=True)
         sync.run_opencast_sync(client, NOW, 7)

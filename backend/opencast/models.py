@@ -19,6 +19,9 @@ class ScheduledEvent(models.Model):
     end = models.DateTimeField()
     # Raw Opencast status, e.g. "EVENTS.EVENTS.STATUS.PROCESSED".
     opencast_status = models.CharField(max_length=60, blank=True)
+    # When a successful sync last delivered this event (confirms the status).
+    # Ended events that vanished from Opencast keep their old value.
+    seen_at = models.DateTimeField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

@@ -152,12 +152,11 @@ class RecorderSerializer(serializers.ModelSerializer):
             )
         status = event.opencast_status
         deadline = event.end + timedelta(minutes=30)
-        # "Did not start/finish" only from a status Opencast confirmed after
-        # the deadline; a stored status from before may simply be stale.
-        confirmed_at = self.context.get("opencast_confirmed_at")
-        overdue = (
-            now >= deadline and confirmed_at is not None and confirmed_at >= deadline
-        )
+        # "Did not start/finish" only from a status Opencast delivered for this
+        # event after the deadline; an older one (or one of an event deleted in
+        # Opencast meanwhile) may simply be stale.
+        seen_at = event.seen_at
+        overdue = now >= deadline and seen_at is not None and seen_at >= deadline
         if status.endswith("PROCESSING_FAILURE"):
             problems.append({"kind": "processing_failed"})
         elif status.endswith("RECORDING_FAILURE"):
