@@ -17,7 +17,7 @@ class Recorder(models.Model):
     ALARM_GRID = "grid"
     ALARM_OFF = "off"
     ALARM_MODE_CHOICES = [
-        (ALARM_EXACT, _("Exact (Opencast start)")),
+        (ALARM_EXACT, _("On time (Opencast start)")),
         (ALARM_GRID, _("Grid (c.t.)")),
         (ALARM_OFF, _("Off (log only)")),
     ]

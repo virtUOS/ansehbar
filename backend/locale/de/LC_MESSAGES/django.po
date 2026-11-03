@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ansehBAR\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-03 13:41+0100\n"
+"POT-Creation-Date: 2026-11-03 14:02+0100\n"
 "Language: de\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
@@ -25,17 +25,17 @@ msgstr "Dieses Feld darf nicht leer sein."
 msgid "Already invited."
 msgstr "Bereits eingeladen."
 
-#: alarms/delivery.py:159
+#: alarms/delivery.py:205
 #, python-format
 msgid "[ansehBAR] Stream back: %(room)s"
 msgstr "[ansehBAR] Stream wieder da: %(room)s"
 
-#: alarms/delivery.py:161
+#: alarms/delivery.py:207
 #, python-format
 msgid "[ansehBAR] Stream missing: %(room)s"
 msgstr "[ansehBAR] Stream fehlt: %(room)s"
 
-#: alarms/delivery.py:181
+#: alarms/delivery.py:227
 msgid "[ansehBAR] Test alarm"
 msgstr "[ansehBAR] Testalarm"
 
@@ -100,7 +100,7 @@ msgid "Opencast is not configured."
 msgstr "Opencast ist nicht konfiguriert."
 
 #: recorders/models.py:20
-msgid "Exact (Opencast start)"
+msgid "On time (Opencast start)"
 msgstr "Pünktlich (Opencast-Start)"
 
 #: recorders/models.py:21

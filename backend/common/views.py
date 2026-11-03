@@ -100,7 +100,8 @@ class MetricsView(APIView):
         if not token:
             raise Http404()
         header = request.META.get("HTTP_AUTHORIZATION", "")
-        if not hmac.compare_digest(header, f"Bearer {token}"):
+        # Bytes: compare_digest rejects non-ASCII str with TypeError (500).
+        if not hmac.compare_digest(header.encode(), f"Bearer {token}".encode()):
             return HttpResponse(status=401)
         return HttpResponse(
             render_prometheus(),

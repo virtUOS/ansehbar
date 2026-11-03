@@ -71,6 +71,9 @@ class MetricsTests(TestCase):
         self.assertEqual(self._get("wrong").status_code, 401)
         self.assertEqual(self._get(None).status_code, 401)
 
+    def test_metrics_401_with_non_ascii_token(self):
+        self.assertEqual(self._get("tökén").status_code, 401)
+
     def test_metrics_content_type(self):
         self.assertEqual(
             self._get()["Content-Type"], "text/plain; version=0.0.4; charset=utf-8"
