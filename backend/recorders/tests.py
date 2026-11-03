@@ -2250,6 +2250,35 @@ class AudioPassTests(TestCase):
         self.assertEqual(status.agent_state, "idle")
         self.assertEqual(status.audio_level_db, -60.0)
 
+    def test_audio_pass_stores_sample(self):
+        from recorders.models import AudioSample
+
+        self.measure_a(utc(10, 10), -35.0)
+        sample = AudioSample.objects.get()
+        self.assertEqual(sample.recorder, self.recorder)
+        self.assertEqual(sample.event, self.event)
+        self.assertEqual(sample.measured_at, utc(10, 10))
+        self.assertEqual(sample.level_db, -35.0)
+
+    def test_audio_pass_stores_no_track_sample(self):
+        from recorders.models import AudioSample
+
+        self.measure_a(utc(10, 10), None)
+        self.assertIsNone(AudioSample.objects.get().level_db)
+
+    def test_audio_pass_stores_clamped_sample(self):
+        from recorders.audio_monitor import AUDIO_FLOOR_DB
+        from recorders.models import AudioSample
+
+        self.measure_a(utc(10, 10), float("-inf"))
+        self.assertEqual(AudioSample.objects.get().level_db, AUDIO_FLOOR_DB)
+
+    def test_failed_measurement_stores_no_sample(self):
+        from recorders.models import AudioSample
+
+        self.measure_a(utc(10, 10), None, ok=False, detail="boom")
+        self.assertEqual(AudioSample.objects.count(), 0)
+
     def test_measure_exception_is_a_failed_measurement(self):
         from recorders.audio_monitor import run_audio_pass
 
