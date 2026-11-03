@@ -84,3 +84,30 @@ class MonitorSettings(models.Model):
     def save(self, *args, **kwargs):
         self.pk = 1
         super().save(*args, **kwargs)
+
+
+class Incident(models.Model):
+    """A gap in the stream during a scheduled event (recorded by the monitor)."""
+
+    STREAM_MISSING = "stream_missing"
+    KIND_CHOICES = [(STREAM_MISSING, "stream missing")]
+
+    recorder = models.ForeignKey(
+        Recorder, on_delete=models.CASCADE, related_name="incidents"
+    )
+    event = models.ForeignKey(
+        "opencast.ScheduledEvent",
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="incidents",
+    )
+    kind = models.CharField(max_length=20, choices=KIND_CHOICES)
+    started_at = models.DateTimeField()
+    ended_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["started_at"]
+        indexes = [models.Index(fields=["recorder", "started_at"])]
+
+    def __str__(self):
+        return f"{self.kind} {self.recorder_id} {self.started_at:%Y-%m-%d %H:%M}"

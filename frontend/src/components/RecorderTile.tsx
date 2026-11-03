@@ -8,6 +8,7 @@ import { Volume2, VolumeX } from "lucide-react";
 import type { Recorder } from "../api";
 import { displayName, formatClock, presentation, recordingScheduled } from "../recorders";
 import { RoomName } from "./RoomName";
+import { LastRecordingWarning } from "./LastRecordingWarning";
 import { HlsPlayer } from "../media/HlsPlayer";
 import { LevelMeter } from "../media/LevelMeter";
 import { useAudio } from "../media/AudioContextProvider";
@@ -99,6 +100,7 @@ function RecorderTileInner({
               <RoomName recorder={recorder} />
             </Link>
           </h2>
+          <LastRecordingWarning recorder={recorder} compact />
           {missing && (event || recorder.missing_since) ? (
             <p className="text-2xl font-extrabold tabular-nums">
               {t("from")}{" "}

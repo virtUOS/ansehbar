@@ -40,6 +40,30 @@ export interface EventBrief {
   end: string;
 }
 
+export type RecordingProblemKind =
+  | "stream_missing"
+  | "processing_failed"
+  | "recording_failed"
+  | "not_started"
+  | "not_finished";
+
+export interface RecordingProblem {
+  kind: RecordingProblemKind;
+  /** Only on "stream_missing". */
+  from?: string;
+  to?: string;
+  minutes?: number;
+}
+
+/** The room's most recent finished recording and what went wrong with it. */
+export interface LastRecording {
+  title: string;
+  start: string;
+  end: string;
+  opencast_status: string;
+  problems: RecordingProblem[];
+}
+
 export interface Recorder {
   id: number;
   room_name: string;
@@ -61,6 +85,7 @@ export interface Recorder {
   /** First event of the next local day. */
   next_event_tomorrow: EventBrief | null;
   missing_since: string | null;
+  last_recording: LastRecording | null;
 }
 
 /** Monitor heartbeat; `now` is the server clock (compare against it, not the browser's). */

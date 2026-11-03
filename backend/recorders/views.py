@@ -15,8 +15,8 @@ from rest_framework.views import APIView
 
 from accounts.permissions import HasAccess
 from opencast.models import IgnoredAgent, OpencastSyncState, ScheduledEvent
-from opencast.sync import opencast_sync_enabled
-from recorders.models import MonitorSettings, Recorder, RecorderStatus
+from opencast.sync import opencast_sync_enabled, sync_window
+from recorders.models import Incident, MonitorSettings, Recorder, RecorderStatus
 from recorders.serializers import MonitorSettingsSerializer, RecorderSerializer
 
 
@@ -78,6 +78,28 @@ class RecorderViewSet(
         events_by_recorder = defaultdict(list)
         for event in ScheduledEvent.objects.filter(end__gt=now, start__lt=tomorrow_end):
             events_by_recorder[event.recorder_id].append(event)
+        # Latest ended event per recorder within the lookback window, plus
+        # their incidents: two more queries, independent of the row count.
+        window_start = sync_window(now, 0, settings.OPENCAST_LOOKBACK_DAYS)[0]
+        last_events = {}
+        for event in ScheduledEvent.objects.filter(
+            end__lte=now, end__gte=window_start
+        ).order_by("-end"):
+            last_events.setdefault(event.recorder_id, event)
+        incidents_by_event = defaultdict(list)
+        for incident in Incident.objects.filter(
+            event__in=[e.pk for e in last_events.values()],
+            kind=Incident.STREAM_MISSING,
+        ):
+            incidents_by_event[incident.event_id].append(incident)
+        # When Opencast last confirmed the stored statuses (one more query;
+        # filter().first(): a GET must not create the singleton row).
+        sync_state = OpencastSyncState.objects.filter(pk=1).first()
+        context["opencast_confirmed_at"] = (
+            sync_state.last_success_at if sync_state else None
+        )
+        context["last_events"] = last_events
+        context["incidents_by_event"] = incidents_by_event
         context["now"] = now
         context["day_end"] = day_end
         context["tomorrow_end"] = tomorrow_end

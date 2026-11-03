@@ -159,5 +159,12 @@
   "By": "Von",
   "Tolerance until “stream ended”": "Toleranz bis „Stream beendet“",
   "× segment duration": "× Segmentdauer",
-  "A live stream delivers a new piece of video every few seconds (usually every 6 s). This many piece lengths may pass without a new one before the stream counts as ended. Default 3 ≈ 18 seconds.": "Ein Live-Stream liefert alle paar Sekunden ein neues Videostück (meist alle 6 s). So viele Stück-Längen darf kein neues kommen, bevor der Stream als beendet gilt. Standard 3 ≈ 18 Sekunden."
+  "A live stream delivers a new piece of video every few seconds (usually every 6 s). This many piece lengths may pass without a new one before the stream counts as ended. Default 3 ≈ 18 seconds.": "Ein Live-Stream liefert alle paar Sekunden ein neues Videostück (meist alle 6 s). So viele Stück-Längen darf kein neues kommen, bevor der Stream als beendet gilt. Standard 3 ≈ 18 Sekunden.",
+  "Stream missing {{from}}–{{to}} ({{minutes}} min)": "Stream fehlte {{from}}–{{to}} ({{minutes}} min)",
+  "Processing in Opencast failed": "Verarbeitung in Opencast fehlgeschlagen",
+  "Recording failed on the recorder": "Aufzeichnung auf dem Rekorder fehlgeschlagen",
+  "Recording did not start": "Aufzeichnung wurde nicht gestartet",
+  "Recording did not finish": "Aufzeichnung wurde nicht abgeschlossen",
+  "Last recording had problems": "Letzte Aufzeichnung hatte Probleme",
+  "{{title}}, {{day}} {{from}}–{{to}}": "{{title}}, {{day}} {{from}}–{{to}}"
 }

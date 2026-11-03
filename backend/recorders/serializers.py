@@ -6,6 +6,7 @@ from datetime import timedelta
 from django.utils import timezone
 from rest_framework import serializers
 
+from recorders.missing import missing_since
 from recorders.models import MonitorSettings, Recorder, RecorderStatus
 
 
@@ -28,6 +29,7 @@ class RecorderSerializer(serializers.ModelSerializer):
     next_event = serializers.SerializerMethodField()
     next_event_tomorrow = serializers.SerializerMethodField()
     missing_since = serializers.SerializerMethodField()
+    last_recording = serializers.SerializerMethodField()
 
     class Meta:
         model = Recorder
@@ -44,6 +46,7 @@ class RecorderSerializer(serializers.ModelSerializer):
             "next_event",
             "next_event_tomorrow",
             "missing_since",
+            "last_recording",
         ]
 
     def validate_agent_id(self, value):
@@ -123,19 +126,67 @@ class RecorderSerializer(serializers.ModelSerializer):
                 return self._event_data(event)
         return None
 
-    def get_missing_since(self, obj):
-        if not obj.active or obj.status.state != RecorderStatus.OFFLINE:
-            return None
-        current = self._current(obj)
-        if current is None:
+    def get_last_recording(self, obj):
+        """Latest ended event of the lookback window with its problems."""
+        event = self.context.get("last_events", {}).get(obj.pk)
+        if event is None:
             return None
         now = self.context.get("now") or timezone.now()
+        to_iso = serializers.DateTimeField().to_representation
+        problems = []
+        for incident in self.context.get("incidents_by_event", {}).get(event.pk, []):
+            # Only the part within the event counts; an incident still open
+            # on an ended event stops at the event end.
+            began = max(incident.started_at, event.start)
+            ended = min(incident.ended_at or event.end, event.end)
+            if ended <= began:
+                continue
+            seconds = (ended - began).total_seconds()
+            problems.append(
+                {
+                    "kind": "stream_missing",
+                    "from": to_iso(began),
+                    "to": to_iso(ended),
+                    "minutes": max(1, round(seconds / 60)),
+                }
+            )
+        status = event.opencast_status
+        deadline = event.end + timedelta(minutes=30)
+        # "Did not start/finish" only from a status Opencast confirmed after
+        # the deadline; a stored status from before may simply be stale.
+        confirmed_at = self.context.get("opencast_confirmed_at")
+        overdue = (
+            now >= deadline and confirmed_at is not None and confirmed_at >= deadline
+        )
+        if status.endswith("PROCESSING_FAILURE"):
+            problems.append({"kind": "processing_failed"})
+        elif status.endswith("RECORDING_FAILURE"):
+            problems.append({"kind": "recording_failed"})
+        elif overdue and status.endswith("SCHEDULED"):
+            problems.append({"kind": "not_started"})
+        elif overdue and status.endswith(("RECORDING", "INGESTING")):
+            problems.append({"kind": "not_finished"})
+        return {
+            "title": event.title,
+            "start": to_iso(event.start),
+            "end": to_iso(event.end),
+            "opencast_status": status,
+            "problems": problems,
+        }
+
+    def get_missing_since(self, obj):
+        now = self.context.get("now") or timezone.now()
         grace = timedelta(minutes=self.context.get("grace_minutes", 0))
-        threshold = current.start + grace
-        if now < threshold:
+        since = missing_since(
+            obj.active,
+            obj.status.state,
+            obj.status.offline_since,
+            self._current(obj),
+            now,
+            grace,
+        )
+        if since is None:
             return None
-        offline_since = obj.status.offline_since
-        since = max(threshold, offline_since) if offline_since else threshold
         return serializers.DateTimeField().to_representation(since)
 
 

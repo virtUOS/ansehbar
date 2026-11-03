@@ -4,6 +4,8 @@
 import type { LucideIcon } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { Recorder } from "../api";
+import { useTranslation } from "react-i18next";
+import { hasLastRecordingProblems } from "../recorders";
 import { RoomName } from "./RoomName";
 import { OpencastIcon } from "./OpencastIcon";
 
@@ -17,6 +19,7 @@ export function RoomPills({
   icon: LucideIcon;
   recorders: Recorder[];
 }) {
+  const { t } = useTranslation();
   if (recorders.length === 0) return null;
   return (
     <section className="space-y-2">
@@ -32,6 +35,12 @@ export function RoomPills({
               <span>
                 <RoomName recorder={r} />
               </span>
+              {hasLastRecordingProblems(r) ? (
+                <span className="text-amber-900 dark:text-amber-200">
+                  <span aria-hidden>⚠</span>
+                  <span className="sr-only">{t("Last recording had problems")}</span>
+                </span>
+              ) : null}
               {r.agent_id ? <OpencastIcon /> : null}
             </Link>
           </li>

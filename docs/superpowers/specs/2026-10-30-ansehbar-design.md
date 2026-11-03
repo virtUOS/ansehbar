@@ -311,6 +311,32 @@ Nachträge aus dem ersten Betrieb mit Opencast.
 - **Rechte des API-Kontos:** Ohne Leserecht auf die Events bleibt die Terminliste
   leer. Übergangsweise gilt `ROLE_ADMIN`; eine engere Rolle ist offen (siehe 10).
 
+### 6b Letzte Aufzeichnung
+
+Hinweis „Letzte Aufzeichnung hatte Probleme“: Er bezieht sich immer auf den
+zuletzt beendeten Termin des Raums innerhalb von `OPENCAST_LOOKBACK_DAYS`
+(Standard 7). Nach der nächsten sauberen Aufzeichnung verschwindet er.
+
+- **Zwei Quellen:**
+  - ansehBARs eigener Monitor: Lücken im Stream, nur während eines Termins und
+    nach der Karenzzeit. „Status unbekannt“ zählt nie als Lücke.
+  - Opencast: der Status des Events (Aufnahme und Verarbeitung).
+- **Problemarten:**
+  - „Stream fehlte HH:MM–HH:MM (N min)“ (eigener Monitor),
+  - „Verarbeitung in Opencast fehlgeschlagen“ (`PROCESSING_FAILURE`),
+  - „Aufzeichnung auf dem Rekorder fehlgeschlagen“ (`RECORDING_FAILURE`),
+  - „Aufzeichnung wurde nicht gestartet“ (30 Minuten nach dem Ende noch
+    `SCHEDULED`),
+  - „Aufzeichnung wurde nicht abgeschlossen“ (30 Minuten nach dem Ende noch
+    `RECORDING` oder `INGESTING`).
+  Laufende Verarbeitung ist kein Problem.
+- **Zuordnung:** Verarbeitete Events, die ihre Planungsdaten verloren haben,
+  bleiben über Opencasts Ort plus Start und Dauer dem Raum zugeordnet.
+- **Darstellung:** gelber Kasten in der Raumansicht; kompakte Zeile bzw.
+  ⚠-Marker in Kachel, Smartphone-Liste und Pillen.
+- **Vorfälle:** Stream-Lücken werden als Vorfälle gespeichert. Das ist der
+  Anfang des Protokolls aus 7.5. Die Alarme bleiben Stufe 3.
+
 ## 7. Stufe 3: Vorfälle, Alarme, Protokoll
 
 ### 7.1 Begriffe
@@ -321,6 +347,7 @@ Nachträge aus dem ersten Betrieb mit Opencast.
   - Typ `audio_silent`: Der Ton fehlt.
   - Ein Vorfall hat Beginn und Ende. Er wird immer protokolliert, egal ob ein
     Alarm rausgeht.
+  - Stream-Lücken werden schon in Stufe 2 als Vorfälle gespeichert (siehe 6b).
 
 ### 7.2 Alarm „Stream fehlt“
 

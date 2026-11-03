@@ -22,7 +22,7 @@ from django.test.utils import CaptureQueriesContext
 from opencast.client import Agent, OpencastError
 from opencast.models import IgnoredAgent, OpencastSyncState, ScheduledEvent
 from opencast.sync import sync_agents
-from recorders.models import MonitorSettings, Recorder, RecorderStatus
+from recorders.models import Incident, MonitorSettings, Recorder, RecorderStatus
 from recorders.monitor import run_cycle
 from streams.sources import Probe
 
@@ -539,7 +539,7 @@ class RunMonitorOpencastTests(TestCase):
     def test_unexpected_sync_error_records_kind_and_attempt_start(self):
         started = []
 
-        def failing_sync(client, now, lookahead):
+        def failing_sync(client, now, lookahead, lookback):
             started.append(now)
             raise RuntimeError("boom")
 
@@ -678,7 +678,7 @@ class RunMonitorOpencastTests(TestCase):
         release = threading.Event()
         calls = []
 
-        def fake_sync(client, now, lookahead):
+        def fake_sync(client, now, lookahead, lookback):
             calls.append(now)
             state = OpencastSyncState.load()
             state.last_attempt_at = now
@@ -1123,6 +1123,210 @@ class RecorderEventApiTests(TestCase):
         self.assertEqual(len(body), 11)
         self.assertEqual(small, large)
 
+    def ended(self, status="", **kw):
+        event = self.event(berlin(10, day=9), berlin(12, day=9), **kw)
+        ScheduledEvent.objects.filter(pk=event.pk).update(opencast_status=status)
+        return event
+
+    def problems(self, now):
+        body = self.get(now)
+        return body["last_recording"]["problems"]
+
+    def test_last_recording_none(self):
+        self.assertIsNone(self.get(berlin(13, day=9))["last_recording"])
+        # Running or future events are not "last recording".
+        self.event(berlin(10, day=10), berlin(12, day=10))
+        self.assertIsNone(self.get(berlin(11, day=10))["last_recording"])
+
+    def test_last_recording_picks_latest_ended(self):
+        self.event(berlin(8, day=8), berlin(9, day=8), "older")
+        self.event(berlin(10, day=9), berlin(12, day=9), "latest")
+        self.event(berlin(14, day=9), berlin(16, day=9), "running")
+        body = self.get(berlin(15, day=9))
+        last = body["last_recording"]
+        self.assertEqual(last["title"], "latest")
+        self.assertEqual(datetime.fromisoformat(last["start"]), berlin(10, day=9))
+        self.assertEqual(datetime.fromisoformat(last["end"]), berlin(12, day=9))
+        self.assertEqual(last["opencast_status"], "")
+        self.assertEqual(last["problems"], [])
+
+    def test_last_recording_ignores_events_before_window(self):
+        self.event(berlin(10, day=2), berlin(12, day=2), "too old")
+        with override_settings(OPENCAST_LOOKBACK_DAYS=7):
+            # Window starts 2026-11-03 00:00 local for now on 2026-11-10.
+            self.assertIsNone(self.get(berlin(13, day=10))["last_recording"])
+        self.event(berlin(10, day=3), berlin(12, day=3), "in window")
+        self.assertEqual(
+            self.get(berlin(13, day=10))["last_recording"]["title"], "in window"
+        )
+
+    def test_last_recording_stream_missing_problems(self):
+        event = self.ended()
+        other = self.event(berlin(14, day=9), berlin(15, day=9), "other")
+        Incident.objects.create(
+            recorder=self.recorder, event=event, kind="stream_missing",
+            started_at=berlin(10, 30, day=9), ended_at=berlin(10, 45, day=9),
+        )
+        Incident.objects.create(
+            recorder=self.recorder, event=event, kind="stream_missing",
+            started_at=berlin(11, 0, day=9), ended_at=berlin(11, 0, day=9) + timedelta(seconds=10),
+        )
+        Incident.objects.create(
+            recorder=self.recorder, event=other, kind="stream_missing",
+            started_at=berlin(14, 10, day=9), ended_at=berlin(14, 20, day=9),
+        )
+        problems = self.problems(berlin(13, day=9))
+        self.assertEqual([p["kind"] for p in problems], ["stream_missing"] * 2)
+        self.assertEqual(problems[0]["minutes"], 15)
+        self.assertEqual(
+            datetime.fromisoformat(problems[0]["from"]), berlin(10, 30, day=9)
+        )
+        self.assertEqual(
+            datetime.fromisoformat(problems[0]["to"]), berlin(10, 45, day=9)
+        )
+        self.assertEqual(problems[1]["minutes"], 1)
+
+    def test_open_incident_uses_event_end(self):
+        event = self.ended()
+        Incident.objects.create(
+            recorder=self.recorder, event=event, kind="stream_missing",
+            started_at=berlin(11, 30, day=9), ended_at=None,
+        )
+        problem = self.problems(berlin(13, day=9))[0]
+        self.assertEqual(datetime.fromisoformat(problem["to"]), berlin(12, day=9))
+        self.assertEqual(problem["minutes"], 30)
+
+    def test_processing_failure_problem(self):
+        self.ended("EVENTS.EVENTS.STATUS.PROCESSING_FAILURE")
+        self.assertEqual(
+            self.problems(berlin(12, 1, day=9)), [{"kind": "processing_failed"}]
+        )
+
+    def test_recording_failure_problem(self):
+        self.ended("EVENTS.EVENTS.STATUS.RECORDING_FAILURE")
+        self.assertEqual(
+            self.problems(berlin(12, 1, day=9)), [{"kind": "recording_failed"}]
+        )
+
+    def test_processing_is_not_a_problem(self):
+        for status in [
+            "EVENTS.EVENTS.STATUS.PROCESSING",
+            "EVENTS.EVENTS.STATUS.PROCESSED",
+            "",
+            "EVENTS.EVENTS.STATUS.SOMETHING_NEW",
+        ]:
+            with self.subTest(status=status):
+                ScheduledEvent.objects.all().delete()
+                self.ended(status)
+                self.assertEqual(self.problems(berlin(15, day=9)), [])
+
+    def confirmed(self, at):
+        """Opencast sync last succeeded at `at`."""
+        OpencastSyncState.objects.update_or_create(
+            pk=1, defaults={"last_success_at": at}
+        )
+
+    def test_scheduled_after_end_is_not_started(self):
+        self.ended("EVENTS.EVENTS.STATUS.SCHEDULED")
+        self.confirmed(berlin(13, day=9))
+        self.assertEqual(self.problems(berlin(12, 29, day=9)), [])
+        self.assertEqual(
+            self.problems(berlin(12, 31, day=9)), [{"kind": "not_started"}]
+        )
+
+    def test_recording_after_end_is_not_finished(self):
+        for status in ["RECORDING", "INGESTING"]:
+            with self.subTest(status=status):
+                ScheduledEvent.objects.all().delete()
+                self.ended(f"EVENTS.EVENTS.STATUS.{status}")
+                self.confirmed(berlin(13, day=9))
+                self.assertEqual(self.problems(berlin(12, 29, day=9)), [])
+                self.assertEqual(
+                    self.problems(berlin(12, 31, day=9)), [{"kind": "not_finished"}]
+                )
+
+    def test_not_started_needs_status_confirmed_after_deadline(self):
+        self.ended("EVENTS.EVENTS.STATUS.SCHEDULED")  # ends 12:00
+        now = berlin(12, 31, day=9)
+        # No successful sync at all: the stored status is not confirmed.
+        self.assertEqual(self.problems(now), [])
+        # Last sync 12:10: before end + 30 min, the status may be stale.
+        self.confirmed(berlin(12, 10, day=9))
+        self.assertEqual(self.problems(now), [])
+        self.confirmed(berlin(12, 31, day=9))
+        self.assertEqual(self.problems(now), [{"kind": "not_started"}])
+
+    def test_not_finished_needs_status_confirmed_after_deadline(self):
+        self.ended("EVENTS.EVENTS.STATUS.RECORDING")
+        self.confirmed(berlin(12, 10, day=9))
+        self.assertEqual(self.problems(berlin(12, 31, day=9)), [])
+        self.confirmed(berlin(12, 30, day=9))
+        self.assertEqual(
+            self.problems(berlin(12, 31, day=9)), [{"kind": "not_finished"}]
+        )
+
+    def test_failure_kinds_do_not_need_confirmation(self):
+        self.ended("EVENTS.EVENTS.STATUS.RECORDING_FAILURE")
+        self.confirmed(None)
+        self.assertEqual(
+            self.problems(berlin(12, 1, day=9)), [{"kind": "recording_failed"}]
+        )
+
+    def test_incident_interval_clamped_to_event(self):
+        event = self.ended()  # 10:00-12:00
+        # Started (per offline_since) before the event, ended after it.
+        Incident.objects.create(
+            recorder=self.recorder, event=event, kind="stream_missing",
+            started_at=berlin(9, 50, day=9), ended_at=berlin(10, 20, day=9),
+        )
+        Incident.objects.create(
+            recorder=self.recorder, event=event, kind="stream_missing",
+            started_at=berlin(11, 50, day=9), ended_at=berlin(12, 30, day=9),
+        )
+        # Entirely outside the event: dropped.
+        Incident.objects.create(
+            recorder=self.recorder, event=event, kind="stream_missing",
+            started_at=berlin(9, 0, day=9), ended_at=berlin(9, 30, day=9),
+        )
+        problems = self.problems(berlin(13, day=9))
+        self.assertEqual(len(problems), 2)
+        first, second = sorted(problems, key=lambda p: p["from"])
+        self.assertEqual(datetime.fromisoformat(first["from"]), berlin(10, day=9))
+        self.assertEqual(datetime.fromisoformat(first["to"]), berlin(10, 20, day=9))
+        self.assertEqual(first["minutes"], 20)
+        self.assertEqual(datetime.fromisoformat(second["from"]), berlin(11, 50, day=9))
+        self.assertEqual(datetime.fromisoformat(second["to"]), berlin(12, day=9))
+        self.assertEqual(second["minutes"], 10)
+
+    def test_list_query_count_constant_with_last_recording(self):
+        def make(count):
+            for i in range(count):
+                rec = Recorder.objects.create(
+                    room_name=f"L{count}-{i}", stream_name=f"l-{count}-{i}"
+                )
+                event = self.event(berlin(10, day=9), berlin(12, day=9), recorder=rec)
+                Incident.objects.create(
+                    recorder=rec, event=event, kind="stream_missing",
+                    started_at=berlin(11, day=9), ended_at=berlin(11, 5, day=9),
+                )
+
+        def count_queries():
+            with mock.patch(
+                "django.utils.timezone.now", return_value=berlin(13, day=9)
+            ):
+                with CaptureQueriesContext(connection) as ctx:
+                    response = self.client.get("/api/recorders/")
+            self.assertEqual(response.status_code, 200)
+            return len(ctx), response.json()
+
+        make(3)
+        self.client.get("/api/recorders/")  # warm up
+        small, body = count_queries()
+        self.assertEqual(body[1]["last_recording"]["problems"][0]["minutes"], 5)
+        make(7)
+        large, _ = count_queries()
+        self.assertEqual(small, large)
+
     def test_settings_grace_bounds(self):
         for value, code in [(31, 400), (-1, 400), (30, 200), (0, 200)]:
             with self.subTest(value=value):
@@ -1139,3 +1343,155 @@ class RecorderEventApiTests(TestCase):
         self.assertEqual(
             self.client.get("/api/settings/monitor/").json()["missing_grace_minutes"], 0
         )
+
+
+class UpdateIncidentsTests(TestCase):
+    def setUp(self):
+        from recorders.incidents import update_incidents
+
+        self.update = update_incidents
+        Recorder.objects.all().delete()
+        MonitorSettings.objects.update_or_create(
+            pk=1, defaults={"missing_grace_minutes": 3}
+        )
+        self.recorder = Recorder.objects.create(room_name="A", stream_name="rec-a")
+        self.status, _ = RecorderStatus.objects.get_or_create(recorder=self.recorder)
+        self.start = datetime(2026, 11, 2, 10, 0, tzinfo=timezone.utc)
+        self.end = datetime(2026, 11, 2, 12, 0, tzinfo=timezone.utc)
+        self.event = ScheduledEvent.objects.create(
+            identifier="ev-1", recorder=self.recorder, title="T",
+            start=self.start, end=self.end,
+        )
+
+    def at(self, hour, minute):
+        return datetime(2026, 11, 2, hour, minute, tzinfo=timezone.utc)
+
+    def set_state(self, state, offline_since=None):
+        self.status.state = state
+        self.status.offline_since = offline_since
+        self.status.save()
+
+    def incidents(self):
+        return list(Incident.objects.order_by("started_at", "pk"))
+
+    def test_incident_opened_after_grace(self):
+        self.set_state("offline", self.at(9, 50))
+        self.update(self.at(10, 2))
+        self.assertEqual(self.incidents(), [])
+        self.update(self.at(10, 5))
+        (incident,) = self.incidents()
+        self.assertEqual(incident.started_at, self.at(10, 3))
+        self.assertIsNone(incident.ended_at)
+        self.assertEqual(incident.kind, "stream_missing")
+        self.assertEqual(incident.event, self.event)
+        self.assertEqual(incident.recorder, self.recorder)
+
+    def test_incident_closed_when_live(self):
+        self.set_state("offline", self.at(9, 50))
+        self.update(self.at(10, 5))
+        self.set_state("live")
+        self.update(self.at(10, 10))
+        (incident,) = self.incidents()
+        self.assertEqual(incident.ended_at, self.at(10, 10))
+
+    def test_incident_closed_at_event_end(self):
+        self.set_state("offline", self.at(9, 50))
+        self.update(self.at(11, 59))
+        self.assertIsNone(self.incidents()[0].ended_at)
+        self.update(self.at(12, 5))
+        (incident,) = self.incidents()
+        self.assertEqual(incident.ended_at, self.end)
+
+    def test_incident_not_duplicated_across_cycles_and_restart(self):
+        self.set_state("offline", self.at(9, 50))
+        for minute in (5, 6, 7):
+            self.update(self.at(10, minute))
+        self.assertEqual(len(self.incidents()), 1)
+
+    def test_unknown_keeps_incident_open(self):
+        self.set_state("offline", self.at(9, 50))
+        self.update(self.at(10, 5))
+        self.set_state("unknown", self.at(9, 50))
+        self.update(self.at(10, 6))
+        self.assertIsNone(self.incidents()[0].ended_at)
+        self.set_state("live")
+        self.update(self.at(10, 7))
+        (incident,) = self.incidents()
+        self.assertEqual(incident.ended_at, self.at(10, 7))
+
+    def test_second_gap_same_event_new_incident(self):
+        self.set_state("offline", self.at(9, 50))
+        self.update(self.at(10, 5))
+        self.set_state("live")
+        self.update(self.at(10, 10))
+        self.set_state("offline", self.at(10, 20))
+        self.update(self.at(10, 21))
+        first, second = self.incidents()
+        self.assertEqual(first.ended_at, self.at(10, 10))
+        self.assertEqual(second.started_at, self.at(10, 20))
+        self.assertIsNone(second.ended_at)
+
+    def test_inactive_recorder_no_incident(self):
+        self.recorder.active = False
+        self.recorder.save()
+        self.set_state("offline", self.at(9, 50))
+        self.update(self.at(10, 5))
+        self.assertEqual(self.incidents(), [])
+
+    def test_incident_of_deactivated_recorder_closed_now(self):
+        self.set_state("offline", self.at(9, 50))
+        self.update(self.at(10, 5))
+        self.recorder.active = False
+        self.recorder.save()
+        self.update(self.at(10, 30))
+        (incident,) = self.incidents()
+        self.assertEqual(incident.ended_at, self.at(10, 30))
+
+    def test_incident_of_deleted_event_closed_now(self):
+        self.set_state("offline", self.at(9, 50))
+        self.update(self.at(10, 5))
+        self.event.delete()
+        self.update(self.at(10, 30))
+        (incident,) = self.incidents()
+        self.assertIsNone(incident.event)
+        self.assertEqual(incident.ended_at, self.at(10, 30))
+
+    def test_no_incident_without_running_event(self):
+        self.set_state("offline", self.at(9, 0))
+        self.update(self.at(9, 30))
+        self.update(self.at(12, 30))
+        self.assertEqual(self.incidents(), [])
+
+    def test_query_count_independent_of_recorder_count(self):
+        def count():
+            with CaptureQueriesContext(connection) as ctx:
+                self.update(self.at(10, 5))
+            return len(ctx)
+
+        self.set_state("offline", self.at(9, 50))
+        base = count()
+        for i in range(5):
+            r = Recorder.objects.create(room_name=f"B{i}", stream_name=f"rec-b{i}")
+            RecorderStatus.objects.update_or_create(
+                recorder=r,
+                defaults={"state": "offline", "offline_since": self.at(9, 50)},
+            )
+            ScheduledEvent.objects.create(
+                identifier=f"ev-b{i}", recorder=r, start=self.start, end=self.end
+            )
+        self.assertEqual(count(), base + 0)  # inserts happen in bulk
+
+
+class RunMonitorIncidentTests(TestCase):
+    def test_update_incidents_error_does_not_stop_cycle(self):
+        Recorder.objects.all().delete()
+        recorder = Recorder.objects.create(room_name="A", stream_name="rec-a")
+        source = FakeSource({"rec-a": Probe(True, True, 100, 6.0)})
+        with mock.patch(f"{MONITOR}.HlsStreamSource", return_value=source), \
+                mock.patch(f"{MONITOR}.update_incidents", side_effect=RuntimeError("x")), \
+                self.assertLogs(MONITOR, level="ERROR") as logs:
+            call_command("run_monitor", "--once")
+        recorder.status.refresh_from_db()
+        self.assertIsNotNone(recorder.status.checked_at)
+        self.assertTrue(any("incidents" in m for m in logs.output))
+        self.assertFalse(any("monitor cycle failed" in m for m in logs.output))

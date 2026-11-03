@@ -14,7 +14,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from opencast import sync
 from opencast.client import Agent, Event, OpencastClient, OpencastError
 from opencast.models import IgnoredAgent, OpencastSyncState, ScheduledEvent
-from recorders.models import Recorder
+from recorders.models import Incident, Recorder
 
 FIXTURES = Path(__file__).parent / "fixtures"
 PASSWORD = "s3cret-pw"
@@ -233,6 +233,50 @@ class EventsTests(SimpleTestCase):
         self.assertEqual(second.agent_id, "rec-hall")
         self.assertEqual(second.start, datetime(2026, 11, 1, 9, 0, tzinfo=timezone.utc))
 
+    def test_event_status_parsed(self):
+        raw = [
+            {
+                "identifier": "s1", "title": "T", "status": "EVENTS.EVENTS.STATUS.PROCESSED",
+                "scheduling": {"agent_id": "a1", "start": "2026-11-01T08:00:00Z",
+                               "end": "2026-11-01T09:00:00Z"},
+            },
+            {
+                "identifier": "s2", "title": "T",
+                "scheduling": {"agent_id": "a1", "start": "2026-11-01T08:00:00Z",
+                               "end": "2026-11-01T09:00:00Z"},
+            },
+        ]
+        client, _ = make_client(lambda r: json_response(raw))
+        first, second = client.scheduled_events(*self.window())
+        self.assertEqual(first.status, "EVENTS.EVENTS.STATUS.PROCESSED")
+        self.assertEqual(second.status, "")
+
+    def test_processed_event_without_scheduling_uses_location_and_duration(self):
+        raw = [{
+            "identifier": "p1", "title": "Done", "series": "S", "location": "cap-90-R12",
+            "start": "2026-11-01T08:00:00Z", "duration": 5400000,
+            "status": "EVENTS.EVENTS.STATUS.PROCESSED", "scheduling": {},
+        }]
+        client, _ = make_client(lambda r: json_response(raw))
+        (event,) = client.scheduled_events(*self.window())
+        self.assertEqual(event.agent_id, "cap-90-R12")
+        self.assertEqual(event.start, datetime(2026, 11, 1, 8, 0, tzinfo=timezone.utc))
+        self.assertEqual(event.end, datetime(2026, 11, 1, 9, 30, tzinfo=timezone.utc))
+        self.assertEqual(event.status, "EVENTS.EVENTS.STATUS.PROCESSED")
+
+    def test_event_without_scheduling_and_location_skipped(self):
+        base = {"title": "T", "start": "2026-11-01T08:00:00Z", "duration": 1000,
+                "scheduling": {}}
+        raw = [
+            {**base, "identifier": "u1", "location": ""},
+            {**base, "identifier": "u2"},
+            {**base, "identifier": "u3", "location": "a1", "duration": 0},
+            {**base, "identifier": "u4", "location": "a1", "duration": None},
+            {**base, "identifier": "u5", "location": "a1", "start": "bad"},
+        ]
+        client, _ = make_client(lambda r: json_response(raw))
+        self.assertEqual(client.scheduled_events(*self.window()), [])
+
 
 def utc(*args):
     return datetime(*args, tzinfo=timezone.utc)
@@ -319,7 +363,7 @@ class SyncTests(TestCase):
         ws, we = sync.sync_window(NOW, 7)
         a = self.event("a", title="Old")
         b = self.event("b", start=utc(2026, 11, 5, 8, 0))
-        sync.sync_events([a, b], ws, we)
+        sync.sync_events([a, b], ws, we, now=NOW)
         self.assertEqual(ScheduledEvent.objects.count(), 2)
         before = ScheduledEvent.objects.create(
             identifier="c",
@@ -327,7 +371,7 @@ class SyncTests(TestCase):
             start=ws - timedelta(hours=2),
             end=ws - timedelta(hours=1),
         )
-        result = sync.sync_events([self.event("a", title="New")], ws, we)
+        result = sync.sync_events([self.event("a", title="New")], ws, we, now=NOW)
         self.assertEqual(result.deleted, 1)
         self.assertEqual(ScheduledEvent.objects.get(identifier="a").title, "New")
         self.assertFalse(ScheduledEvent.objects.filter(identifier="b").exists())
@@ -335,7 +379,7 @@ class SyncTests(TestCase):
 
     def test_event_for_unknown_agent_is_unmatched(self):
         ws, we = sync.sync_window(NOW, 7)
-        result = sync.sync_events([self.event("a", agent_id="nobody")], ws, we)
+        result = sync.sync_events([self.event("a", agent_id="nobody")], ws, we, now=NOW)
         self.assertEqual(result.unmatched, 1)
         self.assertEqual(ScheduledEvent.objects.count(), 0)
 
@@ -351,43 +395,128 @@ class SyncTests(TestCase):
         ws, we = sync.sync_window(NOW, 7)
         long_id = "e" * 129
         with self.assertLogs("opencast.sync", level="WARNING") as logs:
-            sync.sync_events([self.event(long_id), self.event("ok")], ws, we)
-            sync.sync_events([self.event(long_id), self.event("ok")], ws, we)
+            sync.sync_events([self.event(long_id), self.event("ok")], ws, we, now=NOW)
+            sync.sync_events([self.event(long_id), self.event("ok")], ws, we, now=NOW)
         self.assertEqual(
             list(ScheduledEvent.objects.values_list("identifier", flat=True)), ["ok"]
         )
         self.assertEqual(len(logs.records), 1)
 
-    def test_empty_event_list_deletes_with_warning(self):
-        Recorder.objects.create(
+    def test_empty_event_list_keeps_stored_events_with_warning(self):
+        rec = Recorder.objects.create(
             stream_name="rec-hall", room_name="Hall", agent_id="rec-hall"
         )
         ws, we = sync.sync_window(NOW, 7)
-        sync.sync_events([self.event("a"), self.event("b")], ws, we)
+        ended = self.event("ended", start=utc(2026, 11, 3, 7, 0))  # 07:00-09:00
+        past = self.event("past", start=utc(2026, 10, 30, 8, 0))  # lookback part
+        sync.sync_events([self.event("a"), self.event("b"), ended, past], ws, we, now=NOW)
+        incident = Incident.objects.create(
+            recorder=rec, event=ScheduledEvent.objects.get(identifier="ended"),
+            kind=Incident.STREAM_MISSING, started_at=utc(2026, 11, 3, 7, 10),
+            ended_at=utc(2026, 11, 3, 7, 20),
+        )
         with self.assertLogs("opencast.sync", level="WARNING") as logs:
-            result = sync.sync_events([], ws, we)
+            result = sync.sync_events([], ws, we, now=NOW)
+        self.assertEqual(result.deleted, 0)
+        self.assertEqual(ScheduledEvent.objects.count(), 4)
+        incident.refresh_from_db()
+        self.assertEqual(incident.event.identifier, "ended")
+        self.assertIn("kept 3", logs.output[0])
+
+    def test_lookback_events_missing_from_partial_sync_stay(self):
+        rec = Recorder.objects.create(
+            stream_name="rec-hall", room_name="Hall", agent_id="rec-hall"
+        )
+        ws, we = sync.sync_window(NOW, 7)
+        # Local midnight of yesterday (2026-11-02 00:00 CET) splits the window:
+        # events before it that have ended are only ever upserted.
+        past = self.event("past", start=utc(2026, 10, 30, 8, 0))
+        yesterday = self.event("yesterday", start=utc(2026, 11, 2, 8, 0))
+        future = self.event("future")
+        sync.sync_events([past, yesterday, future], ws, we, now=NOW)
+        incident = Incident.objects.create(
+            recorder=rec, event=ScheduledEvent.objects.get(identifier="past"),
+            kind=Incident.STREAM_MISSING, started_at=utc(2026, 10, 30, 8, 10),
+            ended_at=utc(2026, 10, 30, 8, 20),
+        )
+        result = sync.sync_events([self.event("other")], ws, we, now=NOW)
         self.assertEqual(result.deleted, 2)
-        self.assertEqual(ScheduledEvent.objects.count(), 0)
-        self.assertIn("deleted 2", logs.output[0])
+        self.assertEqual(
+            set(ScheduledEvent.objects.values_list("identifier", flat=True)),
+            {"past", "other"},
+        )
+        incident.refresh_from_db()
+        self.assertEqual(incident.event.identifier, "past")
+
+    def test_fallback_event_syncs_end_to_end_and_stays_attached(self):
+        rec = Recorder.objects.create(
+            stream_name="cap-90-R12", room_name="R12", agent_id="cap-90-R12"
+        )
+        raw = [{
+            "identifier": "p1", "title": "Done", "series": "S", "location": "cap-90-R12",
+            "start": "2026-11-01T08:00:00Z", "duration": 5400000,
+            "status": "EVENTS.EVENTS.STATUS.PROCESSED", "scheduling": {},
+        }]
+        oc, _ = make_client(lambda r: json_response(raw))
+        ws, we = sync.sync_window(NOW, 7)
+        result = sync.sync_events(oc.scheduled_events(ws, we), ws, we, now=NOW)
+        self.assertEqual(result.upserted, 1)
+        event = ScheduledEvent.objects.get(identifier="p1")
+        self.assertEqual(event.recorder, rec)
+        self.assertEqual(event.end, utc(2026, 11, 1, 9, 30))
+        self.assertEqual(event.opencast_status, "EVENTS.EVENTS.STATUS.PROCESSED")
+        incident = Incident.objects.create(
+            recorder=rec, event=event, kind=Incident.STREAM_MISSING,
+            started_at=utc(2026, 11, 1, 8, 10), ended_at=utc(2026, 11, 1, 8, 20),
+        )
+        # Opencast no longer lists it (e.g. archived): it stays, so does the link.
+        sync.sync_events([self.event("other", agent_id="cap-90-R12")], ws, we, now=NOW)
+        incident.refresh_from_db()
+        self.assertEqual(incident.event, event)
 
     def test_unlinked_agent_events_are_removed(self):
         rec = Recorder.objects.create(
             stream_name="rec-hall", room_name="Hall", agent_id="rec-hall"
         )
         ws, we = sync.sync_window(NOW, 7)
-        sync.sync_events([self.event("a")], ws, we)
+        sync.sync_events([self.event("a")], ws, we, now=NOW)
         self.assertEqual(ScheduledEvent.objects.get().recorder, rec)
         rec.agent_id = None
         rec.save()
-        result = sync.sync_events([self.event("a")], ws, we)
+        result = sync.sync_events([self.event("a")], ws, we, now=NOW)
         self.assertEqual(result.unmatched, 1)
         self.assertEqual(result.deleted, 1)
         self.assertEqual(ScheduledEvent.objects.count(), 0)
 
     def test_sync_window_local_midnight(self):
-        ws, we = sync.sync_window(utc(2026, 11, 1, 23, 30), 7)
+        ws, we = sync.sync_window(utc(2026, 11, 1, 23, 30), 7, lookback_days=1)
         self.assertEqual(ws, utc(2026, 10, 31, 23, 0))
         self.assertEqual(we, utc(2026, 11, 9, 23, 0))
+
+    def test_sync_window_lookback(self):
+        ws, we = sync.sync_window(utc(2026, 11, 1, 23, 30), 7)
+        self.assertEqual(ws, utc(2026, 10, 25, 23, 0))
+        self.assertEqual(we, utc(2026, 11, 9, 23, 0))
+        ws, _ = sync.sync_window(utc(2026, 11, 1, 23, 30), 7, lookback_days=3)
+        self.assertEqual(ws, utc(2026, 10, 29, 23, 0))
+
+    def test_sync_stores_opencast_status(self):
+        Recorder.objects.create(
+            stream_name="rec-hall", room_name="Hall", agent_id="rec-hall"
+        )
+        ws, we = sync.sync_window(NOW, 7)
+        ev = self.event("a")
+        ev = Event(
+            ev.identifier, ev.agent_id, ev.title, ev.series, ev.start, ev.end,
+            status="EVENTS.EVENTS.STATUS.PROCESSED",
+        )
+        sync.sync_events([ev], ws, we, now=NOW)
+        self.assertEqual(
+            ScheduledEvent.objects.get(identifier="a").opencast_status,
+            "EVENTS.EVENTS.STATUS.PROCESSED",
+        )
+        sync.sync_events([self.event("a")], ws, we, now=NOW)
+        self.assertEqual(ScheduledEvent.objects.get(identifier="a").opencast_status, "")
 
     def test_run_sync_applies_nothing_on_error(self):
         client = FakeClient(agents=[self.agent()], fail_events=True)
@@ -564,7 +693,7 @@ class IgnoredAgentTests(TestCase):
         event = Event("e1", "cap-90-R12", "T", "S", start, start + timedelta(hours=1))
         ws, we = sync.sync_window(NOW, 7)
         with self.assertNoLogs("opencast.sync", level="WARNING"):
-            result = sync.sync_events([event], ws, we, {"cap-90-R12"})
+            result = sync.sync_events([event], ws, we, {"cap-90-R12"}, now=NOW)
         self.assertEqual(result.unmatched, 0)
         self.assertFalse(ScheduledEvent.objects.exists())
 

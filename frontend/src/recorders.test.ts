@@ -2,7 +2,7 @@
 // Copyright 2026 Universität Osnabrück (virtUOS)
 
 import { describe, expect, it } from "vitest";
-import type { EventBrief, MonitorHealth, Recorder } from "./api";
+import type { EventBrief, LastRecording, MonitorHealth, Recorder } from "./api";
 import {
   displayName,
   knownAgentState,
@@ -30,6 +30,10 @@ import {
   upcomingToday,
   upcomingTomorrow,
   showTomorrow,
+  problemTexts,
+  lastRecordingRef,
+  hasLastRecordingProblems,
+  formatClock,
 } from "./recorders";
 
 function rec(id: number, room: string, state: Recorder["status"]["state"] = "offline"): Recorder {
@@ -46,6 +50,7 @@ function rec(id: number, room: string, state: Recorder["status"]["state"] = "off
     next_event: null,
     next_event_tomorrow: null,
     missing_since: null,
+    last_recording: null,
   };
 }
 
@@ -417,5 +422,84 @@ describe("tomorrow preview", () => {
     const prev = [a];
     expect(mergeRecorders(prev, [{ ...a, next_event_tomorrow: { ...a.next_event_tomorrow! } }])).toBe(prev);
     expect(mergeRecorders(prev, [{ ...a, next_event_tomorrow: ev("T", "2026-11-03T08:00:00Z") }])).not.toBe(prev);
+  });
+});
+
+describe("problemTexts", () => {
+  const lr = (problems: LastRecording["problems"]): LastRecording => ({
+    title: "Vorlesung",
+    start: "2026-11-02T08:00:00Z",
+    end: "2026-11-02T10:00:00Z",
+    opencast_status: "FAILED",
+    problems,
+  });
+
+  it("maps every kind to its literal key", () => {
+    const keys = problemTexts(
+      lr([
+        { kind: "processing_failed" },
+        { kind: "recording_failed" },
+        { kind: "not_started" },
+        { kind: "not_finished" },
+      ]),
+      "de",
+    ).map((x) => x.key);
+    expect(keys).toEqual([
+      "Processing in Opencast failed",
+      "Recording failed on the recorder",
+      "Recording did not start",
+      "Recording did not finish",
+    ]);
+  });
+
+  it("formats stream_missing with clock times and minutes", () => {
+    const from = "2026-11-02T08:10:00Z";
+    const to = "2026-11-02T08:25:00Z";
+    const [x] = problemTexts(lr([{ kind: "stream_missing", from, to, minutes: 15 }]), "de");
+    expect(x.key).toBe("Stream missing {{from}}–{{to}} ({{minutes}} min)");
+    expect(x.params).toEqual({ from: formatClock(from, "de"), to: formatClock(to, "de"), minutes: 15 });
+  });
+
+  it("skips unknown kinds instead of failing", () => {
+    const unknown = { kind: "something_new" } as unknown as LastRecording["problems"][number];
+    const texts = problemTexts(lr([unknown, { kind: "not_started" }]), "de");
+    expect(texts.map((x) => x.key)).toEqual(["Recording did not start"]);
+    expect(problemTexts(lr([unknown]), "de")).toEqual([]);
+    // Still a problem: the warning shows its heading without detail lines.
+    expect(hasLastRecordingProblems({ ...rec(1, "a"), last_recording: lr([unknown]) })).toBe(true);
+  });
+
+  it("returns nothing without problems or recording", () => {
+    expect(problemTexts(null, "de")).toEqual([]);
+    expect(problemTexts(lr([]), "de")).toEqual([]);
+  });
+
+  it("builds the reference params with a short weekday and date", () => {
+    const p = lastRecordingRef(lr([{ kind: "not_started" }]), "de");
+    expect(p.title).toBe("Vorlesung");
+    expect(p.day).toBe(
+      new Date("2026-11-02T08:00:00Z").toLocaleDateString("de", { weekday: "short", day: "numeric", month: "numeric" }),
+    );
+    expect(p.from).toBe(formatClock("2026-11-02T08:00:00Z", "de"));
+    expect(p.to).toBe(formatClock("2026-11-02T10:00:00Z", "de"));
+  });
+
+  it("hasLastRecordingProblems", () => {
+    expect(hasLastRecordingProblems(rec(1, "a"))).toBe(false);
+    const r = { ...rec(1, "a"), last_recording: lr([{ kind: "not_started" }]) };
+    expect(hasLastRecordingProblems(r)).toBe(true);
+  });
+});
+
+describe("mergeRecorders last_recording", () => {
+  const withLr = (kind: "not_started" | "not_finished"): Recorder => ({
+    ...rec(1, "a"),
+    last_recording: { title: "T", start: "2026-11-02T08:00:00Z", end: "2026-11-02T09:00:00Z", opencast_status: "", problems: [{ kind }] },
+  });
+  it("keeps identity for equal problems, replaces when they change", () => {
+    const prev = [withLr("not_started")];
+    expect(mergeRecorders(prev, [withLr("not_started")])).toBe(prev);
+    expect(mergeRecorders(prev, [withLr("not_finished")])[0]).not.toBe(prev[0]);
+    expect(mergeRecorders(prev, [rec(1, "a")])[0]).not.toBe(prev[0]);
   });
 });

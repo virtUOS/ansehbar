@@ -2,11 +2,22 @@
 // Copyright 2026 Universität Osnabrück (virtUOS)
 
 /** Pure helpers for recorder lists (merge, sort, time formatting). */
-import type { EventBrief, MonitorHealth, Recorder } from "./api";
+import type { EventBrief, LastRecording, MonitorHealth, Recorder } from "./api";
 
 function sameEvent(a: EventBrief | null, b: EventBrief | null): boolean {
   if (!a || !b) return a === b;
   return a.title === b.title && a.series === b.series && a.start === b.start && a.end === b.end;
+}
+
+function sameLastRecording(a: LastRecording | null, b: LastRecording | null): boolean {
+  if (!a || !b) return a === b;
+  return (
+    a.title === b.title &&
+    a.start === b.start &&
+    a.end === b.end &&
+    a.opencast_status === b.opencast_status &&
+    JSON.stringify(a.problems) === JSON.stringify(b.problems)
+  );
 }
 
 function same(a: Recorder, b: Recorder): boolean {
@@ -19,6 +30,7 @@ function same(a: Recorder, b: Recorder): boolean {
     sameEvent(a.current_event, b.current_event) &&
     sameEvent(a.next_event, b.next_event) &&
     sameEvent(a.next_event_tomorrow, b.next_event_tomorrow) &&
+    sameLastRecording(a.last_recording, b.last_recording) &&
     a.room_name === b.room_name &&
     a.stream_name === b.stream_name &&
     a.active === b.active &&
@@ -263,4 +275,53 @@ export function sortForAdmin(list: Recorder[]): Recorder[] {
     if (d !== 0) return d;
     return displayName(a).localeCompare(displayName(b), "de", { numeric: true });
   });
+}
+
+export function hasLastRecordingProblems(r: Recorder): boolean {
+  return !!r.last_recording && r.last_recording.problems.length > 0;
+}
+
+export type ProblemText = { key: string; params: Record<string, string | number> };
+
+/** Texts for the problems of the last recording: literal i18n keys (so
+ *  check:i18n sees them) plus their interpolation params. Kinds this client
+ *  does not know (newer backend) are skipped. */
+export function problemTexts(
+  lr: LastRecording | null,
+  locale: string,
+): ProblemText[] {
+  if (!lr) return [];
+  return lr.problems.flatMap((p): ProblemText[] => {
+    switch (p.kind) {
+      case "stream_missing":
+        return [{
+          key: "Stream missing {{from}}–{{to}} ({{minutes}} min)",
+          params: {
+            from: p.from ? formatClock(p.from, locale) : "",
+            to: p.to ? formatClock(p.to, locale) : "",
+            minutes: p.minutes ?? 0,
+          },
+        }];
+      case "processing_failed":
+        return [{ key: "Processing in Opencast failed", params: {} }];
+      case "recording_failed":
+        return [{ key: "Recording failed on the recorder", params: {} }];
+      case "not_started":
+        return [{ key: "Recording did not start", params: {} }];
+      case "not_finished":
+        return [{ key: "Recording did not finish", params: {} }];
+      default:
+        return [];
+    }
+  });
+}
+
+/** Params for "{{title}}, {{day}} {{from}}–{{to}}": short weekday + date. */
+export function lastRecordingRef(lr: LastRecording, locale: string): Record<string, string> {
+  return {
+    title: lr.title,
+    day: new Date(lr.start).toLocaleDateString(locale, { weekday: "short", day: "numeric", month: "numeric" }),
+    from: formatClock(lr.start, locale),
+    to: formatClock(lr.end, locale),
+  };
 }

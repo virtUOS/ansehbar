@@ -147,6 +147,7 @@ Umgebungsvariablen (siehe `.env.prod.example`).
 | `OPENCAST_PASSWORD` | Passwort dieses Benutzers | leer |
 | `OPENCAST_SYNC_SECONDS` | Sekunden zwischen zwei Abgleichen mit Opencast | `60` |
 | `OPENCAST_LOOKAHEAD_DAYS` | Tage Terminplan im Voraus | `7` |
+| `OPENCAST_LOOKBACK_DAYS` | Tage Rückblick für den Hinweis „Letzte Aufzeichnung hatte Probleme“ | `7` |
 | `ANSEHBAR_SITE_CONFIG` | Pfad der Standortkonfiguration für `load_site_config` (siehe „Standortkonfiguration“) | `backend/site.local.json` |
 
 Hinweise:

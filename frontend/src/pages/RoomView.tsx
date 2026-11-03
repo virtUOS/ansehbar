@@ -11,6 +11,7 @@ import { RoomName } from "../components/RoomName";
 import { AgentStateText } from "../components/AgentStateText";
 import { StatusBadge } from "../components/StatusBadge";
 import { StreamPlaceholder } from "../components/StreamPlaceholder";
+import { LastRecordingWarning } from "../components/LastRecordingWarning";
 import { OpencastIcon } from "../components/OpencastIcon";
 import { AudioUnlockButton } from "../media/AudioUnlockButton";
 import { MonitorBanner } from "../components/MonitorBanner";
@@ -269,6 +270,8 @@ export function RoomView() {
           })}
         </p>
       ) : null}
+
+      <LastRecordingWarning recorder={recorder} />
 
       <p className="break-words text-sm text-slate-600 dark:text-slate-300">
         <span className="font-mono">{recorder.stream_name}</span>
