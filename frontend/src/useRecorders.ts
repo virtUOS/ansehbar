@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useAppContext } from "./appContext";
 import { ApiError, api, type Recorder } from "./api";
-import { mergeRecorders, monitorStale, opencastNotice, opencastStale } from "./recorders";
+import { DEFAULT_SLOTS, mergeRecorders, monitorStale, opencastNotice, opencastStale } from "./recorders";
 
 export function useRecorders(intervalMs = 8000, onForbidden?: () => void) {
   const [recorders, setRecorders] = useState<Recorder[]>([]);
@@ -23,6 +23,8 @@ export function useRecorders(intervalMs = 8000, onForbidden?: () => void) {
   const [ocErrorKind, setOcErrorKind] = useState("");
   const [ocNotice, setOcNotice] = useState<{ level: "error" | "hint" | null; key: string | null }>({ level: null, key: null });
   const [ocRequested, setOcRequested] = useState(false);
+  const [slotMinutes, setSlotMinutes] = useState(DEFAULT_SLOTS.minutes);
+  const [slotOffset, setSlotOffset] = useState(DEFAULT_SLOTS.offset_minutes);
   // Outside the app shell the context is undefined: fall back to a no-op.
   const ctx = useAppContext();
   const forbidden = useRef<(() => void) | undefined>();
@@ -54,6 +56,8 @@ export function useRecorders(intervalMs = 8000, onForbidden?: () => void) {
           setOcNotice((prev) => (prev.level === notice.level && prev.key === notice.key ? prev : notice));
           setOcRequested(health.opencast.requested);
           setOcErrorKind(health.opencast.error_kind);
+          setSlotMinutes(health.slots.minutes);
+          setSlotOffset(health.slots.offset_minutes);
         } catch {
           /* heartbeat unavailable: keep the last known verdict */
         }
@@ -103,5 +107,7 @@ export function useRecorders(intervalMs = 8000, onForbidden?: () => void) {
     opencastErrorKind: ocErrorKind,
     opencastNotice: ocNotice,
     opencastRequested: ocRequested,
+    slotMinutes,
+    slotOffset,
   };
 }

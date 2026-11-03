@@ -56,6 +56,8 @@ export function Overview() {
     opencastErrorKind,
     opencastNotice,
     opencastRequested,
+    slotMinutes,
+    slotOffset,
   } = useRecorders();
   // "No events at all" (likely permissions) cannot back "no recording today".
   const noEvents = opencastErrorKind === "no_events";
@@ -242,7 +244,12 @@ export function Overview() {
 
       {effMode !== "all" ? (
         <>
-          <UpcomingList recorders={upcoming} allActive={sorted} />
+          <UpcomingList
+            recorders={upcoming}
+            allActive={sorted}
+            slotMinutes={slotMinutes}
+            slotOffset={slotOffset}
+          />
           <RoomPills
             title={t("Currently without stream")}
             icon={VideoOff}

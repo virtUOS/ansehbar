@@ -196,6 +196,31 @@ class MonitorSettingsApiTests(TestCase):
         self.assertEqual(body["stale_factor"], 3)
         self.assertIn("{stream}", body["url_template"])
 
+    def test_slot_settings_defaults_and_validation(self):
+        body = self.client.get("/api/settings/monitor/").json()
+        self.assertEqual((body["slot_minutes"], body["slot_offset_minutes"]), (120, 0))
+        base = {"url_template": body["url_template"], "stale_factor": 3}
+        for minutes, offset, code in [
+            (90, 30, 200), (90, 90, 400), (14, 0, 400), (481, 0, 400), (480, 479, 200),
+        ]:
+            with self.subTest(minutes=minutes, offset=offset):
+                response = self.put(
+                    {**base, "slot_minutes": minutes, "slot_offset_minutes": offset}
+                )
+                self.assertEqual(response.status_code, code, response.content)
+        settings_ = MonitorSettings.load()
+        self.assertEqual((settings_.slot_minutes, settings_.slot_offset_minutes), (480, 479))
+        # Changing only the length still checks it against the stored offset.
+        self.assertEqual(self.put({**base, "slot_minutes": 60}).status_code, 400)
+
+    def test_health_reports_slots(self):
+        settings_ = MonitorSettings.load()
+        settings_.slot_minutes = 90
+        settings_.slot_offset_minutes = 30
+        settings_.save()
+        body = self.client.get("/api/monitor/health/").json()
+        self.assertEqual(body["slots"], {"minutes": 90, "offset_minutes": 30})
+
     def test_settings_rejects_template_without_placeholder(self):
         response = self.put(
             {"url_template": "https://example.org/x.m3u8", "stale_factor": 3}
@@ -978,6 +1003,21 @@ class RecorderEventApiTests(TestCase):
         self.assertEqual(
             datetime.fromisoformat(body["next_event_tomorrow"]["start"]),
             berlin(8, day=3),
+        )
+
+    def test_upcoming_lists_cover_all_events_of_the_day(self):
+        self.event(berlin(10, day=2), berlin(12, day=2), "running")
+        self.event(berlin(14, day=2), berlin(16, day=2), "today 1")
+        self.event(berlin(16, day=2), berlin(18, day=2), "today 2")
+        self.event(berlin(8, day=3), berlin(10, day=3), "tomorrow 1")
+        self.event(berlin(12, day=3), berlin(14, day=3), "tomorrow 2")
+        self.event(berlin(8, day=4), berlin(9, day=4), "day after")
+        body = self.get(berlin(11, day=2))
+        self.assertEqual(
+            [e["title"] for e in body["upcoming_today"]], ["today 1", "today 2"]
+        )
+        self.assertEqual(
+            [e["title"] for e in body["upcoming_tomorrow"]], ["tomorrow 1", "tomorrow 2"]
         )
 
     def test_next_event_tomorrow_null_without_events(self):

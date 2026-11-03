@@ -75,6 +75,15 @@ class MonitorSettings(models.Model):
     missing_grace_minutes = models.PositiveSmallIntegerField(
         default=3, validators=[MinValueValidator(0), MaxValueValidator(30)]
     )
+    # Recording slots for grouping the schedule: slots of `slot_minutes`
+    # starting `slot_offset_minutes` after local midnight (default: 2-hour
+    # slots at even hours).
+    slot_minutes = models.PositiveSmallIntegerField(
+        default=120, validators=[MinValueValidator(15), MaxValueValidator(480)]
+    )
+    slot_offset_minutes = models.PositiveSmallIntegerField(
+        default=0, validators=[MinValueValidator(0), MaxValueValidator(479)]
+    )
 
     @classmethod
     def load(cls) -> "MonitorSettings":

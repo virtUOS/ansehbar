@@ -84,6 +84,9 @@ export interface Recorder {
   next_event: EventBrief | null;
   /** First event of the next local day. */
   next_event_tomorrow: EventBrief | null;
+  /** All events starting later today / tomorrow (local), soonest first. */
+  upcoming_today: EventBrief[];
+  upcoming_tomorrow: EventBrief[];
   missing_since: string | null;
   last_recording: LastRecording | null;
 }
@@ -93,6 +96,8 @@ export interface MonitorHealth {
   last_check: string | null;
   now: string;
   interval_seconds: number;
+  /** Recording slots: `minutes` long, starting `offset_minutes` after local midnight. */
+  slots: SlotConfig;
   opencast: {
     enabled: boolean;
     /** OPENCAST_URL is set but refused (plain http:// in production). */
@@ -115,10 +120,17 @@ export interface Invitation {
   created_at: string;
 }
 
+export interface SlotConfig {
+  minutes: number;
+  offset_minutes: number;
+}
+
 export interface MonitorSettings {
   url_template: string;
   stale_factor: number;
   missing_grace_minutes: number;
+  slot_minutes: number;
+  slot_offset_minutes: number;
 }
 
 export interface IgnoredAgent {

@@ -2,11 +2,15 @@
 // Copyright 2026 Universität Osnabrück (virtUOS)
 
 /** Pure helpers for recorder lists (merge, sort, time formatting). */
-import type { EventBrief, LastRecording, MonitorHealth, Recorder } from "./api";
+import type { EventBrief, LastRecording, MonitorHealth, Recorder, SlotConfig } from "./api";
 
 function sameEvent(a: EventBrief | null, b: EventBrief | null): boolean {
   if (!a || !b) return a === b;
   return a.title === b.title && a.series === b.series && a.start === b.start && a.end === b.end;
+}
+
+function sameEvents(a: EventBrief[], b: EventBrief[]): boolean {
+  return a.length === b.length && a.every((e, i) => sameEvent(e, b[i]));
 }
 
 function sameLastRecording(a: LastRecording | null, b: LastRecording | null): boolean {
@@ -30,6 +34,8 @@ function same(a: Recorder, b: Recorder): boolean {
     sameEvent(a.current_event, b.current_event) &&
     sameEvent(a.next_event, b.next_event) &&
     sameEvent(a.next_event_tomorrow, b.next_event_tomorrow) &&
+    sameEvents(a.upcoming_today, b.upcoming_today) &&
+    sameEvents(a.upcoming_tomorrow, b.upcoming_tomorrow) &&
     sameLastRecording(a.last_recording, b.last_recording) &&
     a.room_name === b.room_name &&
     a.stream_name === b.stream_name &&
@@ -121,21 +127,53 @@ export function filterOverview(list: Recorder[], mode: OverviewMode, query: stri
   });
 }
 
-/** Active recorders with a next event, soonest first. */
-export function upcomingToday(list: Recorder[], _now: Date): Recorder[] {
-  return list
-    .filter((r) => r.active && r.next_event)
-    .sort((a, b) => new Date(a.next_event!.start).getTime() - new Date(b.next_event!.start).getTime());
+export const DEFAULT_SLOTS: SlotConfig = { minutes: 120, offset_minutes: 0 };
+
+/** The recording slot (local time) an instant falls into. */
+export function slotOf(at: Date, cfg: SlotConfig): { start: Date; end: Date } {
+  const minutes = at.getHours() * 60 + at.getMinutes();
+  const index = Math.floor((minutes - cfg.offset_minutes) / cfg.minutes);
+  // setHours/setMinutes in local time: overflow and negatives roll over days.
+  const start = new Date(at.getTime());
+  start.setHours(0, cfg.offset_minutes + index * cfg.minutes, 0, 0);
+  const end = new Date(start.getTime());
+  end.setMinutes(end.getMinutes() + cfg.minutes);
+  return { start, end };
 }
 
-/** Active recorders with an event tomorrow, soonest first. */
-export function upcomingTomorrow(list: Recorder[]): Recorder[] {
-  return list
-    .filter((r) => r.active && r.next_event_tomorrow)
-    .sort(
+export type SlotRow = { recorder: Recorder; event: EventBrief; startsOff: boolean; endsOff: boolean };
+export type SlotGroup = { start: Date; end: Date; rows: SlotRow[] };
+
+const roomOrder = (a: Recorder, b: Recorder) =>
+  displayName(a).localeCompare(displayName(b), undefined, { numeric: true, sensitivity: "base" });
+
+/** Events of active recorders grouped by the slot they start in; an event
+ *  whose start or end differs from its slot is marked. Groups and rows by
+ *  start, equal starts by room name (numbers compared as numbers). */
+export function groupBySlot(list: Recorder[], day: "today" | "tomorrow", cfg: SlotConfig): SlotGroup[] {
+  const groups = new Map<number, SlotGroup>();
+  for (const recorder of list) {
+    if (!recorder.active) continue;
+    for (const event of day === "today" ? recorder.upcoming_today : recorder.upcoming_tomorrow) {
+      const start = new Date(event.start);
+      const slot = slotOf(start, cfg);
+      const key = slot.start.getTime();
+      if (!groups.has(key)) groups.set(key, { ...slot, rows: [] });
+      groups.get(key)!.rows.push({
+        recorder,
+        event,
+        startsOff: start.getTime() !== slot.start.getTime(),
+        endsOff: new Date(event.end).getTime() !== slot.end.getTime(),
+      });
+    }
+  }
+  const sorted = [...groups.values()].sort((a, b) => a.start.getTime() - b.start.getTime());
+  for (const group of sorted)
+    group.rows.sort(
       (a, b) =>
-        new Date(a.next_event_tomorrow!.start).getTime() - new Date(b.next_event_tomorrow!.start).getTime(),
+        new Date(a.event.start).getTime() - new Date(b.event.start).getTime() || roomOrder(a.recorder, b.recorder),
     );
+  return sorted;
 }
 
 /** Tomorrow's schedule is shown from 17:00 local time, or earlier when
