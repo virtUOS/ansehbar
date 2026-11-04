@@ -81,17 +81,23 @@ SPA/Statics/Media direkt aus Volumes):
 
 ```bash
 cp .env.prod.example .env      # ausfüllen — Pflichtvariablen erzwingt compose
-# Caddyfile: Domain und ACME-Mail eintragen
-docker compose -f docker-compose.prod.yml up -d --build
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d --no-build
 ```
+
+Das `Caddyfile` bleibt unverändert; Domain und Let's-Encrypt-Kontakt kommen
+aus der `.env` (`PUBLIC_BASE_URL`, `ACME_EMAIL`). Die Schritt-für-Schritt-
+Anleitung für einen Rocky-Linux-Server mit Firewall, SELinux, Sicherung,
+Updates und eigenem Zertifikat steht in [docs/deployment.md](docs/deployment.md).
 
 GitHub Actions lintet, testet und baut jeden Pull Request
 (`.github/workflows/ci.yml`). Ein Tag `vX.Y.Z` veröffentlicht das Image als
-`ghcr.io/virtuos/ansehbar` (`.github/workflows/release.yml`); alternativ wird
-es auf dem Server per `up -d --build` aus dem Checkout gebaut.
+`ghcr.io/virtuos/ansehbar:vX.Y.Z`, `:X.Y.Z` und `:latest`
+(`.github/workflows/release.yml`); alternativ wird es auf dem Server per
+`up -d --build` aus dem Checkout gebaut.
 
-Die Settings verweigern den Start mit dem Entwicklungs-`SECRET_KEY`, sobald
-`DJANGO_DEBUG=0` ist.
+Die Settings verweigern den Start mit dem Entwicklungs-`SECRET_KEY` und mit dem
+Platzhalter aus `.env.prod.example`, sobald `DJANGO_DEBUG=0` ist.
 
 ## Standortkonfiguration
 

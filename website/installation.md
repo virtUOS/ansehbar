@@ -12,6 +12,9 @@ selbst ein.
 
 Die Schritt-für-Schritt-Anleitung steht im Repository:
 
+- [Installationsanleitung (docs/deployment.md)](https://github.com/virtUOS/ansehbar/blob/main/docs/deployment.md)
+  — Rocky-Linux-Server mit Docker, Firewall, SELinux, HTTPS, Sicherung,
+  Updates und eigenem Zertifikat, ohne Linux-Vorerfahrung nachvollziehbar.
 - [Konfigurationsanleitung (docs/KONFIGURATION.md)](https://github.com/virtUOS/ansehbar/blob/main/docs/KONFIGURATION.md)
   — Streaming-Server, Anmeldung, Server, Standortkonfiguration, Opencast,
   Alarme, Aufbewahrung, Fehlersuche, Aktualisieren.

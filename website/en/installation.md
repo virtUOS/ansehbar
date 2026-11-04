@@ -11,6 +11,9 @@ its own streaming server, recorders, identity provider and domain.
 
 The step-by-step guide is in the repository (in German):
 
+- [Installation guide (docs/deployment.md)](https://github.com/virtUOS/ansehbar/blob/main/docs/deployment.md)
+  — a Rocky Linux server with Docker, firewall, SELinux, HTTPS, backups,
+  updates and your own certificate, written for readers without Linux experience.
 - [Configuration guide (docs/KONFIGURATION.md)](https://github.com/virtUOS/ansehbar/blob/main/docs/KONFIGURATION.md)
   — streaming server, sign-in, server, site configuration, Opencast, alarms,
   retention, troubleshooting, updating.

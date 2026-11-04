@@ -33,9 +33,10 @@ SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "dev-insecure-secret-key-change
 
 DEBUG = os.environ.get("DJANGO_DEBUG", "1") == "1"
 
-# Refuse to start a production instance on the development key — a forgotten
-# .env variable would otherwise sign sessions and CSRF tokens with a public value.
-if not DEBUG and SECRET_KEY.startswith("dev-insecure"):
+# Refuse to start a production instance on the development key or the placeholder
+# from .env.prod.example — either would sign sessions and CSRF tokens with a
+# public value.
+if not DEBUG and (SECRET_KEY.startswith("dev-insecure") or SECRET_KEY.startswith("change-me")):
     raise ImproperlyConfigured(
         "DJANGO_SECRET_KEY must be set to a long random value when DJANGO_DEBUG=0."
     )
