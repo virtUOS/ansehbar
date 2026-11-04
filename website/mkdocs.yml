@@ -7,7 +7,7 @@ site_url: https://virtuos.github.io/ansehbar/
 site_description: >-
   Live-Kontrolle der Vorlesungsaufzeichnung — Streams, Ton und Opencast-Termine
   aller Hörsäle auf einen Blick. Open Source von virtUOS, Universität Osnabrück.
-site_author: virtUOS, Universität Osnabrück
+site_author: Rüdiger Rolf, virtUOS, Universität Osnabrück
 repo_url: https://github.com/virtUOS/ansehbar
 repo_name: virtUOS/ansehbar
 edit_uri: ""

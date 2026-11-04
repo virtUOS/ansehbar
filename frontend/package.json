@@ -2,6 +2,8 @@
   "name": "ansehbar-frontend",
   "private": true,
   "version": "0.0.0",
+  "author": "Rüdiger Rolf <rrolf@uni-osnabrueck.de> (Universität Osnabrück, virtUOS)",
+  "license": "Apache-2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",

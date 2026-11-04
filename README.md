@@ -55,7 +55,8 @@ der [Konfigurationsanleitung](docs/KONFIGURATION.md).
 **Website und Anleitung:** [virtuos.github.io/ansehbar](https://virtuos.github.io/ansehbar/)
 (Deutsch und Englisch, Quellen in [`website/`](website/README.md)).
 
-**Lizenz:** [Apache-2.0](LICENSE), siehe auch [NOTICE](NOTICE).
+**Lizenz:** [Apache-2.0](LICENSE), siehe auch [NOTICE](NOTICE) und
+[AUTHORS.md](AUTHORS.md). Copyright 2026 Universität Osnabrück (virtUOS).
 
 ## Entwicklung
 
@@ -212,6 +213,16 @@ die Upgrade-Anleitung):
   Template-Änderungen ein. Identitäts- und Inhaltsdateien (Farb-Ramps,
   `App.tsx`, Kataloge, README/CLAUDE.md, Keycloak-Realm, Caddyfile,
   `.env.prod.example`) überschreibt es nicht — die gehören diesem Tool.
+
+## Kontakt
+
+Entwickelt und gepflegt von **virtUOS — Universität Osnabrück**
+(<https://www.virtuos.uni-osnabrueck.de/>).
+
+**Autor und Ansprechpartner:** Rüdiger Rolf · <rrolf@uni-osnabrueck.de>
+
+Fragen, Ideen und Beiträge sind willkommen — gern als Issue oder Pull Request
+in diesem Projekt.
 
 ## Konventionen
 

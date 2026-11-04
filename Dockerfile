@@ -11,6 +11,10 @@ COPY frontend/ .
 RUN npm run build
 
 FROM python:3.12-slim
+LABEL org.opencontainers.image.title="ansehBAR" \
+      org.opencontainers.image.authors="Rüdiger Rolf <rrolf@uni-osnabrueck.de>" \
+      org.opencontainers.image.vendor="Universität Osnabrück (virtUOS)" \
+      org.opencontainers.image.licenses="Apache-2.0"
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
