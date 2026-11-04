@@ -2943,6 +2943,27 @@ class GitLabSettingsTests(TestCase):
             self.put(gitlab_url="https://gitlab.example.com/-/issues").status_code, 400
         )
 
+    def test_invalid_encryption_key_gives_400_not_500(self):
+        with override_settings(TOKEN_ENCRYPTION_KEY="not-a-fernet-key"):
+            response = self.put(gitlab_url=self.URL, gitlab_token="glpat-secret")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("gitlab_token", response.json())
+        self.assertNotIn("glpat-secret", response.content.decode())
+
+    def test_tickets_disabled_for_http_url_without_debug(self):
+        s = MonitorSettings.load()
+        s.gitlab_url = "http://gitlab.example.com/g/p"
+        s.set_gitlab_token("glpat-secret")
+        s.save()
+        self.assertFalse(MonitorSettings.load().tickets_enabled)
+        with override_settings(DEBUG=True):
+            self.assertTrue(MonitorSettings.load().tickets_enabled)
+
+    def test_url_with_userinfo_rejected(self):
+        self.assertEqual(
+            self.put(gitlab_url="https://u:pw@gitlab.example.com/g/p").status_code, 400
+        )
+
     def test_whoami_tickets_enabled(self):
         self.assertIs(self.client.get("/api/whoami/").json()["tickets_enabled"], False)
         self.put(gitlab_url=self.URL, gitlab_token="glpat-secret")
@@ -3057,6 +3078,15 @@ class TicketTests(TestCase):
         self.assertIsNone(tickets.safe_web_url(None, cfg))
         self.assertIsNone(tickets.safe_web_url(5, cfg))
 
+    def test_safe_web_url_default_ports(self):
+        got = "https://gitlab.example.com/g/p/-/issues/1"
+        self.assertEqual(
+            tickets.safe_web_url(got, "https://gitlab.example.com:443/g/p"), got
+        )
+        self.assertIsNone(
+            tickets.safe_web_url(got, "https://gitlab.example.com:8443/g/p")
+        )
+
     def test_title_shortened_single_line(self):
         message = ("Zeile eins\n" + "x" * 500 + "\nrest")
         title = tickets.build_title(self.recorder, message)
@@ -3133,11 +3163,24 @@ class TicketTests(TestCase):
         self.assertEqual(len(self.requests), 1)
         self.assertTrue(all(r.url.host == "gitlab.example.com" for r in self.requests))
 
-    def test_foreign_web_url_rejected(self):
+    def test_foreign_web_url_gives_success_without_link(self):
         with self._mock(issue=httpx.Response(201, json={"web_url": "https://evil.example/i/1"})):
+            with self.assertLogs("recorders.tickets", level="WARNING") as logs:
+                response = self._post()
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json(), {"web_url": None})
+        self.assertNotIn(GITLAB_TOKEN, "\n".join(logs.output))
+
+    def test_explicit_default_port_matches(self):
+        s = MonitorSettings.load()
+        s.gitlab_url = "https://gitlab.example.com:443/g/p"
+        s.save()
+        with self._mock():
             response = self._post()
-        self.assertEqual(response.status_code, 502)
-        self.assertNotIn("evil", response.content.decode())
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(
+            response.json(), {"web_url": "https://gitlab.example.com/g/p/-/issues/7"}
+        )
 
     def test_invalid_image_rejected(self):
         with self._mock():

@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ansehBAR\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-04 22:29+0100\n"
+"POT-Creation-Date: 2026-11-04 22:54+0100\n"
 "Language: de\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
@@ -121,145 +121,146 @@ msgstr ""
 msgid "Opencast is not configured."
 msgstr "Opencast ist nicht konfiguriert."
 
-#: recorders/models.py:21
+#: recorders/models.py:22
 msgid "On time (Opencast start)"
 msgstr "Pünktlich (Opencast-Start)"
 
-#: recorders/models.py:22
+#: recorders/models.py:23
 msgid "Grid (c.t.)"
 msgstr "Raster (c.t.)"
 
-#: recorders/models.py:23
+#: recorders/models.py:24
 msgid "Off (log only)"
 msgstr "Aus (nur protokollieren)"
 
-#: recorders/serializers.py:275
-msgid "Must be an https URL."
-msgstr "Muss eine https-URL sein."
+#: recorders/serializers.py:276
+msgid "The token cannot be stored: TOKEN_ENCRYPTION_KEY is invalid."
+msgstr "Das Token kann nicht gespeichert werden: TOKEN_ENCRYPTION_KEY ist ungültig."
 
-#: recorders/serializers.py:278
-msgid "Must include the project path."
-msgstr "Muss den Projektpfad enthalten."
+#: recorders/serializers.py:285
+msgid "Must be an https URL including the project path."
+msgstr "Muss eine https-URL mit Projektpfad sein."
 
-#: recorders/serializers.py:304
+#: recorders/serializers.py:312
 msgid "Must be shorter than the slot length."
 msgstr "Muss kürzer als die Slotlänge sein."
 
-#: recorders/serializers.py:316
+#: recorders/serializers.py:324
 msgid "Must not be shorter than the minimum logged silence."
 msgstr ""
 "Darf nicht kürzer sein als die Mindestdauer einer protokollierten Stille."
 
-#: recorders/tickets.py:124 recorders/tickets.py:137
+#: recorders/tickets.py:103 recorders/tickets.py:116
 msgid "- Status: unknown"
 msgstr "- Status: unbekannt"
 
-#: recorders/tickets.py:127
+#: recorders/tickets.py:106
 msgid "- Status: live"
 msgstr "- Status: live"
 
-#: recorders/tickets.py:129 recorders/tickets.py:134
+#: recorders/tickets.py:108 recorders/tickets.py:113
 #, python-format
 msgid "since %(time)s"
 msgstr "seit %(time)s"
 
-#: recorders/tickets.py:132
+#: recorders/tickets.py:111
 msgid "- Status: offline"
 msgstr "- Status: offline"
 
-#: recorders/tickets.py:140
+#: recorders/tickets.py:119
 #, python-format
 msgid "- Audio: silent since %(time)s"
 msgstr "- Ton: still seit %(time)s"
 
-#: recorders/tickets.py:143
+#: recorders/tickets.py:122
 #, python-format
 msgid "- Audio level: %(db).1f dBFS"
 msgstr "- Pegel: %(db).1f dBFS"
 
-#: recorders/tickets.py:145
+#: recorders/tickets.py:124
 #, python-format
 msgid "- Opencast agent state: %(state)s"
 msgstr "- Opencast-Agent-Status: %(state)s"
 
-#: recorders/tickets.py:159
+#: recorders/tickets.py:138
 msgid "Recorder"
 msgstr "Rekorder"
 
-#: recorders/tickets.py:160
+#: recorders/tickets.py:139
 #, python-format
 msgid "- Room: %(room)s"
 msgstr "- Raum: %(room)s"
 
-#: recorders/tickets.py:161
+#: recorders/tickets.py:140
 #, python-format
 msgid "- Stream: %(stream)s"
 msgstr "- Stream: %(stream)s"
 
-#: recorders/tickets.py:162
+#: recorders/tickets.py:141
 #, python-format
 msgid "- Capture agent: %(agent)s"
 msgstr "- Capture-Agent: %(agent)s"
 
-#: recorders/tickets.py:163
+#: recorders/tickets.py:142
 #, python-format
 msgid "- Reported: %(time)s"
 msgstr "- Gemeldet: %(time)s"
 
-#: recorders/tickets.py:165
+#: recorders/tickets.py:144
 msgid "Status in ansehBAR"
 msgstr "Status in ansehBAR"
 
-#: recorders/tickets.py:168
+#: recorders/tickets.py:147
 msgid "Current Opencast event"
 msgstr "Laufender Opencast-Termin"
 
-#: recorders/tickets.py:172
+#: recorders/tickets.py:151
 msgid "- No current event"
 msgstr "- Kein laufender Termin"
 
-#: recorders/tickets.py:174
+#: recorders/tickets.py:153
 #, python-format
 msgid "- Title: %(title)s"
 msgstr "- Titel: %(title)s"
 
-#: recorders/tickets.py:176
+#: recorders/tickets.py:155
 #, python-format
 msgid "- Series: %(series)s"
 msgstr "- Serie: %(series)s"
 
-#: recorders/tickets.py:178
+#: recorders/tickets.py:157
 #, python-format
 msgid "- Presenters: %(names)s"
 msgstr "- Vortragende: %(names)s"
 
-#: recorders/tickets.py:180
+#: recorders/tickets.py:159
 #, python-format
 msgid "- Scheduled: %(start)s to %(end)s"
 msgstr "- Geplant: %(start)s bis %(end)s"
 
-#: recorders/tickets.py:185
+#: recorders/tickets.py:164
 #, python-format
 msgid "- Opencast status: %(status)s"
 msgstr "- Opencast-Status: %(status)s"
 
-#: recorders/tickets.py:190
+#: recorders/tickets.py:169
 #, python-format
 msgid "Reported by %(user)s"
 msgstr "Gemeldet von %(user)s"
 
-#: recorders/tickets.py:192
+#: recorders/tickets.py:171
 #, python-format
 msgid "[Open room in ansehBAR](%(url)s)"
 msgstr "[Raum in ansehBAR öffnen](%(url)s)"
 
-#: recorders/tickets.py:269
+#: recorders/tickets.py:248
 msgid "No screenshot attached."
 msgstr "Kein Screenshot angehängt."
 
-#: recorders/tickets.py:281
+#: recorders/tickets.py:260
 msgid "The screenshot upload to GitLab failed; no image attached."
-msgstr "Der Screenshot-Upload zu GitLab ist fehlgeschlagen; kein Bild angehängt."
+msgstr ""
+"Der Screenshot-Upload zu GitLab ist fehlgeschlagen; kein Bild angehängt."
 
 #: recorders/validators.py:19
 msgid ""
@@ -314,3 +315,6 @@ msgstr "Ungültiges Datum in \"from\"."
 #: recorders/views.py:130
 msgid "\"days\" must be a number from 1 to 7."
 msgstr "\"days\" muss eine Zahl von 1 bis 7 sein."
+
+#~ msgid "Must be an https URL."
+#~ msgstr "Muss eine https-URL sein."

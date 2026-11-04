@@ -22,10 +22,17 @@ from django.conf import settings
 logger = logging.getLogger(__name__)
 
 
+class EncryptionKeyError(ValueError):
+    """``TOKEN_ENCRYPTION_KEY`` is set but not a valid Fernet key."""
+
+
 def _fernet() -> Fernet:
     key = settings.TOKEN_ENCRYPTION_KEY
     if key:
-        return Fernet(key.encode() if isinstance(key, str) else key)
+        try:
+            return Fernet(key.encode() if isinstance(key, str) else key)
+        except ValueError:
+            raise EncryptionKeyError("TOKEN_ENCRYPTION_KEY is not a valid Fernet key") from None
     # Derive a valid 32-byte urlsafe-base64 Fernet key from the secret key.
     digest = hashlib.sha256(settings.SECRET_KEY.encode()).digest()
     return Fernet(base64.urlsafe_b64encode(digest))
@@ -44,6 +51,9 @@ def decrypt(token: str) -> str:
         return ""
     try:
         return _fernet().decrypt(token.encode()).decode()
+    except EncryptionKeyError:
+        logger.warning("TOKEN_ENCRYPTION_KEY is not a valid Fernet key; secrets unreadable.")
+        return ""
     except (InvalidToken, ValueError):
         logger.warning(
             "Could not decrypt a stored secret — TOKEN_ENCRYPTION_KEY changed?"

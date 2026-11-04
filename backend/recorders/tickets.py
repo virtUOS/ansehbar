@@ -19,6 +19,7 @@ from django.utils import timezone
 from django.utils.translation import gettext as _
 
 from opencast.models import ScheduledEvent
+from recorders.gitlab_url import parse_project_url
 from recorders.models import MonitorSettings
 
 logger = logging.getLogger(__name__)
@@ -36,49 +37,27 @@ def _client() -> httpx.Client:
     return httpx.Client(timeout=TIMEOUT_SECONDS, follow_redirects=False)
 
 
-def parse_project_url(url: str) -> tuple[str, str] | None:
-    """``https://host/g/sub/p[/-/...]`` -> ``("https://host", "g/sub/p")``.
-
-    Query, fragment and ``/-/`` suffix are dropped. URLs with userinfo, a
-    non-http(s) scheme (``http`` only in DEBUG) or without a project path
-    are rejected.
-    """
-    try:
-        parts = urlsplit((url or "").strip())
-        host = parts.hostname
-        port = parts.port
-    except ValueError:
-        return None
+def _origin(parts) -> tuple[str, str, int | None]:
     scheme = parts.scheme.lower()
-    allowed = ("https", "http") if settings.DEBUG else ("https",)
-    if scheme not in allowed or not host:
-        return None
-    if parts.username is not None or parts.password is not None or "@" in parts.netloc:
-        return None
-    project = parts.path.strip("/").split("/-/", 1)[0].strip("/")
-    if not project:
-        return None
-    netloc = f"[{host}]" if ":" in host else host
-    if port:
-        netloc = f"{netloc}:{port}"
-    return f"{scheme}://{netloc}", project
+    port = parts.port
+    if port == {"https": 443, "http": 80}.get(scheme):
+        port = None
+    return scheme, (parts.hostname or "").lower(), port
 
 
 def safe_web_url(web_url: object, configured_url: str) -> str | None:
-    """The issue link, only if scheme and host match the configured GitLab."""
+    """The issue link, only if scheme, host and port match the configured GitLab."""
     if not isinstance(web_url, str):
         return None
     try:
         got = urlsplit(web_url.strip())
         want = urlsplit(configured_url.strip())
-        got.port, want.port  # noqa: B018 - validate
+        got_origin, want_origin = _origin(got), _origin(want)
     except ValueError:
         return None
-    if got.scheme.lower() not in ("http", "https") or not got.netloc:
+    if got_origin[0] not in ("http", "https") or not got_origin[1]:
         return None
-    if got.scheme.lower() != want.scheme.lower():
-        return None
-    if got.netloc.lower() != want.netloc.lower():
+    if got_origin != want_origin:
         return None
     return web_url.strip()
 
@@ -251,8 +230,8 @@ def create_ticket(
     screenshot: tuple[bytes, str] | None,
     now: datetime | None = None,
     client: httpx.Client | None = None,
-) -> str:
-    """Create the issue and return its ``web_url``; raise GitLabError."""
+) -> str | None:
+    """Create the issue; return its ``web_url`` (None if not on the configured host)."""
     cfg = MonitorSettings.load()
     parsed = parse_project_url(cfg.gitlab_url)
     token = cfg.gitlab_token_plain()
@@ -288,8 +267,8 @@ def create_ticket(
             raise
         web_url = safe_web_url(issue.get("web_url"), cfg.gitlab_url)
         if web_url is None:
+            # The issue exists; answering with an error would invite duplicates.
             logger.warning("GitLab returned no usable web_url for recorder %s", recorder.pk)
-            raise GitLabError("GitLab returned no usable issue link")
         return web_url
     finally:
         if own_client:

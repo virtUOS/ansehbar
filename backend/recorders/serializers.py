@@ -2,13 +2,13 @@
 # Copyright 2026 Universität Osnabrück (virtUOS)
 
 from datetime import timedelta
-from urllib.parse import urlparse
 
-from django.conf import settings
 from django.utils import timezone
 from django.utils.translation import gettext as _
 from rest_framework import serializers
 
+from common.encryption import EncryptionKeyError, encrypt
+from recorders.gitlab_url import parse_project_url
 from recorders.history import recording_problems
 from recorders.missing import missing_since
 from recorders.models import MonitorSettings, Recorder, RecorderStatus
@@ -266,16 +266,23 @@ class MonitorSettingsSerializer(serializers.ModelSerializer):
     def get_gitlab_token_set(self, obj) -> bool:
         return bool(obj.gitlab_token_plain())
 
+    def validate_gitlab_token(self, value):
+        if value:
+            try:
+                encrypt(value)
+            except EncryptionKeyError:
+                raise serializers.ValidationError(
+                    _("The token cannot be stored: TOKEN_ENCRYPTION_KEY is invalid.")
+                ) from None
+        return value
+
     def validate_gitlab_url(self, value):
         if not value:
             return value
-        parsed = urlparse(value)
-        allowed = ("https", "http") if settings.DEBUG else ("https",)
-        if parsed.scheme not in allowed or not parsed.netloc:
-            raise serializers.ValidationError(_("Must be an https URL."))
-        path = parsed.path.split("/-/")[0].strip("/")
-        if not path or path == "-" or path.startswith("-/"):
-            raise serializers.ValidationError(_("Must include the project path."))
+        if parse_project_url(value) is None:
+            raise serializers.ValidationError(
+                _("Must be an https URL including the project path.")
+            )
         return value
 
     def update(self, instance, validated_data):

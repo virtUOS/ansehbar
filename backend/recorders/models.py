@@ -6,6 +6,7 @@ from django.db import models
 from django.utils.translation import gettext_lazy as _
 
 from common.encryption import decrypt, encrypt
+from recorders.gitlab_url import parse_project_url
 from recorders.validators import validate_stream_name, validate_url_template
 
 DEFAULT_URL_TEMPLATE = (
@@ -148,7 +149,9 @@ class MonitorSettings(models.Model):
 
     @property
     def tickets_enabled(self) -> bool:
-        return bool(self.gitlab_url and self.gitlab_token_plain())
+        return bool(
+            parse_project_url(self.gitlab_url) is not None and self.gitlab_token_plain()
+        )
 
     @classmethod
     def load(cls) -> "MonitorSettings":
