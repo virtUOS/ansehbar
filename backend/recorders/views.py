@@ -12,6 +12,7 @@ from django.utils import timezone
 from django.utils.translation import gettext as _
 from rest_framework import mixins, viewsets
 from rest_framework.decorators import action
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -21,6 +22,12 @@ from opencast.sync import opencast_sync_enabled, opencast_url_insecure, sync_win
 from recorders.history import calendar_range, incident_data, recording_problems
 from recorders.models import Incident, MonitorSettings, Recorder, RecorderStatus
 from recorders.serializers import MonitorSettingsSerializer, RecorderSerializer
+from recorders.tickets import GitLabError, create_ticket
+
+MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024
+MAX_TICKET_MESSAGE = 2000
+PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+JPEG_MAGIC = b"\xff\xd8\xff"
 
 
 class RecorderViewSet(
@@ -62,6 +69,46 @@ class RecorderViewSet(
                 )
             recorder.delete()
         return Response(status=204)
+
+    @action(detail=True, methods=["post"], parser_classes=[MultiPartParser, FormParser])
+    def ticket(self, request, pk=None):
+        """Create a GitLab issue for this recorder (message + optional screenshot)."""
+        recorder = self.get_object()
+        if not MonitorSettings.load().tickets_enabled:
+            return Response(
+                {"detail": _("GitLab tickets are not configured.")}, status=409
+            )
+        message = str(request.data.get("message", "")).strip()
+        errors = {}
+        if not message:
+            errors["message"] = [_("This field may not be blank.")]
+        elif len(message) > MAX_TICKET_MESSAGE:
+            errors["message"] = [
+                _("Ensure this field has no more than %(n)d characters.")
+                % {"n": MAX_TICKET_MESSAGE}
+            ]
+        screenshot = None
+        upload = request.FILES.get("screenshot")
+        if upload is not None:
+            if upload.size > MAX_SCREENSHOT_BYTES:
+                errors["screenshot"] = [_("The screenshot is larger than 5 MB.")]
+            else:
+                data = upload.read()
+                if data.startswith(PNG_MAGIC):
+                    screenshot = (data, "image/png")
+                elif data.startswith(JPEG_MAGIC):
+                    screenshot = (data, "image/jpeg")
+                else:
+                    errors["screenshot"] = [_("The screenshot must be a PNG or JPEG image.")]
+        if errors:
+            return Response(errors, status=400)
+        try:
+            web_url = create_ticket(recorder, message, request.user, screenshot)
+        except GitLabError:
+            return Response(
+                {"detail": _("The ticket could not be created in GitLab.")}, status=502
+            )
+        return Response({"web_url": web_url}, status=201)
 
     @action(detail=True, methods=["get"])
     def calendar(self, request, pk=None):
