@@ -29,7 +29,7 @@ Jede Kachel zeigt:
 
 Ist unter [Einstellungen](einstellungen.md#gitlab-tickets) ein GitLab-Projekt
 eingetragen, hat jede Kachel einen Knopf **Ticket für ‹Raumname› erstellen**
-(Symbol; nach dem Einrichten die Seite neu laden). Er öffnet einen Dialog:
+(Symbol; er erscheint direkt nach dem Speichern der Einstellungen). Er öffnet einen Dialog:
 
 - Zeigt die Kachel Video, enthält er einen **Screenshot** des aktuellen Bildes.
   Sonst steht dort „Kein Screenshot verfügbar – das Ticket wird ohne Screenshot

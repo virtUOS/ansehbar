@@ -560,7 +560,7 @@ wieder; die Aufbewahrung ist endgültig.
 | E-Mails kommen nicht an | Zuerst `docker compose -f docker-compose.prod.yml logs monitor` prüfen. Offene Meldungen zeigt das Protokoll: `docker compose -f docker-compose.prod.yml exec app python manage.py shell -c "from alarms.models import SentNotification as S; print(list(S.objects.filter(sent_at__isnull=True).values('recipient', 'attempts', 'last_error')))"`. `last_error` nennt den SMTP-Fehler (Server, Port, Zugangsdaten, `EMAIL_USE_TLS`). Ohne `EMAIL_HOST` geht die Mail an `localhost:25` und kommt meist nirgends an. Nach 5 Fehlversuchen versucht der Monitor die Meldung nicht mehr; Einstellung korrigieren und eine Test-E-Mail senden. Außerdem: Ist der Alarmmodus des Rekorders `off`, ist „Alarm per E-Mail“ abgeschaltet, oder fehlen Empfänger, wird nichts gesendet. |
 | Keine Alarme trotz fehlendem Stream | Alarme gibt es nur während eines Opencast-Termins, nach Wartezeit (bei `grid` nach c.t. plus Toleranz) und nur für Vorfälle, deren Termin noch läuft. Modus, Opencast-Anbindung und Banner prüfen. |
 | Dialog meldet „Das Ticket konnte in GitLab nicht angelegt werden.“ | GitLab ist nicht erreichbar oder lehnt die Anfrage ab: URL, Token (abgelaufen? Rolle Reporter, Scope `api`?) und Projekt prüfen. Weiterleitungen folgt ansehBAR nie (ein Redirect auf einen anderen Host zählt als Fehler). Das Token steht nie in Meldungen oder Logs. |
-| Meldung „GitLab-Tickets sind nicht konfiguriert.“ oder Knopf fehlt | URL oder Token fehlen, oder das Token ist unlesbar (Schlüssel geändert, siehe Abschnitt 9): unter „Einstellungen“ neu eintragen und die Übersicht neu laden. |
+| Meldung „GitLab-Tickets sind nicht konfiguriert.“ oder Knopf fehlt | URL oder Token fehlen, oder das Token ist unlesbar (Schlüssel geändert, siehe Abschnitt 9): unter „Einstellungen“ neu eintragen (der Knopf erscheint nach dem Speichern ohne Neuladen). |
 | Ticket ohne Screenshot, Hinweis „Der Screenshot-Upload zu GitLab ist fehlgeschlagen; kein Bild angehängt.“ | Der Upload scheiterte (Größe über 5 MB, Rechte), das Ticket wurde trotzdem angelegt. |
 | Agent wird übersprungen | Der Log des Monitors nennt per WARNING den Grund: Die Agent-ID ist kein gültiger Stream-Name (erlaubt sind Buchstaben, Ziffern, `.`, `_`, `-`), oder zu lang (mehr als 100 Zeichen), oder der Stream-Name gehört schon zu einem anderen Agent. `agent_id` beim passenden Rekorder setzen. |
 
@@ -601,6 +601,10 @@ Das Token liegt verschlüsselt (Fernet) in der Datenbank. Der Schlüssel kommt a
 ```bash
 python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
+
+Ein gesetzter, aber ungültiger Schlüssel wird beim Start bemängelt
+(`manage.py check`, Fehler `common.E001`); das Speichern eines Tokens wird dann
+abgelehnt.
 
 Ändern sich `TOKEN_ENCRYPTION_KEY` oder (ohne eigenen Schlüssel)
 `DJANGO_SECRET_KEY` später, ist das gespeicherte Token unlesbar: ansehBAR

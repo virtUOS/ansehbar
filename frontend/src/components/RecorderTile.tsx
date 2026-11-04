@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Universität Osnabrück (virtUOS)
 
-import { memo, useRef, useState } from "react";
+import { memo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { TicketPlus, Volume2, VolumeX } from "lucide-react";
@@ -15,7 +15,6 @@ import { useAudio } from "../media/AudioContextProvider";
 import { OpencastIcon } from "./OpencastIcon";
 import { StatusBadge } from "./StatusBadge";
 import { StreamPlaceholder } from "./StreamPlaceholder";
-import { TicketDialog } from "./TicketDialog";
 import { captureFrame } from "../media/snapshot";
 import { PlaybackOverlay, usePlayback } from "./PlaybackOverlay";
 
@@ -24,11 +23,14 @@ function RecorderTileInner({
   opencast = false,
   opencastStale = false,
   ticketsEnabled = false,
+  onCreateTicket,
 }: {
   recorder: Recorder;
   opencast?: boolean;
   opencastStale?: boolean;
   ticketsEnabled?: boolean;
+  /** Must be stable: the tile is memoised. The dialog lives in the parent. */
+  onCreateTicket?: (recorder: Recorder, screenshot: Blob | null) => void;
 }) {
   const { t, i18n } = useTranslation();
   const { unlocked, unlock, audibleId, setAudible } = useAudio();
@@ -41,12 +43,11 @@ function RecorderTileInner({
   const audible = audibleId === recorder.id;
   const playback = usePlayback(live);
   const articleRef = useRef<HTMLElement>(null);
-  const [ticket, setTicket] = useState<{ screenshot: Blob | null } | null>(null);
 
   const openTicket = async () => {
     // Capture first (inside the click), then open the dialog.
     const screenshot = await captureFrame(articleRef.current?.querySelector("video") ?? null);
-    setTicket({ screenshot });
+    onCreateTicket?.(recorder, screenshot);
   };
 
   const toggleSound = async () => {
@@ -167,7 +168,7 @@ function RecorderTileInner({
             <span className="truncate">{recorder.stream_name}</span>
           </p>
         </div>
-        {ticketsEnabled ? (
+        {ticketsEnabled && onCreateTicket ? (
           <button
             type="button"
             aria-label={t("Create ticket for {{room}}", { room: displayName(recorder) })}
@@ -201,9 +202,6 @@ function RecorderTileInner({
           </button>
         ) : null}
       </div>
-      {ticket ? (
-        <TicketDialog recorder={recorder} screenshot={ticket.screenshot} onClose={() => setTicket(null)} />
-      ) : null}
     </article>
   );
 }

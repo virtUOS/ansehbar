@@ -113,6 +113,8 @@ export function SettingsAdmin() {
       });
       apply(result);
       setSaved(true);
+      // Tile buttons depend on whoami.tickets_enabled.
+      refreshWhoami?.();
     } catch (err) {
       setErrors(splitErrors(err, FIELDS));
     } finally {

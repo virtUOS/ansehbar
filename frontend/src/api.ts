@@ -311,7 +311,7 @@ export const api = {
       const form = new FormData();
       form.append("message", message);
       if (screenshot) form.append("screenshot", screenshot, "screenshot.jpg");
-      return request<{ web_url: string }>(`/api/recorders/${id}/ticket/`, { method: "POST", body: form });
+      return request<{ web_url: string | null }>(`/api/recorders/${id}/ticket/`, { method: "POST", body: form });
     },
   },
   calendar: (recorderId: number, from: string, days: number) =>

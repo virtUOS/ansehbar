@@ -60,8 +60,10 @@ export function TicketDialog({ recorder, screenshot, onClose }: Props) {
       setDone(true);
     } catch (err) {
       if (err instanceof ApiError) {
-        setError(err.message);
-        setFieldErrors([...(err.fieldErrors.message ?? []), ...(err.fieldErrors.screenshot ?? [])]);
+        const fields = [...(err.fieldErrors.message ?? []), ...(err.fieldErrors.screenshot ?? [])];
+        setFieldErrors(fields);
+        // Field errors are shown at the field; no generic box on top.
+        setError(fields.length ? "" : err.message);
       } else {
         setError(err instanceof Error ? err.message : String(err));
       }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Universität Osnabrück (virtUOS)
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { CalendarX2, HelpCircle, Search, VideoOff } from "lucide-react";
 import { useRecorders } from "../useRecorders";
@@ -19,7 +19,9 @@ import {
   sortForOverview,
   type OverviewMode,
 } from "../recorders";
+import type { Recorder } from "../api";
 import { RecorderTile } from "../components/RecorderTile";
+import { TicketDialog } from "../components/TicketDialog";
 import { RoomList } from "../components/RoomList";
 import { RoomPills } from "../components/RoomPills";
 import { UpcomingList } from "../components/UpcomingList";
@@ -45,6 +47,13 @@ function useMediaQuery(query: string): boolean {
 export function Overview() {
   const { t, i18n } = useTranslation();
   const ticketsEnabled = useAppContext()?.whoami.tickets_enabled ?? false;
+  // The dialog lives here, not in the tile: the filter may drop the tile on the
+  // next poll, which must not lose the typed message or the success link.
+  const [ticket, setTicket] = useState<{ recorder: Recorder; screenshot: Blob | null } | null>(null);
+  const openTicket = useCallback(
+    (recorder: Recorder, screenshot: Blob | null) => setTicket({ recorder, screenshot }),
+    [],
+  );
   const {
     recorders,
     error,
@@ -237,7 +246,7 @@ export function Overview() {
           }}
         >
           {shown.map((r) => (
-            <RecorderTile key={r.id} recorder={r} opencast={opencastEnabled} opencastStale={unclearSchedule} ticketsEnabled={ticketsEnabled} />
+            <RecorderTile key={r.id} recorder={r} opencast={opencastEnabled} opencastStale={unclearSchedule} ticketsEnabled={ticketsEnabled} onCreateTicket={openTicket} />
           ))}
         </div>
       ) : (
@@ -268,6 +277,9 @@ export function Overview() {
             recorders={outside.unknown}
           />
         </>
+      ) : null}
+      {ticket ? (
+        <TicketDialog recorder={ticket.recorder} screenshot={ticket.screenshot} onClose={() => setTicket(null)} />
       ) : null}
     </div>
   );
