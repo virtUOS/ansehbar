@@ -83,7 +83,8 @@ Meine Festlegungen (für den Builder bindend, aber beim Review prüfen):
   an. Antwort: `{ "web_url": … }` (nur wenn auf dem konfigurierten Host).
   Schlägt der Upload fehl, wird das Ticket ohne Bild mit einem Hinweis
   angelegt. GitLab-Fehler → HTTP 502 mit verständlicher Meldung.
-  stdlib `urllib` wie ausleihBAR, kein neues HTTP-Paket.
+  HTTP über das vorhandene `httpx` mit `follow_redirects=False` (wie der
+  Opencast-Client), kein neues HTTP-Paket.
 - **Screenshot:** Canvas `drawImage` aus dem `<video>` der Kachel, im Moment
   des Klicks auf den Button (das ist das Bild mit der Störung), als JPEG
   (Qualität ~0,9). Damit der Canvas im nativen HLS-Pfad (Safari) nicht
