@@ -25,6 +25,24 @@ Jede Kachel zeigt:
 - den Titel des Opencast-Termins und den Stream-Namen,
 - den Knopf **Ton**.
 
+## Ticket erstellen
+
+Ist unter [Einstellungen](einstellungen.md#gitlab-tickets) ein GitLab-Projekt
+eingetragen, hat jede Kachel einen Knopf **Ticket für <Raum> erstellen**
+(Symbol; nach dem Einrichten die Seite neu laden). Er öffnet einen Dialog:
+
+- Zeigt die Kachel Video, enthält er einen **Screenshot** des aktuellen Bildes.
+  Sonst steht dort „Kein Screenshot verfügbar – das Ticket wird ohne Screenshot
+  gesendet.“
+- Die **Fehlerbeschreibung** ist Pflicht; **Ticket erstellen** sendet sie ab.
+- Danach führt ein Link zum Ticket in GitLab.
+
+Das Ticket enthält Beschreibung, Raum, Stream und Capture-Agent, Zeit, Status,
+den aktuellen Opencast-Termin (Titel, Serie, Vortragende, geplante Zeit), Ihren
+Namen und einen Link zur Raumansicht. ansehBAR speichert nichts davon selbst.
+Klappt es nicht, meldet der Dialog „Das Ticket konnte in GitLab nicht angelegt
+werden.“; scheitert nur der Screenshot, entsteht das Ticket ohne Bild.
+
 ## Filter und Suche
 
 | Filter | zeigt |

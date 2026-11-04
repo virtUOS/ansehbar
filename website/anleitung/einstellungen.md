@@ -52,3 +52,22 @@ Schwelle dazwischen.
 | Verlauf aufbewahren | Tage, die Termine, Vorfälle und versendete Benachrichtigungen bleiben; mindestens ein Semester (183) | 400 |
 
 Ältere Daten löscht der Monitor einmal pro Stunde.
+
+## GitLab-Tickets
+
+Optional. Mit URL und Token lässt sich aus der [Übersicht](uebersicht.md#ticket-erstellen)
+ein Ticket in GitLab anlegen.
+
+| Einstellung | Bedeutung |
+|---|---|
+| GitLab-Projekt-URL | vollständige Adresse des Projekts, auch mit Untergruppen, nur `https://`, z. B. `https://gitlab.example.com/gruppe/projekt` |
+| Zugriffstoken | Project Access Token mit Rolle „Reporter“ und nur dem Scope „api“, mit Ablaufdatum. Das Feld ist nur zum Schreiben: danach steht dort „Token gesetzt“. „Token entfernen“ löscht es. |
+
+!!! warning "URL ändern"
+    Ändern Sie die URL, ohne ein neues Token einzugeben, löscht ansehBAR das
+    gespeicherte Token. Geben Sie es beim URL-Wechsel gleich neu ein.
+
+Nutzen Sie ein **privates** Projekt mit kleinem Mitgliederkreis: Screenshots
+können Personen im Hörsaal zeigen und liegen danach in GitLab. Das Token liegt
+verschlüsselt in der Datenbank; wie der Schlüssel verwaltet wird, steht in der
+Konfigurationsanleitung („GitLab-Tickets“).

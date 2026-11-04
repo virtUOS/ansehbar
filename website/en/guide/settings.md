@@ -51,3 +51,22 @@ between fits.
 | Keep history | days events, incidents and sent notifications are kept; at least one semester (183) | 400 |
 
 The monitor deletes older data once an hour.
+
+## GitLab tickets
+
+Optional. With a URL and a token, you can create a GitLab ticket from the
+[overview](overview.md#create-a-ticket).
+
+| Setting | Meaning |
+|---|---|
+| GitLab project URL | full address of the project, subgroups included, `https://` only, e.g. `https://gitlab.example.com/group/project` |
+| Access token | project access token with role “Reporter” and only the scope “api”, with an expiry date. The field is write-only: afterwards it shows “Token set”. “Remove token” deletes it. |
+
+!!! warning "Changing the URL"
+    If you change the URL without entering a new token, ansehBAR deletes the
+    stored token. Enter it again right away when you change the URL.
+
+Use a **private** project with a small group of members: screenshots can show
+people in the lecture hall and are stored in GitLab afterwards. The token is
+stored encrypted in the database; how the key is managed is described in the
+configuration guide (“GitLab-Tickets”).

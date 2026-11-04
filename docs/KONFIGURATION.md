@@ -559,9 +559,71 @@ wieder; die Aufbewahrung ist endgültig.
 | Termine fehlen, obwohl in Opencast geplant | Meist darf das Konto die Events nicht lesen: Rolle in den Event-ACLs bzw. ACL-Vorlagen ergänzen (siehe „Konto in Opencast“). Außerdem liegt der Termin vielleicht außerhalb von `OPENCAST_LOOKAHEAD_DAYS`, oder der Agent ist keinem Rekorder zugeordnet. |
 | E-Mails kommen nicht an | Zuerst `docker compose -f docker-compose.prod.yml logs monitor` prüfen. Offene Meldungen zeigt das Protokoll: `docker compose -f docker-compose.prod.yml exec app python manage.py shell -c "from alarms.models import SentNotification as S; print(list(S.objects.filter(sent_at__isnull=True).values('recipient', 'attempts', 'last_error')))"`. `last_error` nennt den SMTP-Fehler (Server, Port, Zugangsdaten, `EMAIL_USE_TLS`). Ohne `EMAIL_HOST` geht die Mail an `localhost:25` und kommt meist nirgends an. Nach 5 Fehlversuchen versucht der Monitor die Meldung nicht mehr; Einstellung korrigieren und eine Test-E-Mail senden. Außerdem: Ist der Alarmmodus des Rekorders `off`, ist „Alarm per E-Mail“ abgeschaltet, oder fehlen Empfänger, wird nichts gesendet. |
 | Keine Alarme trotz fehlendem Stream | Alarme gibt es nur während eines Opencast-Termins, nach Wartezeit (bei `grid` nach c.t. plus Toleranz) und nur für Vorfälle, deren Termin noch läuft. Modus, Opencast-Anbindung und Banner prüfen. |
+| Dialog meldet „Das Ticket konnte in GitLab nicht angelegt werden.“ | GitLab ist nicht erreichbar oder lehnt die Anfrage ab: URL, Token (abgelaufen? Rolle Reporter, Scope `api`?) und Projekt prüfen. Weiterleitungen folgt ansehBAR nie (ein Redirect auf einen anderen Host zählt als Fehler). Das Token steht nie in Meldungen oder Logs. |
+| Meldung „GitLab-Tickets sind nicht konfiguriert.“ oder Knopf fehlt | URL oder Token fehlen, oder das Token ist unlesbar (Schlüssel geändert, siehe Abschnitt 9): unter „Einstellungen“ neu eintragen und die Übersicht neu laden. |
+| Ticket ohne Screenshot, Hinweis „Der Screenshot-Upload zu GitLab ist fehlgeschlagen; kein Bild angehängt.“ | Der Upload scheiterte (Größe über 5 MB, Rechte), das Ticket wurde trotzdem angelegt. |
 | Agent wird übersprungen | Der Log des Monitors nennt per WARNING den Grund: Die Agent-ID ist kein gültiger Stream-Name (erlaubt sind Buchstaben, Ziffern, `.`, `_`, `-`), oder zu lang (mehr als 100 Zeichen), oder der Stream-Name gehört schon zu einem anderen Agent. `agent_id` beim passenden Rekorder setzen. |
 
-## 9. Aktualisieren
+## 9. GitLab-Tickets (optional)
+
+Aus der Übersicht lässt sich zu einem Raum ein Ticket in GitLab anlegen, mit
+Fehlerbeschreibung, Status, aktuellem Opencast-Termin und einem Screenshot des
+Streams. ansehBAR speichert dabei nichts; es sendet nur an GitLab
+(`POST …/uploads` und `POST …/issues`). Ohne Eintrag unter „Einstellungen“ ist
+die Funktion aus und der Knopf erscheint nicht.
+
+### Token anlegen
+
+1. In GitLab ein **privates** Projekt für die Tickets wählen oder anlegen. Nur
+   ein kleiner Kreis sollte Mitglied sein: Screenshots können Personen im
+   Hörsaal zeigen und liegen danach in GitLab.
+2. Im Projekt unter *Einstellungen → Zugriffstoken* ein Project Access Token
+   anlegen: Rolle **Reporter**, nur der Scope **api**, **Ablaufdatum** setzen.
+3. In ansehBAR unter *Verwaltung → Einstellungen*, Abschnitt „GitLab-Tickets“,
+   die **GitLab-Projekt-URL** (vollständig, mit Untergruppen, nur `https://`,
+   z. B. `https://gitlab.example.com/gruppe/projekt`) und das **Zugriffstoken**
+   eintragen und speichern. Das Token ist nur schreibbar: danach steht dort
+   „Token gesetzt“, es wird nie wieder angezeigt. Mit „Token entfernen“ löschen
+   Sie es.
+4. Wer die Übersicht geöffnet hat, lädt sie neu; dann erscheint der Knopf
+   „Ticket für <Raum> erstellen“ an jeder Kachel.
+
+**Wichtig:** Ändern Sie die URL, ohne ein neues Token einzugeben, löscht
+ansehBAR das gespeicherte Token (es soll nie an ein anderes Ziel geschickt
+werden). Tragen Sie bei einem URL-Wechsel das neue Token gleich mit ein.
+
+### Verschlüsselung des Tokens
+
+Das Token liegt verschlüsselt (Fernet) in der Datenbank. Der Schlüssel kommt aus
+`TOKEN_ENCRYPTION_KEY` in der `.env`; ist sie leer, wird er aus
+`DJANGO_SECRET_KEY` abgeleitet. Erzeugen:
+
+```bash
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+Ändern sich `TOKEN_ENCRYPTION_KEY` oder (ohne eigenen Schlüssel)
+`DJANGO_SECRET_KEY` später, ist das gespeicherte Token unlesbar: ansehBAR
+behandelt es als nicht gesetzt, und Sie tragen es unter „Einstellungen“ neu ein.
+Sichern Sie den Schlüssel mit der `.env` (siehe `docs/deployment.md`,
+Abschnitt „Sicherung und Wiederherstellung“).
+
+### Inhalt eines Tickets
+
+Titel: `<Raum> (<Stream>): <erste Zeile der Fehlerbeschreibung>`. Beschreibung:
+Fehlerbeschreibung, Raum, Stream und Capture-Agent, Zeitpunkt, Status (live
+seit / offline seit / Stille / Pegel / Agent-Zustand), aktueller
+Opencast-Termin (Titel, Serie, Vortragende, geplante Zeit, Status), die
+erstellende Person, ein Link zur Raumansicht und der Screenshot. Labels und
+Zuständige setzt ansehBAR nicht.
+
+Der Screenshot ist das aktuelle Vorschaubild der Kachel. Zeigt die Kachel kein
+Video (Stream offline, Wiedergabe gestört), geht das Ticket ohne Bild raus; der
+Dialog weist darauf hin. Das Bild lesen zu dürfen setzt CORS am Streaming-Server
+voraus (Abschnitt 1, gilt schon für die Wiedergabe). Die Vortragenden stammen
+aus dem Feld `presenter` der Opencast-Events (Abschnitt 5).
+
+## 10. Aktualisieren
 
 Updates, Sicherung und Rückkehr zu einer früheren Version beschreibt die
 [Installationsanleitung, Abschnitte 6 und 7](deployment.md#6-aktualisieren).

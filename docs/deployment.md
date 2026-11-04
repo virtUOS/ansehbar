@@ -294,6 +294,11 @@ DEFAULT_FROM_EMAIL=ansehbar@example.org
 
 # Prometheus (docs/monitoring.md)
 METRICS_TOKEN=<ausgabe von openssl rand -hex 32>
+
+# GitLab-Tickets (KONFIGURATION.md Abschnitt 9): Schlüssel für das in der
+# Datenbank verschlüsselte GitLab-Token. Leer = aus DJANGO_SECRET_KEY abgeleitet.
+# Erzeugen: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+TOKEN_ENCRYPTION_KEY=<fernet-schluessel>
 ```
 
 Welche Releases es gibt, sehen Sie auf GitHub unter
@@ -601,7 +606,7 @@ Zeilen mit `<` gibt es nur in der Vorlage (meist optional).
 | Daten | Ort | Sicherung |
 |---|---|---|
 | Datenbank (Rekorder, Einstellungen, Termine, Vorfälle, Pegelmessungen, Empfänger, Einladungen) | Volume `ansehbar_postgres_data` | `pg_dump` |
-| Konfiguration | `/opt/ansehbar/.env` | Datei kopieren (enthält Geheimnisse) |
+| Konfiguration | `/opt/ansehbar/.env` | Datei kopieren (enthält Geheimnisse, auch `DJANGO_SECRET_KEY` und `TOKEN_ENCRYPTION_KEY`: ohne sie ist das verschlüsselte GitLab-Token nach einer Wiederherstellung unlesbar und muss neu eingegeben werden) |
 | Standortkonfiguration | `/opt/ansehbar/site.local.json`, falls vorhanden | Datei kopieren |
 | Zertifikate | Volume `ansehbar_caddy_data` | verzichtbar, Caddy stellt neu aus |
 

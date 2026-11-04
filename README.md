@@ -38,7 +38,8 @@ Prometheus (Alarmmodus pro Rekorder, Empfänger in der Verwaltung, Entwarnung na
 stabiler Rückkehr). Stufe 3b ergänzt den Alarm „Ton fehlt“ (Pegelmessung mit
 ffmpeg, Badge „Still seit“, Entwarnung per E-Mail, Metrik für Prometheus). Stufe 3c ergänzt den
 Raumkalender (Wochen- und Tagesansicht mit Zeitleiste, Vorfällen und Pegelkurve)
-und eine einstellbare Aufbewahrung alter Daten.
+und eine einstellbare Aufbewahrung alter Daten. Optional legt ansehBAR aus der
+Übersicht Tickets in GitLab an (mit Status, Opencast-Termin und Screenshot).
 Geplant sind lernende Toleranzen (Stufe 4); Details im
 [Design-Dokument](docs/superpowers/specs/2026-10-30-ansehbar-design.md).
 

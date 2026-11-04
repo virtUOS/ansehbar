@@ -26,6 +26,9 @@ Frontend 5179, Backend 8007, Keycloak 8086, Postgres 5438.
   `alarms` (Alarmempfänger, `SentNotification`-Protokoll, E-Mail-Zustellung
   im Monitor-Zyklus; Alarmregeln liegen in `recorders/alarm_rules.py`,
   `/metrics` in `common/views.py`),
+  `recorders/tickets.py` (GitLab-Client und Ticket-Text; Endpunkt
+  `POST /api/recorders/<id>/ticket/`; Token verschlüsselt über
+  `common/encryption.py`, Einstellungen in `MonitorSettings`),
   `streams` (HLS-Probe: Master-/Chunklist, Frische der Media-Sequence;
   `audio.py`: Pegelmessung mit ffmpeg),
   `common` (Basis).
