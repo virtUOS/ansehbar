@@ -23,6 +23,7 @@ import { RecorderTile } from "../components/RecorderTile";
 import { RoomList } from "../components/RoomList";
 import { RoomPills } from "../components/RoomPills";
 import { UpcomingList } from "../components/UpcomingList";
+import { useAppContext } from "../appContext";
 import { MonitorBanner } from "../components/MonitorBanner";
 import { AudioUnlockButton } from "../media/AudioUnlockButton";
 
@@ -43,6 +44,7 @@ function useMediaQuery(query: string): boolean {
 
 export function Overview() {
   const { t, i18n } = useTranslation();
+  const ticketsEnabled = useAppContext()?.whoami.tickets_enabled ?? false;
   const {
     recorders,
     error,
@@ -235,7 +237,7 @@ export function Overview() {
           }}
         >
           {shown.map((r) => (
-            <RecorderTile key={r.id} recorder={r} opencast={opencastEnabled} opencastStale={unclearSchedule} />
+            <RecorderTile key={r.id} recorder={r} opencast={opencastEnabled} opencastStale={unclearSchedule} ticketsEnabled={ticketsEnabled} />
           ))}
         </div>
       ) : (

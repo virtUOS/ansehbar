@@ -12,7 +12,7 @@ const FIELDS = [
   "url_template", "stale_factor", "missing_grace_minutes", "slot_minutes", "slot_offset_minutes",
   "ct_minutes", "ct_tolerance_minutes", "end_tolerance_minutes", "alarm_email_enabled", "alarm_metrics_enabled",
   "silence_threshold_db", "silence_log_minutes", "silence_alarm_minutes",
-  "sample_retention_days", "history_retention_days",
+  "sample_retention_days", "history_retention_days", "gitlab_url", "gitlab_token",
 ];
 const NO_ERRORS: FormErrors = { fields: {}, general: [] };
 
@@ -34,6 +34,10 @@ export function SettingsAdmin() {
   const [silenceAlarm, setSilenceAlarm] = useState("15");
   const [sampleDays, setSampleDays] = useState("30");
   const [historyDays, setHistoryDays] = useState("400");
+  const [gitlabUrl, setGitlabUrl] = useState("");
+  const [gitlabToken, setGitlabToken] = useState("");
+  const [tokenSet, setTokenSet] = useState(false);
+  const [removeToken, setRemoveToken] = useState(false);
   const [firstStream, setFirstStream] = useState<string | undefined>();
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState("");
@@ -57,6 +61,10 @@ export function SettingsAdmin() {
     setSilenceAlarm(String(s.silence_alarm_minutes));
     setSampleDays(String(s.sample_retention_days));
     setHistoryDays(String(s.history_retention_days));
+    setGitlabUrl(s.gitlab_url);
+    setTokenSet(s.gitlab_token_set);
+    setGitlabToken("");
+    setRemoveToken(false);
   };
 
   useEffect(() => {
@@ -99,6 +107,9 @@ export function SettingsAdmin() {
         silence_alarm_minutes: Number(silenceAlarm),
         sample_retention_days: Number(sampleDays),
         history_retention_days: Number(historyDays),
+        gitlab_url: gitlabUrl.trim(),
+        // Only sent when entered ("" removes); omitted keeps the stored token.
+        ...(removeToken ? { gitlab_token: "" } : gitlabToken ? { gitlab_token: gitlabToken } : {}),
       });
       apply(result);
       setSaved(true);
@@ -384,6 +395,50 @@ export function SettingsAdmin() {
               />
             )}
           </Field>
+        </fieldset>
+        <fieldset className="space-y-4 rounded-lg border border-slate-200 p-4 dark:border-slate-800">
+          <legend className="px-1 text-lg font-bold">{t("GitLab tickets")}</legend>
+          <Field
+            label={t("GitLab project URL")}
+            errors={errors.fields.gitlab_url}
+            hint={t("Use a project access token with role “Reporter” and only the scope “api”, and set an expiry date. Changing the URL requires entering a new token, otherwise the stored token is deleted. A private project is recommended: screenshots can show people.")}
+          >
+            {(p) => (
+              <input
+                {...p}
+                type="url"
+                value={gitlabUrl}
+                placeholder="https://gitlab.example.com/group/project"
+                onChange={(e) => { setGitlabUrl(e.target.value); setSaved(false); }}
+                className={`${inputCls} font-mono`}
+                spellCheck={false}
+              />
+            )}
+          </Field>
+          <Field
+            label={t("Access token")}
+            errors={errors.fields.gitlab_token}
+            hint={tokenSet ? `✓ ${t("Token set")}` : t("No token set")}
+          >
+            {(p) => (
+              <input
+                {...p}
+                type="password"
+                autoComplete="off"
+                value={gitlabToken}
+                disabled={removeToken}
+                onChange={(e) => { setGitlabToken(e.target.value); setSaved(false); }}
+                className={`${inputCls} font-mono`}
+              />
+            )}
+          </Field>
+          {tokenSet ? (
+            <Checkbox
+              label={t("Remove token")}
+              checked={removeToken}
+              onChange={(v) => { setRemoveToken(v); if (v) setGitlabToken(""); setSaved(false); }}
+            />
+          ) : null}
         </fieldset>
         <div className="flex items-center gap-3">
           <button type="submit" disabled={saving} className="btn-primary">

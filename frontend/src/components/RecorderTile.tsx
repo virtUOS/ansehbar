@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Universität Osnabrück (virtUOS)
 
-import { memo } from "react";
+import { memo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
-import { Volume2, VolumeX } from "lucide-react";
+import { TicketPlus, Volume2, VolumeX } from "lucide-react";
 import type { Recorder } from "../api";
 import { displayName, formatClock, presentation, recordingScheduled } from "../recorders";
 import { RoomName } from "./RoomName";
@@ -15,16 +15,20 @@ import { useAudio } from "../media/AudioContextProvider";
 import { OpencastIcon } from "./OpencastIcon";
 import { StatusBadge } from "./StatusBadge";
 import { StreamPlaceholder } from "./StreamPlaceholder";
+import { TicketDialog } from "./TicketDialog";
+import { captureFrame } from "../media/snapshot";
 import { PlaybackOverlay, usePlayback } from "./PlaybackOverlay";
 
 function RecorderTileInner({
   recorder,
   opencast = false,
   opencastStale = false,
+  ticketsEnabled = false,
 }: {
   recorder: Recorder;
   opencast?: boolean;
   opencastStale?: boolean;
+  ticketsEnabled?: boolean;
 }) {
   const { t, i18n } = useTranslation();
   const { unlocked, unlock, audibleId, setAudible } = useAudio();
@@ -36,6 +40,14 @@ function RecorderTileInner({
   const event = recorder.current_event;
   const audible = audibleId === recorder.id;
   const playback = usePlayback(live);
+  const articleRef = useRef<HTMLElement>(null);
+  const [ticket, setTicket] = useState<{ screenshot: Blob | null } | null>(null);
+
+  const openTicket = async () => {
+    // Capture first (inside the click), then open the dialog.
+    const screenshot = await captureFrame(articleRef.current?.querySelector("video") ?? null);
+    setTicket({ screenshot });
+  };
 
   const toggleSound = async () => {
     if (audible) return setAudible(null);
@@ -52,6 +64,7 @@ function RecorderTileInner({
 
   return (
     <article
+      ref={articleRef}
       className={`overflow-hidden rounded-2xl border bg-white dark:bg-slate-900 ${
         missing
           ? "border-2 border-red-700"
@@ -154,6 +167,17 @@ function RecorderTileInner({
             <span className="truncate">{recorder.stream_name}</span>
           </p>
         </div>
+        {ticketsEnabled ? (
+          <button
+            type="button"
+            aria-label={t("Create ticket for {{room}}", { room: displayName(recorder) })}
+            title={t("Create ticket for {{room}}", { room: displayName(recorder) })}
+            onClick={() => void openTicket()}
+            className="inline-flex items-center rounded-full bg-slate-100 p-2.5 text-slate-700 transition-colors hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+          >
+            <TicketPlus aria-hidden className="h-5 w-5" />
+          </button>
+        ) : null}
         {live ? (
           <button
             type="button"
@@ -177,6 +201,9 @@ function RecorderTileInner({
           </button>
         ) : null}
       </div>
+      {ticket ? (
+        <TicketDialog recorder={recorder} screenshot={ticket.screenshot} onClose={() => setTicket(null)} />
+      ) : null}
     </article>
   );
 }

@@ -185,5 +185,5 @@ export function HlsPlayer({ id, src, className, label, onError, onPlaybackState 
     };
   }, [src, useHlsJs, id, markForceMuted, setPlaybackState]);
 
-  return <video ref={ref} aria-label={label} className={className} autoPlay playsInline muted />;
+  return <video ref={ref} aria-label={label} className={className} autoPlay playsInline muted crossOrigin="anonymous" />;
 }

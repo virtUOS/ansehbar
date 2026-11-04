@@ -249,5 +249,21 @@
   "Stream missing {{minutes}} min": "Stream fehlte {{minutes}} min",
   "Silent {{minutes}} min": "Still {{minutes}} min",
   "No findings": "ohne Befund",
-  "Calendar could not be loaded": "Kalender konnte nicht geladen werden"
+  "Calendar could not be loaded": "Kalender konnte nicht geladen werden",
+  "Create ticket for {{room}}": "Ticket für {{room}} erstellen",
+  "Screenshot of the stream": "Screenshot des Streams",
+  "No screenshot available – the ticket will be sent without one.": "Kein Screenshot verfügbar – das Ticket wird ohne Screenshot gesendet.",
+  "Error description": "Fehlerbeschreibung",
+  "Create ticket": "Ticket erstellen",
+  "Creating…": "Wird erstellt…",
+  "Ticket created.": "Ticket erstellt.",
+  "Open ticket": "Ticket öffnen",
+  "Close": "Schließen",
+  "GitLab tickets": "GitLab-Tickets",
+  "GitLab project URL": "GitLab-Projekt-URL",
+  "Access token": "Zugriffstoken",
+  "Token set": "Token gesetzt",
+  "No token set": "Kein Token gesetzt",
+  "Remove token": "Token entfernen",
+  "Use a project access token with role “Reporter” and only the scope “api”, and set an expiry date. Changing the URL requires entering a new token, otherwise the stored token is deleted. A private project is recommended: screenshots can show people.": "Verwenden Sie ein Project Access Token mit der Rolle „Reporter“ und nur dem Scope „api“ und setzen Sie ein Ablaufdatum. Wird die URL geändert, muss ein neues Token eingegeben werden, sonst wird das gespeicherte Token gelöscht. Ein privates Projekt wird empfohlen: Screenshots können Personen zeigen."
 }
