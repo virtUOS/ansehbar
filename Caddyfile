@@ -1,18 +1,37 @@
 # Caddyfile — ansehBAR production reverse proxy with automatic HTTPS.
 #
-# Replace ansehbar.example.org with your domain and set a real ACME
-# contact email. Caddy obtains and renews a Let's Encrypt certificate
-# automatically as long as ports 80 and 443 are reachable and the domain's DNS
-# points here. For institutional certificates (e.g. HARICA) mount them into the
-# container and use `tls /etc/caddy/certs/<name>.crt /etc/caddy/certs/<name>.key`.
+# This file needs NO local edits: it is configured through environment
+# variables (set in .env, passed to the caddy service by docker-compose.prod.yml):
+#   PUBLIC_BASE_URL  site address, bare origin, e.g.
+#                    https://ansehbar.example.org (no path, no trailing /)
+#   ACME_EMAIL       Let's Encrypt contact (expiry notices)
+# Caddy obtains and renews a Let's Encrypt certificate automatically as long
+# as ports 80 and 443 are reachable and the domain's DNS points here. The
+# https:// scheme in PUBLIC_BASE_URL makes the site HTTPS-only (plain HTTP is
+# redirected by Caddy's automatic redirect on port 80).
+#
+# Manual option, institutional certificates (e.g. HARICA): mount them into the
+# container (see docker-compose.prod.yml) and add inside the site block
+# `tls /etc/caddy/certs/<name>.pem /etc/caddy/certs/<name>.key`. This is a
+# deliberate local edit; ACME_EMAIL is then unused but still required.
+# Step-by-step guide: docs/deployment.md.
 
 {
-	# Contact address for Let's Encrypt (expiry notices). Replace it.
-	email admin@example.org
+	# Contact address for Let's Encrypt (expiry notices), from ACME_EMAIL.
+	email {$ACME_EMAIL}
 }
 
-ansehbar.example.org {
+{$PUBLIC_BASE_URL} {
 	encode zstd gzip
+
+	# The tool is never embedded anywhere: no framing, no MIME sniffing, no
+	# referrer beyond the origin.
+	header {
+		Content-Security-Policy "frame-ancestors 'none'"
+		X-Frame-Options DENY
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+	}
 
 	# API, Django admin and OIDC endpoints → Django (uvicorn).
 	handle /api/* {

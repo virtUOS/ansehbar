@@ -67,7 +67,8 @@ cd frontend && npm run docs:shots                      # Website-Screenshots (DE
   `docs/<slug>`; PR mit grüner CI (`.github/workflows/ci.yml`); der Mensch merged.
 - Release = Git-Tag `vX.Y.Z` → `.github/workflows/release.yml` baut das Image
   nach `ghcr.io/virtuos/ansehbar`; Deployment über `docker-compose.prod.yml`
-  (siehe README, docs/KONFIGURATION.md).
+  (Server-Anleitung: docs/deployment.md, App-Konfiguration: docs/KONFIGURATION.md).
+  `Caddyfile` ohne lokale Änderungen, gesteuert über `.env`.
 - Gerüst-Updates: `pipx run copier update --vcs-ref HEAD` (Identitäts- und
   Inhaltsdateien sind davon ausgenommen, siehe README).
 

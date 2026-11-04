@@ -112,11 +112,10 @@ auch die ansehBAR-Sitzung. Entfernte Einladungen wirken sofort.
 
 ## 3. Server einrichten
 
-```bash
-git clone <repository-url> ansehbar
-cd ansehbar
-cp .env.prod.example .env
-```
+Wie der Server Schritt für Schritt eingerichtet wird (Docker, Firewall,
+SELinux, HTTPS, Start, Sicherung, Updates), beschreibt die
+[Installationsanleitung](deployment.md). Hier stehen nur die Einstellungen,
+die ansehBAR betreffen.
 
 ### `.env` ausfüllen
 
@@ -125,6 +124,7 @@ Pflichtangaben (ohne sie startet `docker compose` nicht):
 | Variable | Inhalt |
 | --- | --- |
 | `PUBLIC_BASE_URL` | Öffentliche Adresse, z. B. `https://ansehbar.example.org` (ohne `/` am Ende) |
+| `ACME_EMAIL` | Kontaktadresse für Let's Encrypt (Hinweise zum Ablauf des Zertifikats) |
 | `DJANGO_SECRET_KEY` | Langer Zufallswert, z. B. aus `openssl rand -base64 48` |
 | `DJANGO_ALLOWED_HOSTS` | Domain, z. B. `ansehbar.example.org` |
 | `CSRF_TRUSTED_ORIGINS` | `https://` + Domain |
@@ -151,27 +151,18 @@ Die übrigen Variablen in `.env.prod.example` (KI-Funktionen,
 LibreTranslate, Django-Admin-Gruppe) sind optional und für ansehBAR derzeit
 nicht nötig.
 
-### `Caddyfile` anpassen
+### `Caddyfile`
 
-`ansehbar.example.org` durch eure Domain ersetzen und unter `email` eine
-echte Kontaktadresse für Let's Encrypt eintragen. Caddy holt und erneuert
-das Zertifikat dann selbst. Für eigene Zertifikate der Einrichtung zeigt der
-Kommentar im `Caddyfile`, wie sie eingebunden werden.
+Am `Caddyfile` ist nichts anzupassen: Domain (`PUBLIC_BASE_URL`) und
+Let's-Encrypt-Kontakt (`ACME_EMAIL`) kommen aus der `.env`. Eigene
+Zertifikate der Einrichtung bindet die
+[Installationsanleitung, Abschnitt 8](deployment.md#8-eigenes-zertifikat-harica) ein.
 
 ### Starten
 
-```bash
-docker compose -f docker-compose.prod.yml up -d --build
-```
-
 Es starten vier Container: `db` (PostgreSQL), `app` (Web und API, migriert
 die Datenbank beim Start), `monitor` (prüft die Streams) und `caddy`
-(HTTPS). Kontrolle:
-
-```bash
-docker compose -f docker-compose.prod.yml ps
-docker compose -f docker-compose.prod.yml logs -f monitor
-```
+(HTTPS); siehe [Installationsanleitung, Schritt 10](deployment.md#schritt-10-image-laden-und-starten).
 
 ## 4. Standortkonfiguration laden
 
@@ -572,11 +563,8 @@ wieder; die Aufbewahrung ist endgültig.
 
 ## 9. Aktualisieren
 
-```bash
-git pull
-docker compose -f docker-compose.prod.yml up -d --build
-```
-
+Updates, Sicherung und Rückkehr zu einer früheren Version beschreibt die
+[Installationsanleitung, Abschnitte 6 und 7](deployment.md#6-aktualisieren).
 Datenbank-Migrationen laufen beim Start des Containers `app` automatisch.
 Die Standortkonfiguration bleibt in der Datenbank erhalten und muss nur bei
 Änderungen erneut geladen werden.

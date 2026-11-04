@@ -3,13 +3,13 @@
 # the build into the frontend_data volume, which Caddy serves directly. OIDC
 # points at the institutional IdP, so there is no Keycloak service here.
 #
-#   docker compose -f docker-compose.prod.yml up -d --build   # build from source
-#   docker compose -f docker-compose.prod.yml pull            # or run a released image, then
-#   docker compose -f docker-compose.prod.yml up -d
+#   docker compose -f docker-compose.prod.yml pull            # run a released image
+#   docker compose -f docker-compose.prod.yml up -d --no-build
+#   docker compose -f docker-compose.prod.yml up -d --build   # or build from source
 #
-# Required env (in .env): PUBLIC_BASE_URL, DJANGO_SECRET_KEY, POSTGRES_PASSWORD,
-# DJANGO_ALLOWED_HOSTS, CSRF_TRUSTED_ORIGINS and the OIDC_* vars — see
-# .env.prod.example. Variables marked `:?` make compose refuse to start when
+# Required env (in .env): PUBLIC_BASE_URL, ACME_EMAIL, DJANGO_SECRET_KEY,
+# POSTGRES_PASSWORD, DJANGO_ALLOWED_HOSTS, CSRF_TRUSTED_ORIGINS and the OIDC_*
+# vars — see .env.prod.example. Server guide: docs/deployment.md. Variables marked `:?` make compose refuse to start when
 # they are missing, so a forgotten secret never silently falls back.
 
 services:
@@ -31,9 +31,10 @@ services:
 
   # Django/uvicorn plus the baked-in SPA build (see Dockerfile). `image:` lets
   # `pull` fetch a released tag directly; `build:` still works via
-  # `up -d --build`. Override ANSEHBAR_VERSION to pin/roll back.
+  # `up -d --build`. Set ANSEHBAR_VERSION to pin/roll back (release tag, with
+  # or without the leading "v"); ANSEHBAR_IMAGE for another registry.
   app:
-    image: ghcr.io/virtuos/ansehbar:${ANSEHBAR_VERSION:-latest}
+    image: ${ANSEHBAR_IMAGE:-ghcr.io/virtuos/ansehbar}:${ANSEHBAR_VERSION:-latest}
     build:
       context: .
       dockerfile: Dockerfile
@@ -137,13 +138,19 @@ services:
 
   # Periodic stream probe; same image and env as app, no ports, no uvicorn.
   monitor:
-    image: ghcr.io/virtuos/ansehbar:${ANSEHBAR_VERSION:-latest}
+    image: ${ANSEHBAR_IMAGE:-ghcr.io/virtuos/ansehbar}:${ANSEHBAR_VERSION:-latest}
     build:
       context: .
       dockerfile: Dockerfile
     container_name: ansehbar_monitor
     restart: unless-stopped
-    command: python manage.py run_monitor
+    # Wait until `app` has applied all migrations: on a fresh install (or an
+    # update with new migrations) the monitor would otherwise query missing
+    # tables. `migrate --check` exits non-zero while migrations are pending.
+    command: >
+      sh -c "until python manage.py migrate --check >/dev/null 2>&1;
+      do echo 'waiting for migrations'; sleep 3; done;
+      exec python manage.py run_monitor"
     environment: *app-env
     depends_on:
       db:
@@ -156,10 +163,14 @@ services:
     ports:
       - "80:80"
       - "443:443"
+    # The Caddyfile is configured purely via these variables (no local edits).
+    environment:
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?set PUBLIC_BASE_URL}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL (Let's Encrypt expiry notices)}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      # Optional: mount institutional TLS certificates when not using Caddy's
-      # automatic Let's Encrypt; see the note in the Caddyfile.
+      # Optional: mount institutional TLS certificates (e.g. HARICA) when not
+      # using Caddy's automatic Let's Encrypt; see docs/deployment.md.
       # - /etc/ansehbar/certs:/etc/caddy/certs:ro
       - frontend_data:/srv/www:ro
       - static_data:/srv/static:ro
