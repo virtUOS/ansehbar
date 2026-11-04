@@ -37,6 +37,7 @@ export interface EventBrief {
   id: number;
   title: string;
   series: string;
+  presenters: string;
   start: string;
   end: string;
 }
@@ -113,6 +114,7 @@ export interface RecordingProblem {
 /** The room's most recent finished recording and what went wrong with it. */
 export interface LastRecording {
   title: string;
+  presenters: string;
   start: string;
   end: string;
   opencast_status: string;

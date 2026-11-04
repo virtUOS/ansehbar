@@ -42,6 +42,8 @@ class Event:
     end: datetime
     # Raw Opencast status, e.g. "EVENTS.EVENTS.STATUS.PROCESSED"; "" if absent.
     status: str = ""
+    # Presenter names from Opencast, joined with ", "; "" if absent.
+    presenters: str = ""
 
 
 def _parse_time(value) -> datetime | None:
@@ -54,6 +56,13 @@ def _parse_time(value) -> datetime | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
+
+
+def _parse_presenters(value) -> str:
+    if not isinstance(value, list):
+        return ""
+    names = [v.strip() for v in value if isinstance(v, str)]
+    return ", ".join(n for n in names if n)
 
 
 def _format_time(value: datetime) -> str:
@@ -196,6 +205,7 @@ class OpencastClient:
                     start=ev_start,
                     end=ev_end,
                     status=str(raw.get("status") or ""),
+                    presenters=_parse_presenters(raw.get("presenter")),
                 )
             )
         return result

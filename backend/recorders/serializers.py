@@ -116,6 +116,7 @@ class RecorderSerializer(serializers.ModelSerializer):
             "id": event.pk,
             "title": event.title,
             "series": event.series,
+            "presenters": event.presenters,
             "start": event.start,
             "end": event.end,
         }
@@ -186,6 +187,7 @@ class RecorderSerializer(serializers.ModelSerializer):
         status = event.opencast_status
         return {
             "title": event.title,
+            "presenters": event.presenters,
             "start": to_iso(event.start),
             "end": to_iso(event.end),
             "opencast_status": status,
