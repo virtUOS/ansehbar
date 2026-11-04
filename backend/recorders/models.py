@@ -5,6 +5,7 @@ from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
+from common.encryption import decrypt, encrypt
 from recorders.validators import validate_stream_name, validate_url_template
 
 DEFAULT_URL_TEMPLATE = (
@@ -134,6 +135,20 @@ class MonitorSettings(models.Model):
     history_retention_days = models.PositiveSmallIntegerField(
         default=400, validators=[MinValueValidator(183), MaxValueValidator(3650)]
     )
+
+    # GitLab project for tickets; the token is stored encrypted.
+    gitlab_url = models.URLField(blank=True, max_length=500)
+    gitlab_token = models.TextField(blank=True, default="")
+
+    def gitlab_token_plain(self) -> str:
+        return decrypt(self.gitlab_token)
+
+    def set_gitlab_token(self, plain: str) -> None:
+        self.gitlab_token = encrypt(plain)
+
+    @property
+    def tickets_enabled(self) -> bool:
+        return bool(self.gitlab_url and self.gitlab_token_plain())
 
     @classmethod
     def load(cls) -> "MonitorSettings":

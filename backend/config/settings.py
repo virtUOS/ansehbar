@@ -260,6 +260,10 @@ REST_FRAMEWORK = {
 # Bearer token protecting /metrics (Prometheus). Empty = endpoint off (404).
 METRICS_TOKEN = os.environ.get("METRICS_TOKEN", "")
 
+# Fernet key for secrets stored at rest (GitLab token). Empty = derived from
+# DJANGO_SECRET_KEY. Generate: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+TOKEN_ENCRYPTION_KEY = os.environ.get("TOKEN_ENCRYPTION_KEY", "")
+
 # Optional AI features via a LiteLLM proxy (basicbar_integrations.ai). Off
 # unless fully configured; "enabled" is derived from these, not a flag.
 AI_PROVIDER = os.environ.get("AI_PROVIDER", "none")  # "none" | "litellm"

@@ -252,3 +252,28 @@ class AlertRulesTests(SimpleTestCase):
         for rule in rules:
             self.assertIn(rule["labels"]["severity"], {"warning", "critical"})
             self.assertEqual(rule["labels"]["service"], "ansehbar")
+
+
+class EncryptionTests(SimpleTestCase):
+    def test_encrypt_roundtrip(self):
+        from common.encryption import decrypt, encrypt
+
+        token = encrypt("glpat-x")
+        self.assertNotEqual(token, "glpat-x")
+        self.assertEqual(decrypt(token), "glpat-x")
+
+    def test_empty_stays_empty(self):
+        from common.encryption import decrypt, encrypt
+
+        self.assertEqual(encrypt(""), "")
+        self.assertEqual(decrypt(""), "")
+
+    def test_wrong_key_yields_empty(self):
+        from cryptography.fernet import Fernet
+
+        from common.encryption import decrypt, encrypt
+
+        token = encrypt("glpat-x")
+        with override_settings(TOKEN_ENCRYPTION_KEY=Fernet.generate_key().decode()):
+            with self.assertLogs("common.encryption", level="WARNING"):
+                self.assertEqual(decrypt(token), "")

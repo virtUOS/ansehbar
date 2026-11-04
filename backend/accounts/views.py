@@ -20,6 +20,14 @@ from rest_framework.response import Response
 from accounts.access import has_access, normalize_identifier
 from accounts.models import Invitation
 from accounts.permissions import HasAccess
+from recorders.models import MonitorSettings
+
+
+def _tickets_enabled(user) -> bool:
+    if not has_access(user):
+        return False
+    stored = MonitorSettings.objects.filter(pk=1).first()
+    return bool(stored and stored.tickets_enabled)
 
 
 def whoami(request):
@@ -31,6 +39,7 @@ def whoami(request):
             "has_access": has_access(request.user),
             "access_contact": settings.ANSEHBAR_ACCESS_CONTACT,
             "ai_enabled": ai.is_enabled(),
+            "tickets_enabled": _tickets_enabled(request.user),
             # Content-i18n config: the default/canonical authoring language and
             # whether machine-translation drafts are available, so the SPA can
             # decide which language to show/edit without a second round-trip.

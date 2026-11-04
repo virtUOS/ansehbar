@@ -2872,3 +2872,73 @@ class RoomCalendarApiTests(TestCase):
         outsider = User.objects.create_user(username="out")
         self.client.force_login(outsider)
         self.assertEqual(self.get().status_code, 403)
+
+
+class GitLabSettingsTests(TestCase):
+    URL = "https://gitlab.example.com/g/p"
+
+    def setUp(self):
+        member = User.objects.create_user(username="member", is_superuser=True)
+        self.client.force_login(member)
+        self.base = self.client.get("/api/settings/monitor/").json()
+        self.base.pop("gitlab_token_set", None)
+
+    def put(self, **extra):
+        return self.client.put(
+            "/api/settings/monitor/",
+            {**self.base, **extra},
+            content_type="application/json",
+        )
+
+    def test_token_is_write_only(self):
+        response = self.put(gitlab_url=self.URL, gitlab_token="glpat-secret")
+        self.assertEqual(response.status_code, 200, response.content)
+        body = response.json()
+        self.assertNotIn("gitlab_token", body)
+        self.assertIs(body["gitlab_token_set"], True)
+        obj = MonitorSettings.load()
+        self.assertNotEqual(obj.gitlab_token, "glpat-secret")
+        self.assertEqual(obj.gitlab_token_plain(), "glpat-secret")
+
+    def test_put_without_token_keeps_it(self):
+        self.put(gitlab_url=self.URL, gitlab_token="glpat-secret")
+        body = self.put(gitlab_url=self.URL).json()
+        self.assertIs(body["gitlab_token_set"], True)
+
+    def test_url_change_without_token_clears_it(self):
+        self.put(gitlab_url=self.URL, gitlab_token="glpat-secret")
+        body = self.put(gitlab_url="https://gitlab.example.com/other/p").json()
+        self.assertIs(body["gitlab_token_set"], False)
+
+    def test_url_change_with_new_token_keeps_new(self):
+        self.put(gitlab_url=self.URL, gitlab_token="glpat-secret")
+        body = self.put(
+            gitlab_url="https://gitlab.example.com/other/p", gitlab_token="glpat-new"
+        ).json()
+        self.assertIs(body["gitlab_token_set"], True)
+        self.assertEqual(MonitorSettings.load().gitlab_token_plain(), "glpat-new")
+
+    def test_empty_token_clears(self):
+        self.put(gitlab_url=self.URL, gitlab_token="glpat-secret")
+        body = self.put(gitlab_url=self.URL, gitlab_token="").json()
+        self.assertIs(body["gitlab_token_set"], False)
+
+    def test_http_url_rejected_without_debug(self):
+        url = "http://gitlab.example.com/g/p"
+        with override_settings(DEBUG=False):
+            response = self.put(gitlab_url=url)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("gitlab_url", response.json())
+        with override_settings(DEBUG=True):
+            self.assertEqual(self.put(gitlab_url=url).status_code, 200)
+
+    def test_url_without_project_path_rejected(self):
+        self.assertEqual(self.put(gitlab_url="https://gitlab.example.com/").status_code, 400)
+        self.assertEqual(
+            self.put(gitlab_url="https://gitlab.example.com/-/issues").status_code, 400
+        )
+
+    def test_whoami_tickets_enabled(self):
+        self.assertIs(self.client.get("/api/whoami/").json()["tickets_enabled"], False)
+        self.put(gitlab_url=self.URL, gitlab_token="glpat-secret")
+        self.assertIs(self.client.get("/api/whoami/").json()["tickets_enabled"], True)

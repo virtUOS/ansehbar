@@ -2,7 +2,9 @@
 # Copyright 2026 Universität Osnabrück (virtUOS)
 
 from datetime import timedelta
+from urllib.parse import urlparse
 
+from django.conf import settings
 from django.utils import timezone
 from django.utils.translation import gettext as _
 from rest_framework import serializers
@@ -231,6 +233,11 @@ class RecorderSerializer(serializers.ModelSerializer):
 
 
 class MonitorSettingsSerializer(serializers.ModelSerializer):
+    gitlab_token = serializers.CharField(
+        write_only=True, required=False, allow_blank=True, trim_whitespace=True
+    )
+    gitlab_token_set = serializers.SerializerMethodField()
+
     class Meta:
         model = MonitorSettings
         fields = [
@@ -249,7 +256,41 @@ class MonitorSettingsSerializer(serializers.ModelSerializer):
             "silence_alarm_minutes",
             "sample_retention_days",
             "history_retention_days",
+            "gitlab_url",
+            "gitlab_token",
+            "gitlab_token_set",
         ]
+
+    def get_gitlab_token_set(self, obj) -> bool:
+        return bool(obj.gitlab_token_plain())
+
+    def validate_gitlab_url(self, value):
+        if not value:
+            return value
+        parsed = urlparse(value)
+        allowed = ("https", "http") if settings.DEBUG else ("https",)
+        if parsed.scheme not in allowed or not parsed.netloc:
+            raise serializers.ValidationError(_("Must be an https URL."))
+        path = parsed.path.split("/-/")[0].strip("/")
+        if not path or path == "-" or path.startswith("-/"):
+            raise serializers.ValidationError(_("Must include the project path."))
+        return value
+
+    def update(self, instance, validated_data):
+        token = validated_data.pop("gitlab_token", None)
+        url_changed = (
+            "gitlab_url" in validated_data
+            and validated_data["gitlab_url"] != instance.gitlab_url
+        )
+        instance = super().update(instance, validated_data)
+        if token is not None:
+            instance.set_gitlab_token(token)
+            instance.save(update_fields=["gitlab_token"])
+        elif url_changed:
+            # A token is bound to the project it was issued for.
+            instance.set_gitlab_token("")
+            instance.save(update_fields=["gitlab_token"])
+        return instance
 
     def validate(self, attrs):
         minutes = attrs.get("slot_minutes", self.instance and self.instance.slot_minutes)
