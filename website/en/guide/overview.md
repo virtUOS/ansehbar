@@ -27,7 +27,7 @@ Each tile shows:
 ## Create a ticket
 
 Once a GitLab project is set under [Settings](settings.md#gitlab-tickets),
-every tile has a button **Create ticket for <room>** (an icon; reload the page
+every tile has a button **Create ticket for ‹room name›** (an icon; reload the page
 after setup). It opens a dialog:
 
 - If the tile shows video, it contains a **screenshot** of the current frame.

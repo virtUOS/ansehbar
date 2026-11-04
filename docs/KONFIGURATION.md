@@ -586,7 +586,7 @@ die Funktion aus und der Knopf erscheint nicht.
    „Token gesetzt“, es wird nie wieder angezeigt. Mit „Token entfernen“ löschen
    Sie es.
 4. Wer die Übersicht geöffnet hat, lädt sie neu; dann erscheint der Knopf
-   „Ticket für <Raum> erstellen“ an jeder Kachel.
+   „Ticket für ‹Raumname› erstellen“ an jeder Kachel.
 
 **Wichtig:** Ändern Sie die URL, ohne ein neues Token einzugeben, löscht
 ansehBAR das gespeicherte Token (es soll nie an ein anderes Ziel geschickt

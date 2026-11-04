@@ -28,7 +28,7 @@ Jede Kachel zeigt:
 ## Ticket erstellen
 
 Ist unter [Einstellungen](einstellungen.md#gitlab-tickets) ein GitLab-Projekt
-eingetragen, hat jede Kachel einen Knopf **Ticket für <Raum> erstellen**
+eingetragen, hat jede Kachel einen Knopf **Ticket für ‹Raumname› erstellen**
 (Symbol; nach dem Einrichten die Seite neu laden). Er öffnet einen Dialog:
 
 - Zeigt die Kachel Video, enthält er einen **Screenshot** des aktuellen Bildes.

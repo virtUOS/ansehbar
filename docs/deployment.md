@@ -298,7 +298,7 @@ METRICS_TOKEN=<ausgabe von openssl rand -hex 32>
 # GitLab-Tickets (KONFIGURATION.md Abschnitt 9): Schlüssel für das in der
 # Datenbank verschlüsselte GitLab-Token. Leer = aus DJANGO_SECRET_KEY abgeleitet.
 # Erzeugen: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-TOKEN_ENCRYPTION_KEY=<fernet-schluessel>
+#TOKEN_ENCRYPTION_KEY=
 ```
 
 Welche Releases es gibt, sehen Sie auf GitHub unter
