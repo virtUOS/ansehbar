@@ -68,7 +68,7 @@ function tr(lang: Lang, de: string, en: string): string {
 }
 
 function event(id: number, title: string, series: string, start: string, end: string): EventBrief {
-  return { id, title, series, start, end };
+  return { id, title, series, presenters: "", start, end };
 }
 
 /** Events per room id (today and later today). */
@@ -95,6 +95,7 @@ function schedule(lang: Lang) {
 
 const LAB_LAST: LastRecording = {
   title: "",
+  presenters: "",
   start: at(-1, 14, 0),
   end: at(-1, 16, 0),
   opencast_status: "EVENTS.EVENTS.STATUS.PROCESSING_FAILURE",
