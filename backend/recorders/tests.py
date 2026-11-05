@@ -10,19 +10,24 @@ from datetime import datetime, timedelta, timezone
 from io import StringIO
 from pathlib import Path
 from unittest import mock
+from urllib.parse import parse_qs
 from zoneinfo import ZoneInfo
 
+import httpx
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import CommandError, call_command
 from django.db import IntegrityError, connection
 from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
+from django.utils.timezone import now as timezone_now
 
 from alarms.models import SentNotification
 from opencast.client import Agent, OpencastError
 from opencast.models import IgnoredAgent, OpencastSyncState, ScheduledEvent
 from opencast.sync import sync_agents
+from recorders import tickets
 from recorders.alarm_rules import (
     alarm_due,
     alarm_threshold,
@@ -2872,3 +2877,349 @@ class RoomCalendarApiTests(TestCase):
         outsider = User.objects.create_user(username="out")
         self.client.force_login(outsider)
         self.assertEqual(self.get().status_code, 403)
+
+
+class GitLabSettingsTests(TestCase):
+    URL = "https://gitlab.example.com/g/p"
+
+    def setUp(self):
+        member = User.objects.create_user(username="member", is_superuser=True)
+        self.client.force_login(member)
+        self.base = self.client.get("/api/settings/monitor/").json()
+        self.base.pop("gitlab_token_set", None)
+
+    def put(self, **extra):
+        return self.client.put(
+            "/api/settings/monitor/",
+            {**self.base, **extra},
+            content_type="application/json",
+        )
+
+    def test_token_is_write_only(self):
+        response = self.put(gitlab_url=self.URL, gitlab_token="glpat-secret")
+        self.assertEqual(response.status_code, 200, response.content)
+        body = response.json()
+        self.assertNotIn("gitlab_token", body)
+        self.assertIs(body["gitlab_token_set"], True)
+        obj = MonitorSettings.load()
+        self.assertNotEqual(obj.gitlab_token, "glpat-secret")
+        self.assertEqual(obj.gitlab_token_plain(), "glpat-secret")
+
+    def test_put_without_token_keeps_it(self):
+        self.put(gitlab_url=self.URL, gitlab_token="glpat-secret")
+        body = self.put(gitlab_url=self.URL).json()
+        self.assertIs(body["gitlab_token_set"], True)
+
+    def test_url_change_without_token_clears_it(self):
+        self.put(gitlab_url=self.URL, gitlab_token="glpat-secret")
+        body = self.put(gitlab_url="https://gitlab.example.com/other/p").json()
+        self.assertIs(body["gitlab_token_set"], False)
+
+    def test_url_change_with_new_token_keeps_new(self):
+        self.put(gitlab_url=self.URL, gitlab_token="glpat-secret")
+        body = self.put(
+            gitlab_url="https://gitlab.example.com/other/p", gitlab_token="glpat-new"
+        ).json()
+        self.assertIs(body["gitlab_token_set"], True)
+        self.assertEqual(MonitorSettings.load().gitlab_token_plain(), "glpat-new")
+
+    def test_empty_token_clears(self):
+        self.put(gitlab_url=self.URL, gitlab_token="glpat-secret")
+        body = self.put(gitlab_url=self.URL, gitlab_token="").json()
+        self.assertIs(body["gitlab_token_set"], False)
+
+    def test_http_url_rejected_without_debug(self):
+        url = "http://gitlab.example.com/g/p"
+        with override_settings(DEBUG=False):
+            response = self.put(gitlab_url=url)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("gitlab_url", response.json())
+        with override_settings(DEBUG=True):
+            self.assertEqual(self.put(gitlab_url=url).status_code, 200)
+
+    def test_url_without_project_path_rejected(self):
+        self.assertEqual(self.put(gitlab_url="https://gitlab.example.com/").status_code, 400)
+        self.assertEqual(
+            self.put(gitlab_url="https://gitlab.example.com/-/issues").status_code, 400
+        )
+
+    def test_invalid_encryption_key_gives_400_not_500(self):
+        with override_settings(TOKEN_ENCRYPTION_KEY="not-a-fernet-key"):
+            response = self.put(gitlab_url=self.URL, gitlab_token="glpat-secret")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("gitlab_token", response.json())
+        self.assertNotIn("glpat-secret", response.content.decode())
+
+    def test_tickets_disabled_for_http_url_without_debug(self):
+        s = MonitorSettings.load()
+        s.gitlab_url = "http://gitlab.example.com/g/p"
+        s.set_gitlab_token("glpat-secret")
+        s.save()
+        self.assertFalse(MonitorSettings.load().tickets_enabled)
+        with override_settings(DEBUG=True):
+            self.assertTrue(MonitorSettings.load().tickets_enabled)
+
+    def test_url_with_userinfo_rejected(self):
+        self.assertEqual(
+            self.put(gitlab_url="https://u:pw@gitlab.example.com/g/p").status_code, 400
+        )
+
+    def test_whoami_tickets_enabled(self):
+        self.assertIs(self.client.get("/api/whoami/").json()["tickets_enabled"], False)
+        self.put(gitlab_url=self.URL, gitlab_token="glpat-secret")
+        self.assertIs(self.client.get("/api/whoami/").json()["tickets_enabled"], True)
+
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
+GITLAB_TOKEN = "glpat-secret-token-123"
+
+
+class TicketTests(TestCase):
+    """GitLab ticket endpoint; GitLab is simulated with httpx.MockTransport."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="member",
+            is_superuser=True,
+            first_name="Erika",
+            last_name="Beispiel",
+            email="erika@example.org",
+        )
+        self.client.force_login(self.user)
+        self.recorder = Recorder.objects.create(
+            room_name="Hörsaal A", stream_name="cap-hs-a", agent_id="agent-a"
+        )
+        now = timezone_now()
+        RecorderStatus.objects.update_or_create(
+            recorder=self.recorder,
+            defaults={
+                "state": RecorderStatus.LIVE,
+                "live_since": now - timedelta(hours=1),
+                "agent_state": "capturing",
+            },
+        )
+        ScheduledEvent.objects.create(
+            identifier="ev-1",
+            recorder=self.recorder,
+            title="Mathe I",
+            series="Analysis",
+            presenters="Dr. Erika Muster",
+            start=now - timedelta(minutes=30),
+            end=now + timedelta(minutes=30),
+            opencast_status="EVENTS.EVENTS.STATUS.SCHEDULED",
+        )
+        s = MonitorSettings.load()
+        s.gitlab_url = "https://gitlab.example.com/g/p"
+        s.set_gitlab_token(GITLAB_TOKEN)
+        s.save()
+        self.url = f"/api/recorders/{self.recorder.pk}/ticket/"
+        self.requests = []
+
+    def _mock(self, upload=None, issue=None):
+        def handler(request):
+            self.requests.append(request)
+            path = request.url.path
+            if path.endswith("/uploads"):
+                return upload or httpx.Response(
+                    201, json={"markdown": "![shot](/uploads/abc/shot.png)"}
+                )
+            if path.endswith("/issues"):
+                return issue or httpx.Response(
+                    201, json={"web_url": "https://gitlab.example.com/g/p/-/issues/7"}
+                )
+            return httpx.Response(404)
+
+        transport = httpx.MockTransport(handler)
+        return mock.patch(
+            "recorders.tickets._client",
+            lambda: httpx.Client(transport=transport, follow_redirects=False),
+        )
+
+    def _post(self, message="Bild gestört", shot=None, **extra):
+        data = {"message": message, **extra}
+        if shot is not None:
+            data["screenshot"] = shot
+        return self.client.post(self.url, data)
+
+    @staticmethod
+    def _form(request):
+        return parse_qs(request.content.decode())
+
+    def _png(self, name="shot.png", content=PNG):
+        return SimpleUploadedFile(name, content, content_type="image/png")
+
+    def test_parse_project_url(self):
+        self.assertEqual(
+            tickets.parse_project_url("https://gitlab.example.com/g/sub/p"),
+            ("https://gitlab.example.com", "g/sub/p"),
+        )
+        self.assertEqual(
+            tickets.parse_project_url("https://gitlab.example.com/g/p/-/issues?x=1#f"),
+            ("https://gitlab.example.com", "g/p"),
+        )
+        self.assertIsNone(tickets.parse_project_url("https://gitlab.example.com/"))
+        self.assertIsNone(tickets.parse_project_url("ftp://gitlab.example.com/g/p"))
+        self.assertIsNone(tickets.parse_project_url("https://u:pw@gitlab.example.com/g/p"))
+        # http only in DEBUG
+        self.assertIsNone(tickets.parse_project_url("http://gitlab.example.com/g/p"))
+        with override_settings(DEBUG=True):
+            self.assertEqual(
+                tickets.parse_project_url("http://gitlab.example.com/g/p"),
+                ("http://gitlab.example.com", "g/p"),
+            )
+
+    def test_safe_web_url(self):
+        cfg = "https://gitlab.example.com/g/p"
+        ok = "https://GitLab.example.com/g/p/-/issues/1"
+        self.assertEqual(tickets.safe_web_url(ok, cfg), ok)
+        self.assertIsNone(tickets.safe_web_url("https://evil.example/x", cfg))
+        self.assertIsNone(tickets.safe_web_url("javascript:alert(1)", cfg))
+        self.assertIsNone(tickets.safe_web_url("http://gitlab.example.com/x", cfg))
+        self.assertIsNone(tickets.safe_web_url(None, cfg))
+        self.assertIsNone(tickets.safe_web_url(5, cfg))
+
+    def test_safe_web_url_default_ports(self):
+        got = "https://gitlab.example.com/g/p/-/issues/1"
+        self.assertEqual(
+            tickets.safe_web_url(got, "https://gitlab.example.com:443/g/p"), got
+        )
+        self.assertIsNone(
+            tickets.safe_web_url(got, "https://gitlab.example.com:8443/g/p")
+        )
+
+    def test_title_shortened_single_line(self):
+        message = ("Zeile eins\n" + "x" * 500 + "\nrest")
+        title = tickets.build_title(self.recorder, message)
+        self.assertNotIn("\n", title)
+        self.assertLessEqual(len(title), 255)
+        self.assertTrue(title.startswith("Hörsaal A (cap-hs-a): Zeile eins"))
+        long_single = tickets.build_title(self.recorder, "y" * 500)
+        self.assertEqual(len(long_single), 255)
+        self.assertTrue(long_single.endswith("…"))
+
+    def test_description_contains_details(self):
+        self.recorder.refresh_from_db()
+        text = tickets.build_description(
+            self.recorder,
+            "Bild gestört",
+            self.user,
+            timezone_now(),
+            "![shot](/uploads/abc/shot.png)",
+            None,
+        )
+        for needle in (
+            "Bild gestört",
+            "cap-hs-a",
+            "agent-a",
+            "Mathe I",
+            "Analysis",
+            "Dr. Erika Muster",
+            f"/raum/{self.recorder.pk}",
+            "Erika Beispiel <erika@example.org>",
+            "![shot](/uploads/abc/shot.png)",
+        ):
+            self.assertIn(needle, text)
+
+    def test_ticket_endpoint_uploads_and_creates(self):
+        with self._mock():
+            response = self._post(shot=self._png())
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(
+            response.json(),
+            {"web_url": "https://gitlab.example.com/g/p/-/issues/7"},
+        )
+        self.assertEqual(len(self.requests), 2)
+        first, second = self.requests
+        self.assertEqual(first.url.raw_path.split(b"?")[0], b"/api/v4/projects/g%2Fp/uploads")
+        self.assertTrue(second.url.path.endswith("/issues"))
+        self.assertEqual(second.headers["PRIVATE-TOKEN"], GITLAB_TOKEN)
+        description = self._form(second)["description"][0]
+        self.assertIn("uploads/abc/shot.png", description)
+        self.assertIn("Mathe I", description)
+
+    def test_upload_failure_still_creates_issue(self):
+        with self._mock(upload=httpx.Response(500, text="boom")):
+            response = self._post(shot=self._png())
+        self.assertEqual(response.status_code, 201)
+        issue = self.requests[-1]
+        self.assertTrue(issue.url.path.endswith("/issues"))
+        description = self._form(issue)["description"][0]
+        self.assertIn("screenshot upload", description)
+        self.assertNotIn("![", description)
+
+    def test_without_screenshot(self):
+        with self._mock():
+            response = self._post()
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(len(self.requests), 1)
+        self.assertTrue(self.requests[0].url.path.endswith("/issues"))
+        self.assertIn("No screenshot", self._form(self.requests[0])["description"][0])
+
+    def test_redirect_not_followed(self):
+        redirect = httpx.Response(302, headers={"Location": "https://evil.example/x"})
+        with self._mock(issue=redirect):
+            response = self._post()
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(len(self.requests), 1)
+        self.assertTrue(all(r.url.host == "gitlab.example.com" for r in self.requests))
+
+    def test_foreign_web_url_gives_success_without_link(self):
+        with self._mock(issue=httpx.Response(201, json={"web_url": "https://evil.example/i/1"})):
+            with self.assertLogs("recorders.tickets", level="WARNING") as logs:
+                response = self._post()
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json(), {"web_url": None})
+        self.assertNotIn(GITLAB_TOKEN, "\n".join(logs.output))
+
+    def test_explicit_default_port_matches(self):
+        s = MonitorSettings.load()
+        s.gitlab_url = "https://gitlab.example.com:443/g/p"
+        s.save()
+        with self._mock():
+            response = self._post()
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(
+            response.json(), {"web_url": "https://gitlab.example.com/g/p/-/issues/7"}
+        )
+
+    def test_invalid_image_rejected(self):
+        with self._mock():
+            response = self._post(shot=self._png(content=b"<html>"))
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.requests, [])
+
+    def test_image_too_large(self):
+        with self._mock():
+            response = self._post(shot=self._png(content=PNG + b"\x00" * (5 * 1024 * 1024)))
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.requests, [])
+
+    def test_blank_message_rejected(self):
+        with self._mock():
+            self.assertEqual(self._post(message="   ").status_code, 400)
+            self.assertEqual(self._post(message="x" * 2001).status_code, 400)
+        self.assertEqual(self.requests, [])
+
+    def test_not_configured(self):
+        s = MonitorSettings.load()
+        s.gitlab_url = ""
+        s.save()
+        with self._mock():
+            response = self._post()
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(self.requests, [])
+
+    def test_requires_access(self):
+        self.client.force_login(User.objects.create_user(username="out"))
+        with self._mock():
+            response = self._post()
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(self.requests, [])
+
+    def test_token_not_in_error(self):
+        with self._mock(issue=httpx.Response(401, json={"message": GITLAB_TOKEN})):
+            with self.assertLogs("recorders.tickets", level="WARNING") as logs:
+                response = self._post()
+        self.assertEqual(response.status_code, 502)
+        self.assertNotIn(GITLAB_TOKEN, response.content.decode())
+        self.assertNotIn(GITLAB_TOKEN, "\n".join(logs.output))

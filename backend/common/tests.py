@@ -252,3 +252,55 @@ class AlertRulesTests(SimpleTestCase):
         for rule in rules:
             self.assertIn(rule["labels"]["severity"], {"warning", "critical"})
             self.assertEqual(rule["labels"]["service"], "ansehbar")
+
+
+class EncryptionTests(SimpleTestCase):
+    def test_encrypt_roundtrip(self):
+        from common.encryption import decrypt, encrypt
+
+        token = encrypt("glpat-x")
+        self.assertNotEqual(token, "glpat-x")
+        self.assertEqual(decrypt(token), "glpat-x")
+
+    def test_empty_stays_empty(self):
+        from common.encryption import decrypt, encrypt
+
+        self.assertEqual(encrypt(""), "")
+        self.assertEqual(decrypt(""), "")
+
+    def test_wrong_key_yields_empty(self):
+        from cryptography.fernet import Fernet
+
+        from common.encryption import decrypt, encrypt
+
+        token = encrypt("glpat-x")
+        with override_settings(TOKEN_ENCRYPTION_KEY=Fernet.generate_key().decode()):
+            with self.assertLogs("common.encryption", level="WARNING"):
+                self.assertEqual(decrypt(token), "")
+
+
+class EncryptionKeyTests(SimpleTestCase):
+    def test_check_reports_invalid_key(self):
+        from common.checks import token_encryption_key_check
+
+        with override_settings(TOKEN_ENCRYPTION_KEY="nope"):
+            errors = token_encryption_key_check(None)
+        self.assertEqual([e.id for e in errors], ["common.E001"])
+
+    def test_check_accepts_valid_or_empty_key(self):
+        from cryptography.fernet import Fernet
+
+        from common.checks import token_encryption_key_check
+
+        with override_settings(TOKEN_ENCRYPTION_KEY=Fernet.generate_key().decode()):
+            self.assertEqual(token_encryption_key_check(None), [])
+        with override_settings(TOKEN_ENCRYPTION_KEY=""):
+            self.assertEqual(token_encryption_key_check(None), [])
+
+    def test_decrypt_with_invalid_key_logs_key_problem(self):
+        from common.encryption import decrypt
+
+        with override_settings(TOKEN_ENCRYPTION_KEY="nope"):
+            with self.assertLogs("common.encryption", level="WARNING") as logs:
+                self.assertEqual(decrypt("abc"), "")
+        self.assertIn("not a valid Fernet key", logs.output[0])

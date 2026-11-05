@@ -7,6 +7,8 @@ from django.utils import timezone
 from django.utils.translation import gettext as _
 from rest_framework import serializers
 
+from common.encryption import EncryptionKeyError, encrypt
+from recorders.gitlab_url import parse_project_url
 from recorders.history import recording_problems
 from recorders.missing import missing_since
 from recorders.models import MonitorSettings, Recorder, RecorderStatus
@@ -114,6 +116,7 @@ class RecorderSerializer(serializers.ModelSerializer):
             "id": event.pk,
             "title": event.title,
             "series": event.series,
+            "presenters": event.presenters,
             "start": event.start,
             "end": event.end,
         }
@@ -184,6 +187,7 @@ class RecorderSerializer(serializers.ModelSerializer):
         status = event.opencast_status
         return {
             "title": event.title,
+            "presenters": event.presenters,
             "start": to_iso(event.start),
             "end": to_iso(event.end),
             "opencast_status": status,
@@ -231,6 +235,11 @@ class RecorderSerializer(serializers.ModelSerializer):
 
 
 class MonitorSettingsSerializer(serializers.ModelSerializer):
+    gitlab_token = serializers.CharField(
+        write_only=True, required=False, allow_blank=True, trim_whitespace=True
+    )
+    gitlab_token_set = serializers.SerializerMethodField()
+
     class Meta:
         model = MonitorSettings
         fields = [
@@ -249,7 +258,48 @@ class MonitorSettingsSerializer(serializers.ModelSerializer):
             "silence_alarm_minutes",
             "sample_retention_days",
             "history_retention_days",
+            "gitlab_url",
+            "gitlab_token",
+            "gitlab_token_set",
         ]
+
+    def get_gitlab_token_set(self, obj) -> bool:
+        return bool(obj.gitlab_token_plain())
+
+    def validate_gitlab_token(self, value):
+        if value:
+            try:
+                encrypt(value)
+            except EncryptionKeyError:
+                raise serializers.ValidationError(
+                    _("The token cannot be stored: TOKEN_ENCRYPTION_KEY is invalid.")
+                ) from None
+        return value
+
+    def validate_gitlab_url(self, value):
+        if not value:
+            return value
+        if parse_project_url(value) is None:
+            raise serializers.ValidationError(
+                _("Must be an https URL including the project path.")
+            )
+        return value
+
+    def update(self, instance, validated_data):
+        token = validated_data.pop("gitlab_token", None)
+        url_changed = (
+            "gitlab_url" in validated_data
+            and validated_data["gitlab_url"] != instance.gitlab_url
+        )
+        instance = super().update(instance, validated_data)
+        if token is not None:
+            instance.set_gitlab_token(token)
+            instance.save(update_fields=["gitlab_token"])
+        elif url_changed:
+            # A token is bound to the project it was issued for.
+            instance.set_gitlab_token("")
+            instance.save(update_fields=["gitlab_token"])
+        return instance
 
     def validate(self, attrs):
         minutes = attrs.get("slot_minutes", self.instance and self.instance.slot_minutes)

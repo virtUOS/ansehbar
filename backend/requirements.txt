@@ -14,3 +14,4 @@ uvicorn[standard]==0.34.0
 httpx==0.28.1
 # Validates monitoring/alerts.yml in the tests.
 PyYAML==6.0.2
+cryptography==50.0.2

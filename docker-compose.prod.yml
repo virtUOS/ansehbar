@@ -105,6 +105,8 @@ services:
       ALARM_LANGUAGE: ${ALARM_LANGUAGE:-de}
       # Prometheus /metrics scrape token (unset = endpoint off / 404).
       METRICS_TOKEN: ${METRICS_TOKEN:-}
+      # Fernet key for the stored GitLab token (empty = derived from the secret key).
+      TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:-}
       # Claim names — override only if the IdP uses non-standard ones.
       OIDC_CLAIM_USERNAME: ${OIDC_CLAIM_USERNAME:-preferred_username}
       OIDC_CLAIM_EMAIL: ${OIDC_CLAIM_EMAIL:-email}

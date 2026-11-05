@@ -210,6 +210,7 @@ const ev = (title: string, start: string): EventBrief => ({
   id: 1,
   title,
   series: "",
+  presenters: "",
   start,
   end: "2026-01-01T14:00:00Z",
 });
@@ -428,6 +429,7 @@ describe("tomorrow preview", () => {
 describe("problemTexts", () => {
   const lr = (problems: LastRecording["problems"]): LastRecording => ({
     title: "Vorlesung",
+    presenters: "",
     start: "2026-11-02T08:00:00Z",
     end: "2026-11-02T10:00:00Z",
     opencast_status: "FAILED",
@@ -494,7 +496,7 @@ describe("problemTexts", () => {
 describe("mergeRecorders last_recording", () => {
   const withLr = (kind: "not_started" | "not_finished"): Recorder => ({
     ...rec(1, "a"),
-    last_recording: { title: "T", start: "2026-11-02T08:00:00Z", end: "2026-11-02T09:00:00Z", opencast_status: "", problems: [{ kind }] },
+    last_recording: { title: "T", presenters: "", start: "2026-11-02T08:00:00Z", end: "2026-11-02T09:00:00Z", opencast_status: "", problems: [{ kind }] },
   });
   it("keeps identity for equal problems, replaces when they change", () => {
     const prev = [withLr("not_started")];
@@ -511,6 +513,7 @@ describe("recording slots", () => {
     id: 1,
     title: "T",
     series: "",
+    presenters: "",
     start: from.toISOString(),
     end: to.toISOString(),
   });
@@ -591,6 +594,7 @@ describe("silent presentation", () => {
     const [x] = problemTexts(
       {
         title: "T",
+        presenters: "",
         start: "2026-11-02T08:00:00Z",
         end: "2026-11-02T10:00:00Z",
         opencast_status: "",

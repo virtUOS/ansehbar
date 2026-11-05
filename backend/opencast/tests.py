@@ -233,6 +233,22 @@ class EventsTests(SimpleTestCase):
         self.assertEqual(second.agent_id, "rec-hall")
         self.assertEqual(second.start, datetime(2026, 11, 1, 9, 0, tzinfo=timezone.utc))
 
+    def _presenter_event(self, presenter):
+        raw = {
+            "identifier": "p1", "title": "T", "presenter": presenter,
+            "scheduling": {"agent_id": "a1", "start": "2026-11-01T08:00:00Z",
+                           "end": "2026-11-01T09:00:00Z"},
+        }
+        client, _ = make_client(lambda r: json_response([raw]))
+        return client.scheduled_events(*self.window())[0]
+
+    def test_scheduled_events_reads_presenters(self):
+        event = self._presenter_event(["Dr. Erika Muster", " Max Beispiel ", "", 5])
+        self.assertEqual(event.presenters, "Dr. Erika Muster, Max Beispiel")
+
+    def test_presenter_not_a_list(self):
+        self.assertEqual(self._presenter_event("x").presenters, "")
+
     def test_event_status_parsed(self):
         raw = [
             {
@@ -530,6 +546,28 @@ class SyncTests(TestCase):
         )
         sync.sync_events([self.event("a")], ws, we, now=NOW)
         self.assertEqual(ScheduledEvent.objects.get(identifier="a").opencast_status, "")
+
+    def test_sync_stores_presenters(self):
+        Recorder.objects.create(
+            stream_name="rec-hall", room_name="Hall", agent_id="rec-hall"
+        )
+        ws, we = sync.sync_window(NOW, 7)
+        ev = self.event("a")
+
+        def with_presenters(value):
+            return Event(
+                ev.identifier, ev.agent_id, ev.title, ev.series, ev.start, ev.end,
+                presenters=value,
+            )
+
+        sync.sync_events([with_presenters("Dr. Erika Muster")], ws, we, now=NOW)
+        self.assertEqual(
+            ScheduledEvent.objects.get(identifier="a").presenters, "Dr. Erika Muster"
+        )
+        sync.sync_events([with_presenters("Max Beispiel")], ws, we, now=NOW)
+        self.assertEqual(
+            ScheduledEvent.objects.get(identifier="a").presenters, "Max Beispiel"
+        )
 
     def test_sync_marks_delivered_events_seen(self):
         Recorder.objects.create(

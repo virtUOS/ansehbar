@@ -24,6 +24,24 @@ Each tile shows:
 - the title of the Opencast event and the stream name,
 - the **Sound** button.
 
+## Create a ticket
+
+Once a GitLab project is set under [Settings](settings.md#gitlab-tickets),
+every tile has a button **Create ticket for ‹room name›** (an icon; it appears
+right after saving the settings). It opens a dialog:
+
+- If the tile shows video, it contains a **screenshot** of the current frame.
+  Otherwise it says “No screenshot available – the ticket will be sent without
+  one.”
+- The **error description** is required; **Create ticket** sends it.
+- Afterwards a link leads to the ticket in GitLab.
+
+The ticket contains the description, room, stream and capture agent, time,
+status, the current Opencast event (title, series, presenters, planned time),
+your name and a link to the room view. ansehBAR itself stores none of this. If
+it fails, the dialog reports “The ticket could not be created in GitLab.”; if
+only the screenshot fails, the ticket is created without an image.
+
 ## Filters and search
 
 | Filter | shows |

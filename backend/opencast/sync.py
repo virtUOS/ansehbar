@@ -191,6 +191,7 @@ def sync_events(
                 "start": event.start,
                 "end": event.end,
                 "opencast_status": event.status[:STATUS_MAX],
+                "presenters": event.presenters[:300],
                 "seen_at": now,
             },
         )

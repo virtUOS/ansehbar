@@ -28,6 +28,7 @@ export interface Whoami {
   content_translation_enabled: boolean;
   has_access: boolean;
   access_contact: string;
+  tickets_enabled: boolean;
 }
 
 export type RecorderState = "live" | "offline" | "unknown";
@@ -37,6 +38,7 @@ export interface EventBrief {
   id: number;
   title: string;
   series: string;
+  presenters: string;
   start: string;
   end: string;
 }
@@ -113,6 +115,7 @@ export interface RecordingProblem {
 /** The room's most recent finished recording and what went wrong with it. */
 export interface LastRecording {
   title: string;
+  presenters: string;
   start: string;
   end: string;
   opencast_status: string;
@@ -205,6 +208,10 @@ export interface MonitorSettings {
   silence_alarm_minutes: number;
   sample_retention_days: number;
   history_retention_days: number;
+  gitlab_url: string;
+  gitlab_token_set: boolean;
+  /** Write-only: omit to keep, "" to remove, value to set. */
+  gitlab_token?: string;
 }
 
 export interface AlarmRecipient {
@@ -300,6 +307,12 @@ export const api = {
     update: (id: number, data: Partial<Recorder>) =>
       request<Recorder>(`/api/recorders/${id}/`, { method: "PATCH", body: JSON.stringify(data) }),
     remove: (id: number) => request<void>(`/api/recorders/${id}/`, { method: "DELETE" }),
+    ticket: (id: number, message: string, screenshot: Blob | null) => {
+      const form = new FormData();
+      form.append("message", message);
+      if (screenshot) form.append("screenshot", screenshot, "screenshot.jpg");
+      return request<{ web_url: string | null }>(`/api/recorders/${id}/ticket/`, { method: "POST", body: form });
+    },
   },
   calendar: (recorderId: number, from: string, days: number) =>
     request<CalendarResponse>(
@@ -338,7 +351,7 @@ export const api = {
   },
   settings: {
     get: () => request<MonitorSettings>("/api/settings/monitor/"),
-    put: (data: MonitorSettings) =>
+    put: (data: Omit<MonitorSettings, "gitlab_token_set">) =>
       request<MonitorSettings>("/api/settings/monitor/", { method: "PUT", body: JSON.stringify(data) }),
   },
 };
