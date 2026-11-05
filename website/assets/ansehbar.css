@@ -350,7 +350,7 @@
 .md-typeset ul.as-facts {
   list-style: none;
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0;
   margin: 2.5rem 0 1rem;
   padding: 0;
@@ -368,6 +368,8 @@
   gap: 0.15rem;
 }
 .md-typeset ul.as-facts li:first-child { border-left: 0; }
+.md-typeset ul.as-facts li:nth-child(4) { border-left: 0; }
+.md-typeset ul.as-facts li:nth-child(n + 4) { border-top: 1px solid var(--as-border); }
 .md-typeset ul.as-facts strong {
   font-size: 0.85rem;
   font-weight: 800;

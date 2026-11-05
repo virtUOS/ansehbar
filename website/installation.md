@@ -45,6 +45,8 @@ Das fertige Image steht unter `ghcr.io/virtuos/ansehbar` bereit.
   „Stream fehlt“ und Alarme.
 - Optional ein **SMTP-Server** für Alarm-E-Mails und **Prometheus** mit
   Alertmanager für den Monitoring-Dienst.
+- Optional ein privates **GitLab-Projekt** mit Project Access Token, wenn aus
+  der Übersicht Tickets angelegt werden sollen.
 
 ## Systemanforderungen
 
@@ -56,7 +58,7 @@ gleichzeitig aufzeichnen:
 | CPU | 2 vCPU |
 | Arbeitsspeicher | 4 GB |
 | Festplatte | 20–30 GB (Images, Datenbank, Logs) |
-| System | Linux mit Docker und Docker Compose |
+| System | Rocky Linux 10 oder 9; Docker und Docker Compose richtet die Installationsanleitung ein |
 
 - **Netz:** Die Videos laufen nicht über den ansehBAR-Server. Die
   Ton-Messung lädt aber pro laufendem Raum etwa alle 30 Sekunden 10 Sekunden
@@ -64,6 +66,6 @@ gleichzeitig aufzeichnen:
   10 Mbit/s aus dem Streaming-Netz.
 - **Erreichbarkeit:** Port 443 von außen für die Nutzerinnen und Nutzer und
   für den Abruf durch Prometheus; ausgehend der Streaming-Server, Opencast,
-  der Identity Provider und der SMTP-Server.
+  der Identity Provider, der SMTP-Server und gegebenenfalls GitLab.
 - Die Datenbank bleibt klein: Pegelmessungen über 30 Tage brauchen bei 10
   Räumen unter 100 MB.

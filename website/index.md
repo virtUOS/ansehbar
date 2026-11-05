@@ -39,6 +39,7 @@ Termins etwas fehlt — bevor die Aufzeichnung verloren ist.
   <li><strong>Ton-Pegel</strong><span>im Browser und vom Server gemessen</span></li>
   <li><strong>Opencast</strong><span>geplante Termine, nur lesend</span></li>
   <li><strong>Alarme</strong><span>per E-Mail und für Prometheus</span></li>
+  <li><strong>GitLab-Tickets</strong><span>mit Status, Termin und Screenshot</span></li>
   <li><strong>Deutsch &amp; Englisch</strong><span>am PC und auf dem Smartphone</span></li>
 </ul>
 

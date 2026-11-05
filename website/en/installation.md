@@ -43,6 +43,8 @@ The ready-made image is available as `ghcr.io/virtuos/ansehbar`.
   “stream missing” and alarms.
 - Optionally an **SMTP server** for alarm e-mails and **Prometheus** with
   Alertmanager for the monitoring service.
+- Optionally a private **GitLab project** with a project access token, if
+  tickets should be created from the overview.
 
 ## System requirements
 
@@ -54,14 +56,14 @@ same time:
 | CPU | 2 vCPU |
 | Memory | 4 GB |
 | Disk | 20–30 GB (images, database, logs) |
-| System | Linux with Docker and Docker Compose |
+| System | Rocky Linux 10 or 9; the installation guide sets up Docker and Docker Compose |
 
 - **Network:** the videos do not pass through the ansehBAR server. The sound
   measurement, however, loads 10 seconds of the stream about every 30 seconds
   per running room. With 10 rooms at the same time that is around 10 Mbit/s
   on average from the streaming network.
 - **Reachability:** port 443 from outside for the users and for Prometheus;
-  outgoing to the streaming server, Opencast, the identity provider and the
-  SMTP server.
+  outgoing to the streaming server, Opencast, the identity provider, the
+  SMTP server and, if used, GitLab.
 - The database stays small: level measurements over 30 days need less than
   100 MB for 10 rooms.

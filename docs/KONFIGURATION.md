@@ -596,10 +596,12 @@ werden). Tragen Sie bei einem URL-Wechsel das neue Token gleich mit ein.
 
 Das Token liegt verschlüsselt (Fernet) in der Datenbank. Der Schlüssel kommt aus
 `TOKEN_ENCRYPTION_KEY` in der `.env`; ist sie leer, wird er aus
-`DJANGO_SECRET_KEY` abgeleitet. Erzeugen:
+`DJANGO_SECRET_KEY` abgeleitet. Einen Schlüssel erzeugen Sie auf dem Server
+ohne weitere Pakete mit `openssl` (32 Zufallsbytes in URL-sicherem Base64,
+44 Zeichen):
 
 ```bash
-python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+openssl rand -base64 32 | tr '+/' '-_'
 ```
 
 Ein gesetzter, aber ungültiger Schlüssel wird beim Start bemängelt

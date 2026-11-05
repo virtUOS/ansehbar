@@ -93,14 +93,17 @@ gleichzeitig aufzeichnen:
 - Einen **Streaming-Server**, den der Server per HTTPS erreicht, mit
   CORS-Freigabe für die ansehBAR-Adresse ([Abschnitt 1](KONFIGURATION.md#1-voraussetzungen-am-streaming-server)).
 - Optional: ein **Opencast-Konto** mit Leserechten ([Abschnitt 5](KONFIGURATION.md#5-opencast-anbinden-optional)),
-  einen **SMTP-Server** mit Absenderadresse für Alarm-E-Mails und
-  **Prometheus** für den Monitoring-Dienst ([docs/monitoring.md](monitoring.md)).
+  einen **SMTP-Server** mit Absenderadresse für Alarm-E-Mails,
+  **Prometheus** für den Monitoring-Dienst ([docs/monitoring.md](monitoring.md))
+  und ein privates **GitLab-Projekt** mit Project Access Token für Tickets aus
+  der Übersicht ([Abschnitt 9](KONFIGURATION.md#9-gitlab-tickets-optional)).
 - Die **Standortkonfiguration** `site.local.json` mit Ihren Rekordern
   ([Abschnitt 4](KONFIGURATION.md#4-standortkonfiguration-laden)), falls Sie
   die Rekorder nicht von Hand in der Verwaltung anlegen.
 
 Ausgehend muss der Server erreichen: den Streaming-Server, den Identity
-Provider, Opencast, den SMTP-Server und `ghcr.io` (Images).
+Provider, Opencast, den SMTP-Server, gegebenenfalls GitLab und `ghcr.io`
+(Images).
 
 > Notation: Alle Befehle laufen im Terminal des Servers. Im Editor `nano`
 > speichern Sie mit **Strg+O** und **Enter** und beenden mit **Strg+X**.
@@ -297,7 +300,7 @@ METRICS_TOKEN=<ausgabe von openssl rand -hex 32>
 
 # GitLab-Tickets (KONFIGURATION.md Abschnitt 9): Schlüssel für das in der
 # Datenbank verschlüsselte GitLab-Token. Leer = aus DJANGO_SECRET_KEY abgeleitet.
-# Erzeugen: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+# Erzeugen (Fernet-Schlüssel, 44 Zeichen): openssl rand -base64 32 | tr '+/' '-_'
 #TOKEN_ENCRYPTION_KEY=
 ```
 
@@ -475,11 +478,31 @@ curl -s -H "Authorization: Bearer $(sudo grep '^METRICS_TOKEN=' .env | cut -d= -
 Scrape-Eintrag und Alarmregeln für Prometheus stehen in
 [docs/monitoring.md](monitoring.md).
 
-### 4.7 Sicherung einrichten
+### 4.7 GitLab-Tickets (optional)
+
+Sollen Tickets aus der Übersicht in GitLab landen, legen Sie im privaten
+GitLab-Projekt ein Project Access Token an (Rolle „Reporter“, nur Scope
+`api`, mit Ablaufdatum) und tragen Projekt-URL und Token unter
+**Verwaltung → Einstellungen**, Abschnitt „GitLab-Tickets“, ein. Danach hat
+jede Kachel der Übersicht einen Ticket-Knopf. Legen Sie einmal ein Testticket
+an. Einzelheiten und Fehlersuche: [Konfigurationsanleitung, Abschnitt 9](KONFIGURATION.md#9-gitlab-tickets-optional).
+
+Haben Sie in Schritt 7 einen eigenen `TOKEN_ENCRYPTION_KEY` gesetzt, prüft
+ansehBAR ihn beim Start:
+
+```bash
+sudo docker compose -f docker-compose.prod.yml exec app python manage.py check
+```
+
+Meldet der Befehl `common.E001`, ist der Schlüssel ungültig: neu erzeugen
+(Befehl in der `.env`-Vorlage), eintragen und mit
+`sudo docker compose -f docker-compose.prod.yml up -d --no-build` übernehmen.
+
+### 4.8 Sicherung einrichten
 
 Richten Sie jetzt die nächtliche Sicherung ein (Abschnitt 7).
 
-### 4.8 Übersteht das einen Neustart?
+### 4.9 Übersteht das einen Neustart?
 
 Ja. Docker startet beim Booten, alle Dienste haben `restart: unless-stopped`,
 alle Daten liegen in Volumes, und die Firewall-Regeln sind dauerhaft
@@ -914,6 +937,8 @@ einsehen, steht in der [Konfigurationsanleitung, Abschnitt 8](KONFIGURATION.md#8
 - [ ] Alarm-Empfänger eingetragen; eine Test-E-Mail kam an.
 - [ ] Optional: `METRICS_TOKEN` gesetzt, `/metrics` antwortet, Scrape-Eintrag
       und Alarmregeln an den Monitoring-Dienst übergeben.
+- [ ] Optional: GitLab-Projekt-URL und Token eingetragen, ein Testticket
+      kam mit Screenshot in GitLab an.
 - [ ] `ANSEHBAR_BOOTSTRAP_USERS` nach der Übergabe geleert.
 - [ ] Cron für die Sicherung angelegt; Sicherungen landen außerhalb des
       Servers; eine Wiederherstellung wurde einmal geprobt.
