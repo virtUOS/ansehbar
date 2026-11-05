@@ -39,6 +39,7 @@ missing during a scheduled event — before the recording is lost.
   <li><strong>Sound level</strong><span>measured in the browser and on the server</span></li>
   <li><strong>Opencast</strong><span>scheduled events, read-only</span></li>
   <li><strong>Alarms</strong><span>by e-mail and for Prometheus</span></li>
+  <li><strong>GitLab tickets</strong><span>with status, event and screenshot</span></li>
   <li><strong>German &amp; English</strong><span>on desktop and phone</span></li>
 </ul>
 
