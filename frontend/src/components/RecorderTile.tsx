@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Universität Osnabrück (virtUOS)
 
-import { memo, useRef } from "react";
+import { memo, useRef, type MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { TicketPlus, Volume2, VolumeX } from "lucide-react";
 import type { Recorder } from "../api";
 import { displayName, formatClock, presentation, recordingScheduled } from "../recorders";
@@ -43,6 +43,23 @@ function RecorderTileInner({
   const audible = audibleId === recorder.id;
   const playback = usePlayback(live);
   const articleRef = useRef<HTMLElement>(null);
+  const navigate = useNavigate();
+  const roomPath = `/raum/${recorder.id}`;
+
+  // The whole tile opens the room view. Buttons and links inside keep their
+  // own action; selecting text does not navigate. Keyboard and screen-reader
+  // users reach the room through the heading link.
+  const openRoom = (e: MouseEvent<HTMLElement>) => {
+    if (e.defaultPrevented || e.button !== 0) return;
+    const target = e.target as Element | null;
+    if (target?.closest("a, button, input, textarea, select, label, [role='button']")) return;
+    if (window.getSelection()?.toString()) return;
+    if (e.metaKey || e.ctrlKey || e.shiftKey) {
+      window.open(roomPath, "_blank", "noopener");
+      return;
+    }
+    navigate(roomPath);
+  };
 
   const openTicket = async () => {
     // Capture first (inside the click), then open the dialog.
@@ -66,7 +83,8 @@ function RecorderTileInner({
   return (
     <article
       ref={articleRef}
-      className={`overflow-hidden rounded-2xl border bg-white dark:bg-slate-900 ${
+      onClick={openRoom}
+      className={`cursor-pointer overflow-hidden rounded-2xl border bg-white transition-shadow hover:shadow-md dark:bg-slate-900 ${
         missing
           ? "border-2 border-red-700"
           : "border-slate-200 dark:border-slate-800"
@@ -120,7 +138,7 @@ function RecorderTileInner({
       <div className="flex items-start gap-3 p-3">
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-xl font-bold">
-            <Link to={`/raum/${recorder.id}`} className="hover:underline">
+            <Link to={roomPath} className="hover:underline">
               <RoomName recorder={recorder} />
             </Link>
           </h2>
