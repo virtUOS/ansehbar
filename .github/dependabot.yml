@@ -1,0 +1,49 @@
+# SPDX-License-Identifier: Apache-2.0
+# Dependabot version updates: one weekly pull request per ecosystem with all
+# minor and patch updates; major updates come as separate pull requests.
+# Every Dependabot pull request runs the normal checks (ci.yml: lint, backend
+# tests, frontend typecheck/tests/build; docs.yml for website/; dependency
+# review). A human merges after green CI, as for every other pull request.
+# Security updates (switched on in the repository settings) are independent
+# of this schedule and arrive as soon as an advisory is published.
+# Not covered: the basicbar packages (archive URLs in backend/requirements.txt
+# and frontend/package.json) — bump those by hand per basicbar's CHANGELOG —
+# and the floating Docker base image tags (python:3.12-slim, node:22-slim,
+# postgres:16-alpine, caddy:2), which pick up fixes on rebuild.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+    groups:
+      backend-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    groups:
+      frontend-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: pip
+    directory: /website
+    schedule:
+      interval: weekly
+    groups:
+      website-minor-patch:
+        update-types: [minor, patch]
+    ignore:
+      # MkDocs 2 is incompatible with Material (see website/requirements.txt).
+      - dependency-name: mkdocs
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
