@@ -1,5 +1,5 @@
 Django==5.1.4
-djangorestframework==3.15.2
+djangorestframework==3.18.2
 # Gemeinsame Basis der -bar-Tools; Versionswechsel = Tag in der URL heben,
 # Migrationsschritte im CHANGELOG von https://github.com/virtUOS/basicbar.
 basicbar-integrations @ https://github.com/virtUOS/basicbar/archive/refs/tags/integrations/v0.3.0.tar.gz#subdirectory=packages/django/basicbar-integrations
