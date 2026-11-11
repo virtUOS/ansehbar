@@ -1,17 +1,17 @@
 Django==5.1.4
-djangorestframework==3.15.2
+djangorestframework==3.18.3
 # Gemeinsame Basis der -bar-Tools; Versionswechsel = Tag in der URL heben,
 # Migrationsschritte im CHANGELOG von https://github.com/virtUOS/basicbar.
 basicbar-integrations @ https://github.com/virtUOS/basicbar/archive/refs/tags/integrations/v0.3.0.tar.gz#subdirectory=packages/django/basicbar-integrations
 basicbar-auth @ https://github.com/virtUOS/basicbar/archive/refs/tags/auth/v0.2.2.tar.gz#subdirectory=packages/django/basicbar-auth
-django-cors-headers==4.6.0
-psycopg[binary,pool]==3.2.3
+django-cors-headers==4.9.0
+psycopg[binary,pool]==3.3.8
 mozilla-django-oidc==4.0.1
 # Per-language columns for authored content fields (basicbar-Konvention).
-django-modeltranslation==0.19.11
+django-modeltranslation==0.20.6
 # ASGI server (dev + prod).
-uvicorn[standard]==0.34.0
+uvicorn[standard]==0.54.0
 httpx==0.28.1
 # Validates monitoring/alerts.yml in the tests.
-PyYAML==6.0.2
+PyYAML==6.0.3
 cryptography==50.0.2
