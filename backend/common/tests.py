@@ -3,9 +3,12 @@
 
 """Every app keeps at least basic tests next to its code (Repo-Konvention)."""
 from datetime import timedelta
+from io import StringIO
 from pathlib import Path
 
 from django.conf import settings
+from django.core.management import call_command
+from django.core.management.base import SystemCheckError
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 from rest_framework.request import Request
@@ -252,3 +255,15 @@ class AlertRulesTests(SimpleTestCase):
         for rule in rules:
             self.assertIn(rule["labels"]["severity"], {"warning", "critical"})
             self.assertEqual(rule["labels"]["service"], "ansehbar")
+
+
+class TokenEncryptionKeyCheckTests(SimpleTestCase):
+    """The operator docs promise that ``manage.py check`` reports a bad key."""
+
+    def test_invalid_token_key_reported_by_check(self):
+        key = "not-a-fernet-key"
+        with override_settings(TOKEN_ENCRYPTION_KEY=key):
+            with self.assertRaises(SystemCheckError) as ctx:
+                call_command("check", stdout=StringIO(), stderr=StringIO())
+        self.assertIn("basicbar_integrations.E001", str(ctx.exception))
+        self.assertNotIn(key, str(ctx.exception))

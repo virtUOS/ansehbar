@@ -3097,6 +3097,27 @@ class TicketTests(TestCase):
         self.assertIn("uploads/abc/shot.png", description)
         self.assertIn("Mathe I", description)
 
+    @override_settings(DEBUG=True)
+    def test_http_url_works_with_debug(self):
+        s = MonitorSettings.load()
+        s.gitlab_url = "http://gitlab.example.com/g/p"
+        s.save()
+        issue = httpx.Response(
+            201, json={"web_url": "http://gitlab.example.com/g/p/-/issues/7"}
+        )
+        with self._mock(issue=issue):
+            response = self._post(shot=self._png())
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(
+            response.json(), {"web_url": "http://gitlab.example.com/g/p/-/issues/7"}
+        )
+        self.assertEqual(len(self.requests), 2)
+        upload, create = self.requests
+        self.assertEqual(upload.url.scheme, "http")
+        self.assertTrue(upload.url.path.endswith("/uploads"))
+        self.assertEqual(create.url.scheme, "http")
+        self.assertTrue(create.url.path.endswith("/issues"))
+
     def test_upload_failure_still_creates_issue(self):
         with self._mock(upload=httpx.Response(500, text="boom")):
             response = self._post(shot=self._png())
