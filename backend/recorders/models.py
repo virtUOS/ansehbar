@@ -1,12 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Universität Osnabrück (virtUOS)
 
+from basicbar_integrations.encryption import decrypt, encrypt
+from basicbar_integrations.gitlab import parse_project_url
+from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
-from common.encryption import decrypt, encrypt
-from recorders.gitlab_url import parse_project_url
 from recorders.validators import validate_stream_name, validate_url_template
 
 DEFAULT_URL_TEMPLATE = (
@@ -150,7 +151,8 @@ class MonitorSettings(models.Model):
     @property
     def tickets_enabled(self) -> bool:
         return bool(
-            parse_project_url(self.gitlab_url) is not None and self.gitlab_token_plain()
+            parse_project_url(self.gitlab_url, allow_http=settings.DEBUG) is not None
+            and self.gitlab_token_plain()
         )
 
     @classmethod

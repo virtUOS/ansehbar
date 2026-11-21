@@ -3,7 +3,7 @@
 Kontrolle der Live-Streams aus den Aufzeichnungsräumen der Universität
 Osnabrück: Django-Backend (`backend/`) + React/Vite-SPA (`frontend/`). Gemeinsame Basis der virtUOS
 "-bar"-Tools aus dem basicbar-Repo: `basicbar-auth` (OIDC), `basicbar-integrations`
-(LibreTranslate/LiteLLM) und `@basicbar/ui`
+(LibreTranslate/LiteLLM, GitLab-Client, Token-Verschlüsselung) und `@basicbar/ui`
 (Tailwind-Preset, base.css, Theme, i18n, TranslatableField, Preferences). Paketcode
 nie lokal patchen — Änderungen gehören ins basicbar-Repo, Upgrade per
 Versions-Bump (Changelog dort = Migrationsanleitung).
@@ -26,9 +26,12 @@ Frontend 5179, Backend 8007, Keycloak 8086, Postgres 5438.
   `alarms` (Alarmempfänger, `SentNotification`-Protokoll, E-Mail-Zustellung
   im Monitor-Zyklus; Alarmregeln liegen in `recorders/alarm_rules.py`,
   `/metrics` in `common/views.py`),
-  `recorders/tickets.py` (GitLab-Client und Ticket-Text; Endpunkt
-  `POST /api/recorders/<id>/ticket/`; Token verschlüsselt über
-  `common/encryption.py`, Einstellungen in `MonitorSettings`),
+  `recorders/tickets.py` (Ticket-Text und Ablauf; Endpunkt
+  `POST /api/recorders/<id>/ticket/`; der GitLab-Client — Upload, Issue,
+  Projekt-URL, kein Redirect — liegt in `basicbar_integrations.gitlab`, die
+  Token-Verschlüsselung samt System-Check `basicbar_integrations.E001` in
+  `basicbar_integrations.encryption`; Einstellungen in `MonitorSettings`;
+  Tests über die Naht `basicbar_integrations.gitlab._transport`),
   `streams` (HLS-Probe: Master-/Chunklist, Frische der Media-Sequence;
   `audio.py`: Pegelmessung mit ffmpeg),
   `common` (Basis).

@@ -3,63 +3,30 @@
 
 """Create GitLab issues for a recorder (status, Opencast details, screenshot).
 
-Only ``POST .../uploads`` and ``POST .../issues`` are ever sent. Requests use
-``follow_redirects=False`` and the token only travels to the configured host;
-it never appears in exceptions, logs or responses.
+The GitLab client lives in ``basicbar_integrations.gitlab`` (only ``POST .../uploads``
+and ``POST .../issues`` are sent, no redirects, the token only travels to the configured
+host and never appears in exceptions, logs or responses). This module keeps the ticket
+text and the warnings with the recorder id.
 """
 
 import logging
 from datetime import datetime
-from urllib.parse import quote, urlsplit
 from zoneinfo import ZoneInfo
 
-import httpx
+from basicbar_integrations.gitlab import GitLabError, create_issue, parse_project_url, upload_file
 from django.conf import settings
 from django.utils import timezone
 from django.utils.translation import gettext as _
 
 from opencast.models import ScheduledEvent
-from recorders.gitlab_url import parse_project_url
 from recorders.models import MonitorSettings
+
+__all__ = ["GitLabError", "build_description", "build_title", "create_ticket"]
 
 logger = logging.getLogger(__name__)
 
 TITLE_MAX = 255
-TIMEOUT_SECONDS = 15
 BERLIN = ZoneInfo("Europe/Berlin")
-
-
-class GitLabError(Exception):
-    """GitLab problem; the message never contains the token."""
-
-
-def _client() -> httpx.Client:
-    return httpx.Client(timeout=TIMEOUT_SECONDS, follow_redirects=False)
-
-
-def _origin(parts) -> tuple[str, str, int | None]:
-    scheme = parts.scheme.lower()
-    port = parts.port
-    if port == {"https": 443, "http": 80}.get(scheme):
-        port = None
-    return scheme, (parts.hostname or "").lower(), port
-
-
-def safe_web_url(web_url: object, configured_url: str) -> str | None:
-    """The issue link, only if scheme, host and port match the configured GitLab."""
-    if not isinstance(web_url, str):
-        return None
-    try:
-        got = urlsplit(web_url.strip())
-        want = urlsplit(configured_url.strip())
-        got_origin, want_origin = _origin(got), _origin(want)
-    except ValueError:
-        return None
-    if got_origin[0] not in ("http", "https") or not got_origin[1]:
-        return None
-    if got_origin != want_origin:
-        return None
-    return web_url.strip()
 
 
 def _room(recorder) -> str:
@@ -178,98 +145,55 @@ def build_description(
     return "\n".join(parts).rstrip() + "\n"
 
 
-def _json(response: httpx.Response) -> dict:
-    try:
-        data = response.json()
-    except ValueError:
-        return {}
-    return data if isinstance(data, dict) else {}
-
-
-def _post(client, url, token, **kwargs) -> dict:
-    try:
-        response = client.post(url, headers={"PRIVATE-TOKEN": token}, **kwargs)
-    except httpx.HTTPError as exc:
-        # Type only: the message could echo request details.
-        raise GitLabError(f"GitLab unreachable ({type(exc).__name__})") from None
-    if not 200 <= response.status_code < 300:
-        raise GitLabError(f"GitLab answered HTTP {response.status_code}")
-    return _json(response)
-
-
-def _api(base: str, project: str, tail: str) -> str:
-    return f"{base}/api/v4/projects/{quote(project, safe='')}/{tail}"
-
-
-def upload_image(client, base, project, token, data, filename, content_type) -> str:
-    body = _post(
-        client,
-        _api(base, project, "uploads"),
-        token,
-        files={"file": (filename, data, content_type)},
-    )
-    markdown = body.get("markdown")
-    if not isinstance(markdown, str) or not markdown:
-        raise GitLabError("GitLab upload returned no markdown")
-    return markdown
-
-
-def create_issue(client, base, project, token, title, description) -> dict:
-    return _post(
-        client,
-        _api(base, project, "issues"),
-        token,
-        data={"title": title, "description": description},
-    )
-
-
 def create_ticket(
     recorder,
     message: str,
     user,
     screenshot: tuple[bytes, str] | None,
     now: datetime | None = None,
-    client: httpx.Client | None = None,
 ) -> str | None:
     """Create the issue; return its ``web_url`` (None if not on the configured host)."""
     cfg = MonitorSettings.load()
-    parsed = parse_project_url(cfg.gitlab_url)
     token = cfg.gitlab_token_plain()
-    if parsed is None or not token:
+    allow_http = settings.DEBUG
+    if parse_project_url(cfg.gitlab_url, allow_http=allow_http) is None or not token:
         raise GitLabError("GitLab is not configured correctly")
-    base, project = parsed
     now = now or timezone.now()
-    own_client = client is None
-    client = client or _client()
-    try:
-        image_markdown = None
-        note = None
-        if screenshot is None:
-            note = _("No screenshot attached.")
-        else:
-            data, content_type = screenshot
-            ext = "jpg" if content_type == "image/jpeg" else "png"
-            stamp = timezone.localtime(now, BERLIN).strftime("%Y%m%d-%H%M")
-            filename = f"ansehbar-{recorder.stream_name}-{stamp}.{ext}"
-            try:
-                image_markdown = upload_image(
-                    client, base, project, token, data, filename, content_type
-                )
-            except GitLabError as exc:
-                logger.warning("Screenshot upload failed for recorder %s: %s", recorder.pk, exc)
-                note = _("The screenshot upload to GitLab failed; no image attached.")
-        title = build_title(recorder, message)
-        description = build_description(recorder, message, user, now, image_markdown, note)
+    image_markdown = None
+    note = None
+    if screenshot is None:
+        note = _("No screenshot attached.")
+    else:
+        data, content_type = screenshot
+        ext = "jpg" if content_type == "image/jpeg" else "png"
+        stamp = timezone.localtime(now, BERLIN).strftime("%Y%m%d-%H%M")
+        filename = f"ansehbar-{recorder.stream_name}-{stamp}.{ext}"
         try:
-            issue = create_issue(client, base, project, token, title, description)
+            image_markdown = upload_file(
+                cfg.gitlab_url,
+                token,
+                filename=filename,
+                data=data,
+                content_type=content_type,
+                allow_http=allow_http,
+            )
         except GitLabError as exc:
-            logger.warning("GitLab issue failed for recorder %s: %s", recorder.pk, exc)
-            raise
-        web_url = safe_web_url(issue.get("web_url"), cfg.gitlab_url)
-        if web_url is None:
-            # The issue exists; answering with an error would invite duplicates.
-            logger.warning("GitLab returned no usable web_url for recorder %s", recorder.pk)
-        return web_url
-    finally:
-        if own_client:
-            client.close()
+            logger.warning("Screenshot upload failed for recorder %s: %s", recorder.pk, exc)
+            note = _("The screenshot upload to GitLab failed; no image attached.")
+    title = build_title(recorder, message)
+    description = build_description(recorder, message, user, now, image_markdown, note)
+    try:
+        issue = create_issue(
+            cfg.gitlab_url,
+            token,
+            title=title,
+            description=description,
+            allow_http=allow_http,
+        )
+    except GitLabError as exc:
+        logger.warning("GitLab issue failed for recorder %s: %s", recorder.pk, exc)
+        raise
+    if issue.web_url is None:
+        # The issue exists; answering with an error would invite duplicates.
+        logger.warning("GitLab returned no usable web_url for recorder %s", recorder.pk)
+    return issue.web_url
