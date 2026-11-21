@@ -605,7 +605,7 @@ openssl rand -base64 32 | tr '+/' '-_'
 ```
 
 Ein gesetzter, aber ungültiger Schlüssel wird beim Start bemängelt
-(`manage.py check`, Fehler `common.E001`); das Speichern eines Tokens wird dann
+(`manage.py check`, Fehler `basicbar_integrations.E001`); das Speichern eines Tokens wird dann
 abgelehnt.
 
 Ändern sich `TOKEN_ENCRYPTION_KEY` oder (ohne eigenen Schlüssel)
