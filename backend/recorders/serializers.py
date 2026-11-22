@@ -3,12 +3,13 @@
 
 from datetime import timedelta
 
+from basicbar_integrations.encryption import EncryptionKeyError, encrypt
+from basicbar_integrations.gitlab import parse_project_url
+from django.conf import settings
 from django.utils import timezone
 from django.utils.translation import gettext as _
 from rest_framework import serializers
 
-from common.encryption import EncryptionKeyError, encrypt
-from recorders.gitlab_url import parse_project_url
 from recorders.history import recording_problems
 from recorders.missing import missing_since
 from recorders.models import MonitorSettings, Recorder, RecorderStatus
@@ -279,7 +280,7 @@ class MonitorSettingsSerializer(serializers.ModelSerializer):
     def validate_gitlab_url(self, value):
         if not value:
             return value
-        if parse_project_url(value) is None:
+        if parse_project_url(value, allow_http=settings.DEBUG) is None:
             raise serializers.ValidationError(
                 _("Must be an https URL including the project path.")
             )

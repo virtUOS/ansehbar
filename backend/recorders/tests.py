@@ -14,6 +14,7 @@ from urllib.parse import parse_qs
 from zoneinfo import ZoneInfo
 
 import httpx
+from basicbar_integrations import gitlab
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -3029,10 +3030,8 @@ class TicketTests(TestCase):
                 )
             return httpx.Response(404)
 
-        transport = httpx.MockTransport(handler)
-        return mock.patch(
-            "recorders.tickets._client",
-            lambda: httpx.Client(transport=transport, follow_redirects=False),
+        return mock.patch.object(
+            gitlab, "_transport", httpx.MockTransport(handler)
         )
 
     def _post(self, message="Bild gestört", shot=None, **extra):
@@ -3047,45 +3046,6 @@ class TicketTests(TestCase):
 
     def _png(self, name="shot.png", content=PNG):
         return SimpleUploadedFile(name, content, content_type="image/png")
-
-    def test_parse_project_url(self):
-        self.assertEqual(
-            tickets.parse_project_url("https://gitlab.example.com/g/sub/p"),
-            ("https://gitlab.example.com", "g/sub/p"),
-        )
-        self.assertEqual(
-            tickets.parse_project_url("https://gitlab.example.com/g/p/-/issues?x=1#f"),
-            ("https://gitlab.example.com", "g/p"),
-        )
-        self.assertIsNone(tickets.parse_project_url("https://gitlab.example.com/"))
-        self.assertIsNone(tickets.parse_project_url("ftp://gitlab.example.com/g/p"))
-        self.assertIsNone(tickets.parse_project_url("https://u:pw@gitlab.example.com/g/p"))
-        # http only in DEBUG
-        self.assertIsNone(tickets.parse_project_url("http://gitlab.example.com/g/p"))
-        with override_settings(DEBUG=True):
-            self.assertEqual(
-                tickets.parse_project_url("http://gitlab.example.com/g/p"),
-                ("http://gitlab.example.com", "g/p"),
-            )
-
-    def test_safe_web_url(self):
-        cfg = "https://gitlab.example.com/g/p"
-        ok = "https://GitLab.example.com/g/p/-/issues/1"
-        self.assertEqual(tickets.safe_web_url(ok, cfg), ok)
-        self.assertIsNone(tickets.safe_web_url("https://evil.example/x", cfg))
-        self.assertIsNone(tickets.safe_web_url("javascript:alert(1)", cfg))
-        self.assertIsNone(tickets.safe_web_url("http://gitlab.example.com/x", cfg))
-        self.assertIsNone(tickets.safe_web_url(None, cfg))
-        self.assertIsNone(tickets.safe_web_url(5, cfg))
-
-    def test_safe_web_url_default_ports(self):
-        got = "https://gitlab.example.com/g/p/-/issues/1"
-        self.assertEqual(
-            tickets.safe_web_url(got, "https://gitlab.example.com:443/g/p"), got
-        )
-        self.assertIsNone(
-            tickets.safe_web_url(got, "https://gitlab.example.com:8443/g/p")
-        )
 
     def test_title_shortened_single_line(self):
         message = ("Zeile eins\n" + "x" * 500 + "\nrest")
@@ -3137,6 +3097,27 @@ class TicketTests(TestCase):
         self.assertIn("uploads/abc/shot.png", description)
         self.assertIn("Mathe I", description)
 
+    @override_settings(DEBUG=True)
+    def test_http_url_works_with_debug(self):
+        s = MonitorSettings.load()
+        s.gitlab_url = "http://gitlab.example.com/g/p"
+        s.save()
+        issue = httpx.Response(
+            201, json={"web_url": "http://gitlab.example.com/g/p/-/issues/7"}
+        )
+        with self._mock(issue=issue):
+            response = self._post(shot=self._png())
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(
+            response.json(), {"web_url": "http://gitlab.example.com/g/p/-/issues/7"}
+        )
+        self.assertEqual(len(self.requests), 2)
+        upload, create = self.requests
+        self.assertEqual(upload.url.scheme, "http")
+        self.assertTrue(upload.url.path.endswith("/uploads"))
+        self.assertEqual(create.url.scheme, "http")
+        self.assertTrue(create.url.path.endswith("/issues"))
+
     def test_upload_failure_still_creates_issue(self):
         with self._mock(upload=httpx.Response(500, text="boom")):
             response = self._post(shot=self._png())
@@ -3170,6 +3151,17 @@ class TicketTests(TestCase):
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.json(), {"web_url": None})
         self.assertNotIn(GITLAB_TOKEN, "\n".join(logs.output))
+
+    def test_git_suffix_is_stripped(self):
+        s = MonitorSettings.load()
+        s.gitlab_url = "https://gitlab.example.com/g/p.git"
+        s.save()
+        with self._mock():
+            response = self._post()
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(
+            self.requests[0].url.raw_path.split(b"?")[0], b"/api/v4/projects/g%2Fp/issues"
+        )
 
     def test_explicit_default_port_matches(self):
         s = MonitorSettings.load()

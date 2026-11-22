@@ -494,7 +494,7 @@ ansehBAR ihn beim Start:
 sudo docker compose -f docker-compose.prod.yml exec app python manage.py check
 ```
 
-Meldet der Befehl `common.E001`, ist der Schlüssel ungültig: neu erzeugen
+Meldet der Befehl `basicbar_integrations.E001`, ist der Schlüssel ungültig: neu erzeugen
 (Befehl in der `.env`-Vorlage), eintragen und mit
 `sudo docker compose -f docker-compose.prod.yml up -d --no-build` übernehmen.
 
